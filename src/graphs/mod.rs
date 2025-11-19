@@ -1,1 +1,1 @@
-mod multidigraph;
+mod directed;
