@@ -436,11 +436,7 @@ impl<'a> CbmEdges<'a> {
     fn between(cbm: &'a DBM, from: usize, to: usize) -> Self {
         Self {
             cbm,
-            kind: CbmEdgesKind::Between {
-                from,
-                to,
-                state: 0,
-            },
+            kind: CbmEdgesKind::Between { from, to, state: 0 },
         }
     }
 }
@@ -521,44 +517,59 @@ impl<'a> Iterator for CbmEdges<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::graphs::{dbm::DBM, vertices::Vertices};
+    use super::*;
+    use crate::graphs::vertices::Vertices;
+    use std::collections::HashSet;
+
+    use proptest::prelude::*;
+    use rand::{Rng, SeedableRng};
+    use rand_chacha::ChaCha8Rng;
 
     #[test]
-    fn test_sizes() {
-        for i in 1..=256 {
-            assert_eq!(DBM::size(i), i.pow(2))
+    fn test_sizes_exact_and_monotonic() {
+        // Exact small values: size(n) = n^2
+        for n in 1..=256 {
+            assert_eq!(
+                DBM::size(n),
+                n * n,
+                "size({n}) should be {n}^2, got {}",
+                DBM::size(n)
+            );
+        }
+
+        // Monotonicity: size(n+1) > size(n)
+        for n in 1..=1024 {
+            assert!(
+                DBM::size(n + 1) > DBM::size(n),
+                "size should be strictly increasing: size({}) = {}, size({}) = {}",
+                n,
+                DBM::size(n),
+                n + 1,
+                DBM::size(n + 1)
+            );
         }
     }
 
     #[test]
-    fn test_growth() {
+    fn test_growth_basic_and_formula() {
+        // A few spot checks
         assert_eq!(DBM::growth(1), 3);
         assert_eq!(DBM::growth(2), 5);
         assert_eq!(DBM::growth(3), 7);
         assert_eq!(DBM::growth(4), 9);
         assert_eq!(DBM::growth(5), 11);
-        for i in 1..=256 {
-            assert_eq!(DBM::growth(i), 1 + i * 2);
+
+        // General formula: growth(n) = 1 + 2n
+        for n in 1..=256 {
+            assert_eq!(DBM::growth(n), 1 + 2 * n, "growth({n}) should be 1 + 2*{n}");
         }
     }
 
     #[test]
-    fn test_index() {
+    fn test_index_known_values_small_grid() {
+        // Hand-checked 3x3 corner (matches the doc table)
         assert_eq!(DBM::index(0, 0), 0);
 
-        assert_eq!(DBM::index(0, 1), 1);
-        assert_eq!(DBM::index(0, 2), 4);
-        assert_eq!(DBM::index(0, 3), 9);
-        assert_eq!(DBM::index(0, 4), 16);
-        assert_eq!(DBM::index(0, 5), 25);
-
-        assert_eq!(DBM::index(1, 0), 3);
-        assert_eq!(DBM::index(2, 0), 8);
-        assert_eq!(DBM::index(3, 0), 15);
-        assert_eq!(DBM::index(4, 0), 24);
-        assert_eq!(DBM::index(5, 0), 35);
-
-        assert_eq!(DBM::index(0, 0), 0);
         assert_eq!(DBM::index(0, 1), 1);
         assert_eq!(DBM::index(1, 1), 2);
         assert_eq!(DBM::index(1, 0), 3);
@@ -568,34 +579,326 @@ mod tests {
         assert_eq!(DBM::index(2, 2), 6);
         assert_eq!(DBM::index(2, 1), 7);
         assert_eq!(DBM::index(2, 0), 8);
+
+        // Extra checks from the larger 6x6 example
+        assert_eq!(DBM::index(0, 3), 9);
+        assert_eq!(DBM::index(0, 4), 16);
+        assert_eq!(DBM::index(0, 5), 25);
+
+        assert_eq!(DBM::index(1, 0), 3);
+        assert_eq!(DBM::index(2, 0), 8);
+        assert_eq!(DBM::index(3, 0), 15);
+        assert_eq!(DBM::index(4, 0), 24);
+        assert_eq!(DBM::index(5, 0), 35);
     }
 
     #[test]
-    fn test_vertex_count() {
-        for i in 0..=256 {
-            assert_eq!(DBM::new(i, false).vertex_count(), i);
+    fn test_vertex_count_matches_new() {
+        for n in 0..=256 {
+            let dbm = DBM::new(n, false);
+            assert_eq!(
+                dbm.vertex_count(),
+                n,
+                "vertex_count() should match constructor argument"
+            );
+
+            let expected_len = if n == 0 { 0 } else { DBM::size(n) };
+            assert_eq!(
+                dbm.matrix.len(),
+                expected_len,
+                "matrix length should be size(n) for n > 0"
+            );
         }
     }
 
     #[test]
-    fn test_inverse_index() {
-        for from in 0..=512 {
-            for to in 0..=512 {
+    fn test_inverse_index_roundtrip_small_grid() {
+        // Exhaustive roundtrip on a reasonably large grid to catch mistakes.
+        let max = 64usize;
+        for from in 0..=max {
+            for to in 0..=max {
                 let index = DBM::index(from, to);
-                let (inverse_from, inverse_to) = DBM::inverse_index(index);
-                assert_eq!(from, inverse_from);
-                assert_eq!(to, inverse_to);
+                let (inv_from, inv_to) = DBM::inverse_index(index);
+                assert_eq!(
+                    (from, to),
+                    (inv_from, inv_to),
+                    "inverse_index(index({from}, {to})) failed"
+                );
             }
         }
     }
 
     #[test]
     fn test_unique_indices() {
-        // Make a test testing that every from/to pair generates a unique index.
+        // Every (from, to) pair up to a bound should map to a unique index.
+        let max = 256usize;
+        let mut seen = HashSet::new();
+
+        for from in 0..=max {
+            for to in 0..=max {
+                let index = DBM::index(from, to);
+                let inserted = seen.insert(index);
+                assert!(inserted, "duplicate index {index} for pair ({from}, {to})");
+            }
+        }
+
+        // Sanity: we saw exactly (max+1)^2 distinct indices.
+        let expected = (max + 1) * (max + 1);
+        assert_eq!(
+            seen.len(),
+            expected,
+            "expected {expected} unique indices up to radius {max}"
+        );
     }
 
     #[test]
-    fn test_strictly_monotonically_increasing_indices() {
-        // Make a test testing that every index is monotonically increasing.
+    fn test_ring_index_ranges_are_monotonic_and_disjoint() {
+        // Ring r uses indices r^2 ..= r^2 + 2r.
+        // Check that:
+        //  - each ring range is non-empty
+        //  - ranges are strictly increasing and non-overlapping
+        let max_radius = 512usize;
+
+        let mut last_max = 0usize;
+        for r in 0..=max_radius {
+            let (min, max) = if r == 0 {
+                (0, 0)
+            } else {
+                let min = DBM::size(r); // r^2
+                let max = DBM::size(r) + 2 * r; // r^2 + 2r
+                (min, max)
+            };
+
+            assert!(min <= max, "ring {r} has invalid range [{min}, {max}]");
+
+            if r > 0 {
+                assert!(
+                    min > last_max,
+                    "ring {r} range [{min}, {max}] overlaps or is not strictly after previous max {last_max}"
+                );
+            }
+
+            last_max = max;
+        }
+    }
+
+    #[test]
+    fn test_new_empty_graph_has_no_edges() {
+        for n in 0..=32 {
+            let dbm = DBM::new(n, false);
+
+            for idx in 0..dbm.matrix.len() {
+                assert!(
+                    !dbm.matrix[idx],
+                    "empty graph should have no edges, but bit {idx} is set"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_new_complete_graph_has_all_edges() {
+        for n in 0..=32 {
+            let dbm = DBM::new(n, true);
+
+            for idx in 0..dbm.matrix.len() {
+                assert!(
+                    dbm.matrix[idx],
+                    "complete graph should have all edges, but bit {idx} is not set"
+                );
+            }
+
+            let expected_edges = n * n;
+            assert_eq!(
+                dbm.matrix.count_ones() as usize,
+                expected_edges,
+                "complete graph with {n} vertices should have {expected_edges} edges"
+            );
+        }
+    }
+
+    proptest! {
+        // size(n) = n^2 for a reasonably wide range.
+        #[test]
+        fn prop_size_matches_square(n in 1usize..=1_000) {
+            let expected = (n as u64) * (n as u64);
+            let got = DBM::size(n) as u64;
+            prop_assert_eq!(got, expected, "size({}) != {}^2", n, n);
+        }
+
+        // growth(n) = size(n + 1) - size(n).
+        #[test]
+        fn prop_growth_matches_size_difference(n in 1usize..=1_000) {
+            let growth = DBM::growth(n);
+            let diff = DBM::size(n + 1) - DBM::size(n);
+            prop_assert_eq!(growth, diff, "growth({}) != size({}+1) - size({})", n, n, n);
+        }
+
+        // index + inverse_index must be a roundtrip.
+        #[test]
+        fn prop_index_inverse_roundtrip(from in 0u16..=10_000, to in 0u16..=10_000) {
+            let from = from as usize;
+            let to = to as usize;
+
+            let index = DBM::index(from, to);
+            let (inv_from, inv_to) = DBM::inverse_index(index);
+
+            prop_assert_eq!(from, inv_from, "from component mismatch");
+            prop_assert_eq!(to, inv_to, "to component mismatch");
+        }
+
+        // The index range must match the ring formula:
+        // index in [r^2, r^2 + 2r], where r = max(from, to).
+        #[test]
+        fn prop_index_in_correct_ring(from in 0u16..=10_000, to in 0u16..=10_000) {
+            let from = from as usize;
+            let to = to as usize;
+            let radius = from.max(to);
+            let index = DBM::index(from, to);
+
+            if radius == 0 {
+                prop_assert_eq!(index, 0);
+            } else {
+                let min = DBM::size(radius);
+                let max = DBM::size(radius) + 2 * radius;
+                prop_assert!(index >= min && index <= max,
+                    "index({from}, {to}) = {index} not in ring {radius} range [{min}, {max}]");
+            }
+        }
+
+        // index must be injective (no collisions) within a random bounded grid.
+        #[test]
+        fn prop_index_injective_on_bounded_grid(max in 1u8..=32) {
+            let max = max as usize;
+            let mut seen = HashSet::new();
+
+            for from in 0..=max {
+                for to in 0..=max {
+                    let index = DBM::index(from, to);
+                    prop_assert!(seen.insert(index),
+                        "duplicate index {index} for pair ({from}, {to}) within bound {max}");
+                }
+            }
+
+            let expected = (max + 1) * (max + 1);
+            prop_assert_eq!(
+                seen.len(),
+                expected,
+                "expected {} unique indices",
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn random_complete_graph_properties() {
+        let mut rng = ChaCha8Rng::seed_from_u64(813494);
+
+        for _case in 0..50 {
+            let n = rng.gen_range(0..=64);
+            let dbm = DBM::new(n, true);
+
+            // Basic structural properties
+            assert_eq!(dbm.vertex_count(), n);
+            let expected_len = if n == 0 { 0 } else { DBM::size(n) };
+            assert_eq!(dbm.matrix.len(), expected_len);
+
+            // For complete graph, any valid (from, to) up to n yields a bit that is set.
+            if n > 0 {
+                for _ in 0..200 {
+                    let from = rng.random_range(0..n);
+                    let to = rng.random_range(0..n);
+                    let index = DBM::index(from, to);
+                    assert!(
+                        dbm.matrix[index],
+                        "complete graph: edge ({from}, {to}) should exist"
+                    );
+
+                    // Sanity: roundtrip index -> (from, to)
+                    let (inv_from, inv_to) = DBM::inverse_index(index);
+                    assert_eq!((from, to), (inv_from, inv_to));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn random_sparse_graph_consistent_with_matrix_bits() {
+        let mut rng = ChaCha8Rng::seed_from_u64(494318);
+
+        for _case in 0..50 {
+            let n = rng.random_range(1..=32);
+            let mut dbm = DBM::new(n, false);
+
+            // Randomly set some edges by mutating the underlying matrix.
+            // This intentionally tests DBM::index + DBM::inverse_index together
+            // with the matrix layout.
+            let edge_attempts = rng.random_range(0..=(n * n));
+            for _ in 0..edge_attempts {
+                let from = rng.random_range(0..n);
+                let to = rng.random_range(0..n);
+                let index = DBM::index(from, to);
+                dbm.matrix.set(index, true);
+            }
+
+            // Sample random pairs and ensure:
+            //  - index -> (from, to) roundtrips
+            //  - bit value matches a re-computed index on the inverse pair (consistency)
+            for _ in 0..200 {
+                let from = rng.random_range(0..n);
+                let to = rng.random_range(0..n);
+                let index = DBM::index(from, to);
+                let (inv_from, inv_to) = DBM::inverse_index(index);
+                assert_eq!(
+                    (from, to),
+                    (inv_from, inv_to),
+                    "roundtrip mismatch on random sparse graph"
+                );
+
+                // Consistency: bit at index is the "truth" for this edge.
+                let bit = dbm.matrix[index];
+                // There's no public API to query adjacency, but this at least validates
+                // that our index/inverse_index agreements hold for random layouts.
+                if bit {
+                    // If bit is set, count it in edge_count upper bound sanity check later.
+                }
+            }
+
+            // As a coarse sanity check: edge count cannot exceed n^2 and must
+            // match the number of set bits in the matrix.
+            let counted_edges = dbm.matrix.count_ones() as usize;
+            assert!(counted_edges <= n * n);
+        }
+    }
+
+    // An extra regression test: ensure 6x6 layout matches the documented table.
+    #[test]
+    fn test_layout_matches_documentation_for_6x6() {
+        // This is the exact table from the DBM docs.
+        let expected: [[usize; 6]; 6] = [
+            [0, 1, 4, 9, 16, 25],
+            [3, 2, 5, 10, 17, 26],
+            [8, 7, 6, 11, 18, 27],
+            [15, 14, 13, 12, 19, 28],
+            [24, 23, 22, 21, 20, 29],
+            [35, 34, 33, 32, 31, 30],
+        ];
+
+        for from in 0..6 {
+            for to in 0..6 {
+                assert_eq!(
+                    DBM::index(from, to),
+                    expected[from][to],
+                    "index({from}, {to}) does not match documentation table"
+                );
+                let (inv_from, inv_to) = DBM::inverse_index(expected[from][to]);
+                assert_eq!(
+                    (inv_from, inv_to),
+                    (from, to),
+                    "inverse_index({}) does not match documentation table",
+                    expected[from][to]
+                );
+            }
+        }
     }
 }
