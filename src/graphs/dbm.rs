@@ -5,10 +5,19 @@ use bit_vec::BitVec;
 use crate::graphs::{directed::Directed, edges::Edges, graph::Graph, vertices::Vertices};
 
 /// A Dense Bit Matrix (DBM) representation of a directed graph.
-/// 
-/// This is not a multi graph so no parallel edges are allowed.
-/// 
-/// Example: 6 vertices.
+///
+/// The graph is stored as a flat `BitVec` of length `n^2`, where `n` is the
+/// number of vertices. Each possible directed edge `(from, to)` corresponds
+/// to exactly one bit in the matrix; if the bit is set, the edge exists.
+///
+/// This is a *simple* directed graph: no parallel edges are allowed, but
+/// self-loops `(v, v)` are.
+///
+/// The bit indices are laid out in concentric "rings" around vertex `0`,
+/// which results in the following layout for `6` vertices (the numbers are
+/// the bit indices used by [`DBM::index`]):
+///
+/// ```text
 /// +----+----+----+----+----+----+
 /// |  0 |  1 |  4 |  9 | 16 | 25 |
 /// +----+----+----+----+----+----+
@@ -22,13 +31,26 @@ use crate::graphs::{directed::Directed, edges::Edges, graph::Graph, vertices::Ve
 /// +----+----+----+----+----+----+
 /// | 35 | 34 | 33 | 32 | 31 | 30 |
 /// +----+----+----+----+----+----+
+/// ```
+///
+/// The mapping between `(from, to)` and bit index is implemented by
+/// [`DBM::index`] and [`DBM::inverse_index`].
 #[derive(Default)]
 pub struct DBM {
+    /// Flat bit matrix of size `vertex_count()^2`.
+    ///
+    /// Bit at position `i` encodes the existence of the directed edge
+    /// returned by [`DBM::inverse_index(i)`].
     matrix: BitVec,
 }
 
 impl DBM {
-    /// The number of bits used by vertex count.
+    /// Precomputed squares `n^2` for `1 <= n <= 128`.
+    ///
+    /// This allows computing `n^2` without multiplication for small `n`,
+    /// which can be a tiny micro-optimisation (and avoids repeated `pow`).
+    ///
+    /// The entry at index `k` is `(k + 1)^2`.
     const SIZES: [usize; 128] = [
         1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 225, 256, 289, 324, 361, 400,
         441, 484, 529, 576, 625, 676, 729, 784, 841, 900, 961, 1024, 1089, 1156, 1225, 1296, 1369,
@@ -41,8 +63,18 @@ impl DBM {
         15376, 15625, 15876, 16129, 16384,
     ];
 
-    /// If complete is true then every vertex is connected and you create a complete graph.
-    /// Otherwise, you start from scratch and no vertex is connected.
+    /// Creates a new `DBM` with the given number of vertices.
+    ///
+    /// If `complete` is `true`, the resulting graph contains all possible
+    /// directed edges (including self-loops). Otherwise, it starts empty
+    /// with no edges at all.
+    ///
+    /// When `vertices == 0`, the matrix is empty.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `vertices^2` overflows `usize` for large `vertices`
+    /// (for `vertices < 2^32` on 64-bit systems this is fine).
     pub fn new(vertices: usize, complete: bool) -> Self {
         if vertices == 0 {
             return Self {
@@ -55,6 +87,16 @@ impl DBM {
         }
     }
 
+    /// Returns the number of possible edges which can be contained in the graph.
+    /// This is equivalent to the number of bits required to represent a complete
+    /// graph with `vertex` vertices.
+    ///
+    /// This is always equal to `vertex^2`. For `vertex < 128`, this
+    /// uses a small lookup table, for larger values it falls back to
+    /// `vertex.pow(2)`.
+    ///
+    /// This function does **not** inspect the current matrix; it only
+    /// computes the capacity for a hypothetical graph of this size.
     pub fn size(vertex: usize) -> usize {
         if vertex < 128 {
             Self::SIZES[vertex - 1]
@@ -63,10 +105,39 @@ impl DBM {
         }
     }
 
+    /// Returns the number of edges by which the capacity grows when adding
+    /// one more vertex. This is equivalent to the growth of the number of bits.
+    ///
+    /// For `n` vertices, the matrix has `n^2` bits. For `n + 1` vertices,
+    /// it needs `(n + 1)^2` bits. The difference is:
+    ///
+    /// ```text
+    /// (n + 1)^2 - n^2 = 2n + 1
+    /// ```
+    ///
+    /// This function returns that growth value: `1 + 2 * vertex`.
     pub fn growth(vertex: usize) -> usize {
         1 + 2 * vertex
     }
 
+    /// Maps a pair of vertices `(from, to)` to a bit index in the underlying `matrix`.
+    ///
+    /// The mapping is a bijection between `{0..n} × {0..n}` and
+    /// `{0..n^2 - 1}`, where `n` is `vertex_count() - 1`. It arranges the
+    /// indices in concentric rings around `(0, 0)` (see the type-level
+    /// documentation for an example).
+    ///
+    /// Conceptually, for `radius = max(from, to)`:
+    ///
+    /// * The "ring" for `radius` starts at index `radius^2`.
+    /// * The top edge `(0..=radius, radius)` occupies the next `radius + 1`
+    ///   indices.
+    /// * The right edge `(radius, radius-1 ..= 0)` occupies the remaining
+    ///   `radius` indices.
+    ///
+    /// This function does **not** check bounds. Passing a vertex index
+    /// outside the current `vertex_count()` will produce an out-of-range
+    /// index for `matrix`.
     pub fn index(from: usize, to: usize) -> usize {
         let radius = from.max(to);
 
@@ -85,6 +156,41 @@ impl DBM {
             base + 2 * radius - to
         }
     }
+
+    /// Inverse of [`DBM::index`].
+    ///
+    /// Given a bit `index`, returns the corresponding `(from, to)` vertex
+    /// pair such that:
+    ///
+    /// ```text
+    /// DBM::index(from, to) == index
+    /// ```
+    ///
+    /// The index is interpreted as lying in a ring with radius
+    /// `radius = floor(sqrt(index))`. Within that ring:
+    ///
+    /// * Offsets `0 ..= radius` correspond to the top edge `(from, radius)`.
+    /// * Offsets `radius+1 ..= 2*radius` correspond to the right edge
+    ///   `(radius, to)`.
+    pub fn inverse_index(index: usize) -> (usize, usize) {
+        if index == 0 {
+            return (0, 0);
+        }
+
+        // Each ring radius occupies indices radius^2 .. radius^2 + 2*radius.
+        let radius = index.isqrt();
+        let base = radius * radius;
+        let offset = index - base; // 0 ..= 2*radius
+
+        if offset <= radius {
+            // Top edge: (from, radius)
+            (offset, radius)
+        } else {
+            // Right edge: (radius, to)
+            let to = 2 * radius - offset;
+            (radius, to)
+        }
+    }
 }
 
 impl Vertices for DBM {
@@ -95,14 +201,21 @@ impl Vertices for DBM {
     where
         Self: 'a;
 
-    /// Iterator over all vertices in the graph.
+    /// Returns an iterator over all vertices in the graph.
     ///
-    /// Vertices are the integers from zero up to `vertex_count`.
+    /// Vertices are represented by `usize` indices in the range
+    /// `0 .. vertex_count()`.
     fn vertices(&self) -> Self::Vertices<'_> {
         0..self.vertex_count()
     }
 
-    /// Number of vertices.
+    /// Returns the number of vertices in the graph.
+    ///
+    /// The number of vertices `n` is inferred from the length of the
+    /// underlying matrix, assuming it was allocated by [`DBM::new`] or
+    /// resized consistently so that `matrix.len() == n^2`.
+    ///
+    /// When the matrix is empty, this returns `0`.
     fn vertex_count(&self) -> usize {
         let length = self.matrix.len();
         if length == 0 {
@@ -116,39 +229,66 @@ impl Vertices for DBM {
 impl Edges for DBM {
     type Vertex = usize;
 
+    /// Edge identifier.
+    ///
+    /// This is the flat index into the underlying `BitVec`. It uniquely
+    /// identifies the directed edge in the graph and can be converted back
+    /// to `(from, to)` using [`DBM::inverse_index`].
     type Edge = usize;
 
+    /// Iterator type over edges.
+    ///
+    /// This iterator yields triples `(from, edge, to)`, where `edge` is the
+    /// flat index used by `DBM::index`.
     type Edges<'a>
         = CbmEdges<'a>
     where
         Self: 'a;
 
+    /// Returns an iterator over all edges in the graph.
     fn edges(&self) -> Self::Edges<'_> {
-        todo!()
+        CbmEdges::all(self)
     }
 
+    /// Returns the total number of edges present in the graph.
+    ///
+    /// This is equal to the number of bits set to `1` in the underlying
+    /// `matrix`.
     fn edge_count(&self) -> usize {
         self.matrix.count_ones() as usize
     }
 }
 
 impl Directed for DBM {
+    /// Returns the source vertex of the given `edge`.
+    ///
+    /// The edge is interpreted as a flat index into the matrix.
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
-        todo!()
+        let (from, _) = Self::inverse_index(edge);
+        from
     }
 
+    /// Returns the target vertex of the given `edge`.
+    ///
+    /// The edge is interpreted as a flat index into the matrix.
     fn target(&self, edge: Self::Edge) -> Self::Vertex {
-        todo!()
+        let (_, to) = Self::inverse_index(edge);
+        to
     }
 
+    /// Returns an iterator over all edges outgoing from `source`.
     fn outgoing(&self, source: Self::Vertex) -> Self::Edges<'_> {
-        todo!()
+        CbmEdges::outgoing(self, source)
     }
 
+    /// Returns an iterator over all edges ingoing into `destination`.
     fn ingoing(&self, destination: Self::Vertex) -> Self::Edges<'_> {
-        todo!()
+        CbmEdges::ingoing(self, destination)
     }
 
+    /// Returns the number of loop edges `(v, v)` at `vertex`.
+    ///
+    /// For this simple graph representation, this is either `0` or `1`.
     fn loop_degree(&self, vertex: Self::Vertex) -> usize {
         if self.is_connected(vertex, vertex) {
             1
@@ -157,17 +297,34 @@ impl Directed for DBM {
         }
     }
 
+    /// Returns `true` if there is a directed edge from `from` to `to`.
+    ///
+    /// This is a constant-time adjacency query.
     fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
         self.matrix[Self::index(from, to)]
     }
 
+    /// Returns `true` if the given edge id corresponds exactly to the edge
+    /// `(from, to)` and that edge is present in the graph.
+    ///
+    /// This is useful as a consistency check when you want to verify that
+    /// an edge id still refers to a specific pair of vertices.
     fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
         let index = Self::index(from, to);
         index == edge && self.matrix[index]
     }
-    
+
+    /// Returns an iterator over all edges between `from` and `to`.
+    ///
+    /// At most two edges can exist between `from` and `to` in a directed
+    /// simple graph:
+    ///
+    /// * `from -> to`
+    /// * `to -> from`
+    ///
+    /// If `from == to` (a loop), at most one edge is returned.
     fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_> {
-        todo!()
+        CbmEdges::between(self, from, to)
     }
 }
 
@@ -176,24 +333,189 @@ impl Graph for DBM {
 
     type Edges = Self;
 
+    /// Returns the edge store for this graph.
+    ///
+    /// Since `DBM` implements both `Edges` and `Vertices`, the graph itself
+    /// acts as the edge store.
     fn edge_store(&self) -> &Self::Edges {
         self
     }
 
+    /// Returns the vertex store for this graph.
+    ///
+    /// Since `DBM` implements both `Edges` and `Vertices`, the graph itself
+    /// acts as the vertex store.
     fn vertex_store(&self) -> &Self::Vertices {
         self
     }
 }
 
+/// Iterator over edges of a [`DBM`] graph.
+///
+/// This iterator yields triples `(from, edge, to)` where:
+///
+/// * `from` is the source vertex index.
+/// * `to` is the target vertex index.
+/// * `edge` is the flat edge index in the backing `BitVec`
+///   (i.e., `DBM::index(from, to)`).
+///
+/// Different constructors on [`CbmEdges`] restrict which edges are produced
+/// (all edges, outgoing from a vertex, ingoing into a vertex, or between a
+/// pair of vertices).
 pub struct CbmEdges<'a> {
     cbm: &'a DBM,
+    kind: CbmEdgesKind,
+}
+
+/// Internal state for [`CbmEdges`] specifying which subset of edges is
+/// being iterated over.
+enum CbmEdgesKind {
+    /// Iterate over all edges in the graph.
+    ///
+    /// `edge` is the next flat index to inspect in the underlying `BitVec`.
+    All { edge: usize },
+
+    /// Iterate over all edges outgoing from `from`.
+    ///
+    /// `to` is the next potential target vertex to inspect.
+    Outgoing { from: usize, to: usize },
+
+    /// Iterate over all edges ingoing into `to`.
+    ///
+    /// `from` is the next potential source vertex to inspect.
+    Ingoing { from: usize, to: usize },
+
+    /// Iterate over all edges between `from` and `to`.
+    ///
+    /// This yields at most two edges:
+    ///
+    /// * `from -> to`
+    /// * `to -> from` (if `from != to`)
+    ///
+    /// The `state` field is interpreted as a tiny state machine:
+    ///
+    /// * `0` – initial, `from -> to` not yet checked.
+    /// * `1` – `from -> to` has been handled, `to -> from` is next.
+    /// * `>= 2` – iteration is finished.
+    Between { from: usize, to: usize, state: u8 },
+}
+
+impl<'a> CbmEdges<'a> {
+    /// Creates an iterator over **all** edges in the given `DBM`.
+    fn all(cbm: &'a DBM) -> Self {
+        Self {
+            cbm,
+            kind: CbmEdgesKind::All { edge: 0 },
+        }
+    }
+
+    /// Creates an iterator over all edges **outgoing** from `from`.
+    fn outgoing(cbm: &'a DBM, from: usize) -> Self {
+        Self {
+            cbm,
+            kind: CbmEdgesKind::Outgoing { from, to: 0 },
+        }
+    }
+
+    /// Creates an iterator over all edges **ingoing** into `to`.
+    fn ingoing(cbm: &'a DBM, to: usize) -> Self {
+        Self {
+            cbm,
+            kind: CbmEdgesKind::Ingoing { from: 0, to },
+        }
+    }
+
+    /// Creates an iterator over edges between `from` and `to`.
+    ///
+    /// The iterator will yield at most:
+    ///
+    /// * The edge `from -> to`, and
+    /// * The edge `to -> from` (if `from != to`),
+    ///
+    /// depending on which edges actually exist in the underlying graph.
+    fn between(cbm: &'a DBM, from: usize, to: usize) -> Self {
+        Self {
+            cbm,
+            kind: CbmEdgesKind::Between {
+                from,
+                to,
+                state: 0,
+            },
+        }
+    }
 }
 
 impl<'a> Iterator for CbmEdges<'a> {
+    /// Each item is a triple `(from, edge, to)`.
     type Item = (usize, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        match &mut self.kind {
+            CbmEdgesKind::All { edge } => {
+                while *edge < self.cbm.matrix.len() {
+                    if self.cbm.matrix[*edge] {
+                        let (from, to) = DBM::inverse_index(*edge);
+                        return Some((from, *edge, to));
+                    }
+
+                    *edge += 1;
+                }
+                None
+            }
+
+            CbmEdgesKind::Outgoing { from, to } => {
+                while *to < self.cbm.vertex_count() {
+                    let edge = DBM::index(*from, *to);
+                    if self.cbm.matrix[edge] {
+                        return Some((*from, edge, *to));
+                    }
+
+                    *to += 1;
+                }
+                None
+            }
+
+            CbmEdgesKind::Ingoing { to, from } => {
+                while *from < self.cbm.vertex_count() {
+                    let edge = DBM::index(*from, *to);
+                    if self.cbm.matrix[edge] {
+                        return Some((*from, edge, *to));
+                    }
+
+                    *from += 1;
+                }
+                None
+            }
+
+            CbmEdgesKind::Between { from, to, state } => {
+                // from -> to
+                if *state == 0 {
+                    if *from == *to {
+                        // Loop case: we will never yield a reversed edge.
+                        *state = 2;
+                    } else {
+                        *state = 1;
+                    }
+
+                    let edge = DBM::index(*from, *to);
+                    if self.cbm.matrix[edge] {
+                        return Some((*from, edge, *to));
+                    }
+                }
+
+                // to -> from (if not a loop)
+                if *state == 1 {
+                    *state = 2; // mark iteration as finished after this check
+
+                    let edge = DBM::index(*to, *from);
+                    if self.cbm.matrix[edge] {
+                        return Some((*to, edge, *from));
+                    }
+                }
+
+                None
+            }
+        }
     }
 }
 
@@ -253,5 +575,27 @@ mod tests {
         for i in 0..=256 {
             assert_eq!(DBM::new(i, false).vertex_count(), i);
         }
+    }
+
+    #[test]
+    fn test_inverse_index() {
+        for from in 0..=512 {
+            for to in 0..=512 {
+                let index = DBM::index(from, to);
+                let (inverse_from, inverse_to) = DBM::inverse_index(index);
+                assert_eq!(from, inverse_from);
+                assert_eq!(to, inverse_to);
+            }
+        }
+    }
+
+    #[test]
+    fn test_unique_indices() {
+        // Make a test testing that every from/to pair generates a unique index.
+    }
+
+    #[test]
+    fn test_strictly_monotonically_increasing_indices() {
+        // Make a test testing that every index is monotonically increasing.
     }
 }
