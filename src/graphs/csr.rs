@@ -48,29 +48,32 @@ impl From<Vec<(usize, usize)>> for CSR {
             return Self::default();
         }
 
-        // sort by source so adjacency lists become contiguous.
+        // Sort by source so adjacency lists become contiguous.
         edges.sort_unstable_by_key(|&(source, _)| source);
 
-        let vertex_count = edges.last().unwrap().0 + 1;
+        let vertex_count = edges.iter().map(|&(from, to)| from.max(to)).max().unwrap() + 1;
         let edge_count = edges.len();
 
-        // Standard CSR has an additional offset to mark the upper bound of indices.
+        // offsets[i + 1] will count how many edges originate from vertex i.
         let mut offsets = vec![0usize; vertex_count + 1];
-        let mut indices = vec![0usize; edge_count];
 
-        let mut current = 0usize;
-
-        for (counter, &(source, destination)) in edges.iter().enumerate() {
-            indices[counter] = destination;
-
-            if current < source {
-                current = source;
-                offsets[current] = counter
-            }
+        for (source, _) in &edges {
+            // We assume `source < vertex_count` by construction.
+            offsets[source + 1] += 1;
         }
 
-        // Close the offsets.
-        offsets[vertex_count] = indices.len();
+        // Prefix sum: now offsets[u] is the starting index in `indices`
+        // for edges from vertex `u`.
+        for i in 1..=vertex_count {
+            offsets[i] += offsets[i - 1];
+        }
+
+        debug_assert_eq!(offsets[0], 0);
+        debug_assert_eq!(offsets[vertex_count], edge_count);
+
+        // Edges are already sorted by `source`, so we can just copy
+        // destinations in order; they will match the CSR ranges.
+        let indices: Vec<usize> = edges.into_iter().map(|(_, dest)| dest).collect();
 
         CSR {
             offsets: offsets.into_boxed_slice(),
@@ -270,6 +273,11 @@ impl<'a> Iterator for CsrEdges<'a> {
 mod tests {
     use super::*;
     use crate::graphs::{directed::Directed, edges::Edges, graph::Graph, vertices::Vertices};
+
+    use proptest::prelude::*;
+    use rand::{Rng, SeedableRng};
+    use rand_chacha::ChaCha8Rng;
+    use std::collections::HashMap;
 
     #[test]
     fn default_is_empty_and_has_consistent_invariants() {
@@ -495,5 +503,350 @@ mod tests {
         // size is vertices plus edges
         assert_eq!(csr.size(), csr.vertex_count() + csr.edge_count());
         assert!(!csr.is_empty());
+    }
+
+    #[test]
+    fn csr_offsets_are_monotonic_and_neighbor_ranges_match() {
+        let edges = vec![
+            (0, 0),
+            (0, 1),
+            (3, 2), // gap at 1 and 2
+            (5, 4), // gap at 4 with another gap at 4 as a source
+        ];
+        let csr = CSR::from(edges);
+
+        assert!(csr.vertex_count() >= 6);
+
+        // offsets must be increasing
+        for v in 0..csr.vertex_count() {
+            assert!(
+                csr.offsets[v] <= csr.offsets[v + 1],
+                "offsets[{}] = {} > offsets[{}] = {}",
+                v,
+                csr.offsets[v],
+                v + 1,
+                csr.offsets[v + 1],
+            );
+
+            // neighbor_range must match offsets exactly
+            assert_eq!(
+                csr.neighbor_range(v),
+                Some((csr.offsets[v], csr.offsets[v + 1])),
+            );
+        }
+    }
+
+    // Generate a random edge list respecting CSR's documented vertex set:
+    // - Vertex set: 0 ..= max_source
+    // - Destinations are always in 0 ..= max_source as well.
+    prop_compose! {
+        fn csr_edge_list()
+            (
+                edges in prop::collection::vec((0u8..=15, 0u8..=15), 0..=64)
+            ) -> Vec<(usize, usize)>
+        {
+            if edges.is_empty() {
+                return Vec::new();
+            }
+
+            edges
+                .into_iter()
+                .map(|(from, to)|
+                    (from as usize, to as usize)
+                )
+                .collect()
+        }
+    }
+
+    proptest! {
+        // Basic structural invariants of CSR::from(edges).
+        #[test]
+        fn prop_csr_basic_invariants(edges in csr_edge_list()) {
+            let csr = CSR::from(edges.clone());
+
+            if edges.is_empty() {
+                prop_assert_eq!(csr.vertex_count(), 0);
+                prop_assert_eq!(csr.edge_count(), 0);
+                prop_assert_eq!(csr.offsets.as_ref(), &[0]);
+                prop_assert!(csr.indices.is_empty());
+            } else {
+                prop_assert_eq!(csr.edge_count(), edges.len());
+                prop_assert_eq!(csr.offsets.len(), csr.vertex_count() + 1);
+                prop_assert_eq!(csr.offsets[0], 0);
+                prop_assert_eq!(csr.offsets[csr.vertex_count()], csr.indices.len());
+
+                for v in 0..csr.vertex_count() {
+                    prop_assert!(
+                        csr.offsets[v] <= csr.offsets[v + 1],
+                        "offsets[{}] = {} > offsets[{}] = {}",
+                        v,
+                        csr.offsets[v],
+                        v + 1,
+                        csr.offsets[v + 1]
+                    );
+
+                    let actual = csr.neighbor_range(v);
+                    let expected = Some((csr.offsets[v], csr.offsets[v + 1]));
+                    prop_assert_eq!(actual, expected);
+                }
+            }
+        }
+
+        // Edges iterator must represent the same multiset of (source, dest)
+        // as the input edge list.
+        #[test]
+        fn prop_csr_edges_iterator_matches_input(edges in csr_edge_list()) {
+            let csr = CSR::from(edges.clone());
+
+            let mut expected_counts: HashMap<(usize, usize), usize> = HashMap::new();
+            for (s, d) in edges {
+                *expected_counts.entry((s, d)).or_insert(0) += 1;
+            }
+
+            let mut actual_counts: HashMap<(usize, usize), usize> = HashMap::new();
+            for (src, _, dst) in csr.edges() {
+                *actual_counts.entry((src, dst)).or_insert(0) += 1;
+            }
+
+            prop_assert_eq!(actual_counts, expected_counts);
+        }
+
+        // outgoing(), ingoing(), *degree() and loop_degree()
+        // must match the multigraph structure of the input.
+        #[test]
+        fn prop_csr_adjacency_and_degrees_match(edges in csr_edge_list()) {
+            let csr = CSR::from(edges.clone());
+
+            if edges.is_empty() {
+                prop_assert_eq!(csr.vertex_count(), 0);
+                prop_assert_eq!(csr.edge_count(), 0);
+            } else {
+                // Build expected adjacency structures.
+                let mut out_to: Vec<Vec<usize>> = vec![Vec::new(); csr.vertex_count()];
+                let mut in_from: Vec<Vec<usize>> = vec![Vec::new(); csr.vertex_count()];
+                let mut loops: Vec<usize> = vec![0; csr.vertex_count()];
+
+                for (from, to) in &edges {
+                    out_to[*from].push(*to);
+                    in_from[*to].push(*from);
+                    if *from == *to {
+                        loops[*from] += 1;
+                    }
+                }
+
+                for v in 0..csr.vertex_count() {
+                    // outgoing neighbors: collect destinations
+                    let mut actual_out: Vec<usize> =
+                        csr.outgoing(v).map(|(_, _, dst)| dst).collect();
+                    let mut expected_out = out_to[v].clone();
+                    actual_out.sort_unstable();
+                    expected_out.sort_unstable();
+                    prop_assert_eq!(
+                        actual_out,
+                        expected_out,
+                        "outgoing({}) mismatch",
+                        v
+                    );
+
+                    prop_assert_eq!(
+                        csr.outgoing_degree(v),
+                        out_to[v].len(),
+                        "outgoing_degree({}) mismatch",
+                        v
+                    );
+
+                    // ingoing neighbors: collect sources
+                    let mut actual_in: Vec<usize> =
+                        csr.ingoing(v).map(|(src, _, _)| src).collect();
+                    let mut expected_in = in_from[v].clone();
+                    actual_in.sort_unstable();
+                    expected_in.sort_unstable();
+                    prop_assert_eq!(
+                        actual_in,
+                        expected_in,
+                        "ingoing({}) mismatch",
+                        v
+                    );
+
+                    prop_assert_eq!(
+                        csr.ingoing_degree(v),
+                        in_from[v].len(),
+                        "ingoing_degree({}) mismatch",
+                        v
+                    );
+
+                    // loops
+                    prop_assert_eq!(
+                        csr.loop_degree(v),
+                        loops[v],
+                        "loop_degree({}) mismatch",
+                        v
+                    );
+                }
+
+                // Sum of degrees equals edge_count.
+                let total_out: usize =
+                    (0..csr.vertex_count()).map(|v| csr.outgoing_degree(v)).sum();
+                let total_in: usize =
+                    (0..csr.vertex_count()).map(|v| csr.ingoing_degree(v)).sum();
+
+                prop_assert_eq!(
+                    total_out,
+                    csr.edge_count(),
+                    "sum of outgoing degrees mismatch"
+                );
+                prop_assert_eq!(
+                    total_in,
+                    csr.edge_count(),
+                    "sum of ingoing degrees mismatch"
+                );
+            }
+        }
+
+        // connections(from, to) must count exactly the multiplicity of (from, to).
+        #[test]
+        fn prop_csr_connections_match_edges(
+            edges in csr_edge_list(),
+            q_from in 0u8..=15,
+            q_to   in 0u8..=15,
+        ) {
+            let csr = CSR::from(edges.clone());
+
+            if edges.is_empty() {
+                prop_assert_eq!(csr.edge_count(), 0);
+            } else {
+                let from = (q_from as usize) % csr.vertex_count();
+                let to = (q_to as usize) % csr.vertex_count();
+
+                let expected = edges
+                    .iter()
+                    .filter(|(s, d)| *s == from && *d == to)
+                    .count();
+                let actual = csr.connections(from, to).count();
+
+                prop_assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn random_csr_invariants_and_edges_multiset() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0x4353_525F_494E_565F);
+
+        for _ in 0..100 {
+            let edge_count = rng.random_range(0..=100usize);
+            let mut edges = Vec::with_capacity(edge_count);
+
+            for _ in 0..edge_count {
+                let s: u8 = rng.random_range(0..=15);
+                let d: u8 = rng.random_range(0..=15);
+                edges.push((s as usize, d as usize));
+            }
+
+            let csr = CSR::from(edges.clone());
+
+            if edges.is_empty() {
+                assert_eq!(csr.vertex_count(), 0);
+                assert_eq!(csr.edge_count(), 0);
+                assert_eq!(csr.offsets.as_ref(), &[0]);
+                assert!(csr.indices.is_empty());
+                continue;
+            }
+
+            // basic structure
+            assert_eq!(csr.edge_count(), edges.len());
+            assert_eq!(csr.offsets.len(), csr.vertex_count() + 1);
+            assert_eq!(csr.offsets[0], 0);
+            assert_eq!(csr.offsets[csr.vertex_count()], csr.indices.len());
+
+            // offsets monotonic and neighbor_range matches
+            for v in 0..csr.vertex_count() {
+                assert!(
+                    csr.offsets[v] <= csr.offsets[v + 1],
+                    "offsets[{}] = {} > offsets[{}] = {}",
+                    v,
+                    csr.offsets[v],
+                    v + 1,
+                    csr.offsets[v + 1]
+                );
+                assert_eq!(
+                    csr.neighbor_range(v),
+                    Some((csr.offsets[v], csr.offsets[v + 1]))
+                );
+            }
+
+            // sum of degrees
+            let total_out: usize = (0..csr.vertex_count())
+                .map(|v| csr.outgoing_degree(v))
+                .sum();
+            let total_in: usize = (0..csr.vertex_count()).map(|v| csr.ingoing_degree(v)).sum();
+            assert_eq!(total_in, total_out);
+            assert_eq!(total_in, csr.edge_count());
+            assert_eq!(total_out, csr.edge_count());
+
+            // multiset of (source, dest) pairs must match
+            let mut expected: HashMap<(usize, usize), usize> = HashMap::new();
+            for (from, to) in &edges {
+                *expected.entry((*from, *to)).or_insert(0) += 1;
+            }
+
+            let mut actual: HashMap<(usize, usize), usize> = HashMap::new();
+            for (from, _, to) in csr.edges() {
+                *actual.entry((from, to)).or_insert(0) += 1;
+            }
+
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn random_csr_connections_and_loop_degree() {
+        let mut rng = ChaCha8Rng::seed_from_u64(0x4353_525F_434F_4E4E);
+
+        for _ in 0..100 {
+            let edge_count = rng.random_range(0..=80usize);
+            let mut edges = Vec::with_capacity(edge_count);
+
+            for _ in 0..edge_count {
+                let from: usize = rng.random_range(0..=10);
+                let to: usize = rng.random_range(0..=10);
+                edges.push((from, to));
+            }
+
+            let csr = CSR::from(edges.clone());
+
+            if edges.is_empty() {
+                assert_eq!(csr.vertex_count(), 0);
+                assert_eq!(csr.edge_count(), 0);
+                continue;
+            }
+
+            // Precompute counts for (from, to) and loops.
+            let mut pair_counts: HashMap<(usize, usize), usize> = HashMap::new();
+            let mut loop_counts: HashMap<usize, usize> = HashMap::new();
+
+            for (from, to) in &edges {
+                *pair_counts.entry((*from, *to)).or_insert(0) += 1;
+                if from == to {
+                    *loop_counts.entry(*from).or_insert(0) += 1;
+                }
+            }
+
+            // Randomly sample some (from, to) queries inside vertex set.
+            for _ in 0..50 {
+                let from = rng.random_range(0..csr.vertex_count());
+                let to = rng.random_range(0..csr.vertex_count());
+
+                let expected = *pair_counts.get(&(from, to)).unwrap_or(&0);
+                let actual = csr.connections(from, to).count();
+                assert_eq!(actual, expected, "connections({from}, {to}) mismatch");
+            }
+
+            // Check loop_degree against precomputed counts.
+            for v in 0..csr.vertex_count() {
+                let expected_loops = *loop_counts.get(&v).unwrap_or(&0);
+                assert_eq!(csr.loop_degree(v), expected_loops);
+            }
+        }
     }
 }
