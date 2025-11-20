@@ -52,30 +52,16 @@ pub trait Directed: Edges {
     /// This checks for a single step edge only,
     /// it does not perform a reachability query through longer paths.
     fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
-        self.outgoing(from).any(|(_, _, dst)| dst == to)
+        self.connections(from, to).next().is_some()
     }
 
     /// Returns true when edge is a directed edge whose source is from,
     /// and whose destination is to.
     fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
-        self.outgoing(from)
-            .any(|(_, e, dst)| e == edge && dst == to)
+        self.connections(from, to).any(|(_, e, _)| e == edge)
     }
-}
 
-/// Returns an iterator over all edges whose source is from,
-/// and whose destination is to.
-///
-/// The iterator yields triples with source, edge, and destination.
-/// It is a generic helper for any type that implements Directed.
-pub fn connecting<G>(
-    g: &G,
-    from: G::Vertex,
-    to: G::Vertex,
-) -> impl Iterator<Item = (G::Vertex, G::Edge, G::Vertex)> + '_
-where
-    G: Directed,
-{
-    g.outgoing(from)
-        .filter(move |&(_, _, destination)| destination == to)
+    /// Returns an iterator over all edges whose source is from,
+    /// and whose destination is to.
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_>;
 }
