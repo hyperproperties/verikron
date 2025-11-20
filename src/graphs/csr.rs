@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use crate::graphs::{directed::Directed, edges::Edges, graph::Graph, vertices::Vertices};
 
-/// Compressed Sparse Row (CSR) representation of a directed graph.
+/// Compressed Sparse Row (CSR) representation of a directed multi graph.
 ///
 /// Vertices are numbered from zero up to `vertex_count - 1`.
 /// Outgoing neighbors of a vertex `u` are stored in a contiguous
@@ -14,7 +14,7 @@ use crate::graphs::{directed::Directed, edges::Edges, graph::Graph, vertices::Ve
 /// `offsets[0]` is always zero.
 /// `offsets[vertex_count]` is always equal to `indices.len`.
 /// The length of `indices` is equal to the number of directed edges
-pub struct Csr {
+pub struct CSR {
     /// Row offsets for the CSR layout.
     ///
     /// For a vertex `u` the outgoing neighbors of `u` live in
@@ -27,7 +27,7 @@ pub struct Csr {
     indices: Box<[usize]>,
 }
 
-impl Default for Csr {
+impl Default for CSR {
     /// Empty CSR graph with no vertices and no edges.
     fn default() -> Self {
         Self {
@@ -37,7 +37,7 @@ impl Default for Csr {
     }
 }
 
-impl From<Vec<(usize, usize)>> for Csr {
+impl From<Vec<(usize, usize)>> for CSR {
     /// Build a CSR graph from a list of directed edges.
     ///
     /// The vertex set is the integers from zero up to one plus
@@ -72,14 +72,14 @@ impl From<Vec<(usize, usize)>> for Csr {
         // Close the offsets.
         offsets[vertex_count] = indices.len();
 
-        Csr {
+        CSR {
             offsets: offsets.into_boxed_slice(),
             indices: indices.into_boxed_slice(),
         }
     }
 }
 
-impl Csr {
+impl CSR {
     /// Returns the half open range of indices for the outgoing neighbors of a vertex.
     ///
     /// On success this returns start and end such that the neighbors
@@ -94,7 +94,7 @@ impl Csr {
     }
 }
 
-impl Directed for Csr {
+impl Directed for CSR {
     /// Source vertex of an edge.
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
         self.offsets.partition_point(|&offset| offset <= edge) - 1
@@ -146,9 +146,18 @@ impl Directed for Csr {
             None => 0,
         }
     }
+    
+    /// Returns an iterator over all edges whose source is from,
+    /// and whose destination is to.
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_> {
+        match self.neighbor_range(from) {
+            Some((start, end)) => Self::Edges::new(self, start, end, Some(to)),
+            None => Self::Edges::empty(self),
+        }
+    }
 }
 
-impl Edges for Csr {
+impl Edges for CSR {
     type Vertex = usize;
 
     type Edge = usize;
@@ -169,7 +178,7 @@ impl Edges for Csr {
     }
 }
 
-impl Vertices for Csr {
+impl Vertices for CSR {
     type Vertex = usize;
 
     type Vertices<'a>
@@ -190,7 +199,7 @@ impl Vertices for Csr {
     }
 }
 
-impl Graph for Csr {
+impl Graph for CSR {
     type Vertices = Self;
     type Edges = Self;
 
@@ -203,13 +212,6 @@ impl Graph for Csr {
     fn vertex_store(&self) -> &Self::Vertices {
         self
     }
-
-    /// Simple size measure.
-    ///
-    /// Equal to `vertex_count` plus `edge_count`.
-    fn size(&self) -> usize {
-        self.vertex_count() + self.edge_count()
-    }
 }
 
 /// Iterator over edges in a CSR graph.
@@ -217,7 +219,7 @@ impl Graph for Csr {
 /// The iterator yields triples: `(source, edge, destination)`.
 /// It walks a half-open integer interval and optionally filter by destination vertex.
 pub struct CsrEdges<'a> {
-    csr: &'a Csr,
+    csr: &'a CSR,
     /// Current index in the `indices`.
     index: usize,
     /// The index to iterate to in the `indices`.
@@ -228,7 +230,7 @@ pub struct CsrEdges<'a> {
 }
 
 impl<'a> CsrEdges<'a> {
-    pub fn new(csr: &'a Csr, index: usize, end: usize, destination: Option<usize>) -> Self {
+    pub fn new(csr: &'a CSR, index: usize, end: usize, destination: Option<usize>) -> Self {
         Self {
             csr,
             index,
@@ -237,7 +239,7 @@ impl<'a> CsrEdges<'a> {
         }
     }
 
-    pub fn empty(csr: &'a Csr) -> Self {
+    pub fn empty(csr: &'a CSR) -> Self {
         Self::new(csr, 0, 0, None)
     }
 }
@@ -267,16 +269,11 @@ impl<'a> Iterator for CsrEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::{
-        directed::Directed,
-        edges::Edges,
-        graph::Graph,
-        vertices::Vertices,
-    };
+    use crate::graphs::{directed::Directed, edges::Edges, graph::Graph, vertices::Vertices};
 
     #[test]
     fn default_is_empty_and_has_consistent_invariants() {
-        let csr = Csr::default();
+        let csr = CSR::default();
 
         // basic counts
         assert_eq!(csr.vertex_count(), 0, "default has no vertices");
@@ -295,8 +292,8 @@ mod tests {
 
     #[test]
     fn from_empty_vec_matches_default() {
-        let from_empty = Csr::from(Vec::<(usize, usize)>::new());
-        let default = Csr::default();
+        let from_empty = CSR::from(Vec::<(usize, usize)>::new());
+        let default = CSR::default();
 
         assert_eq!(from_empty.vertex_count(), default.vertex_count());
         assert_eq!(from_empty.edge_count(), default.edge_count());
@@ -307,7 +304,7 @@ mod tests {
 
     #[test]
     fn single_loop_at_zero_layout_and_queries() {
-        let csr = Csr::from(vec![(0, 0)]);
+        let csr = CSR::from(vec![(0, 0)]);
 
         // layout
         assert_eq!(csr.vertex_count(), 1, "only vertex 0 exists");
@@ -340,7 +337,7 @@ mod tests {
 
     #[test]
     fn single_loop_at_one_with_gap_at_zero() {
-        let csr = Csr::from(vec![(1, 1)]);
+        let csr = CSR::from(vec![(1, 1)]);
 
         // layout
         assert_eq!(csr.vertex_count(), 2, "vertices 0 and 1 exist");
@@ -364,7 +361,7 @@ mod tests {
     fn simple_graph_with_three_vertices_layout_and_iterators() {
         // edges: 0 -> 1, 1 -> 0, 2 -> 1
         let edges = vec![(0, 1), (1, 0), (2, 1)];
-        let csr = Csr::from(edges.clone());
+        let csr = CSR::from(edges.clone());
 
         // counts
         assert_eq!(csr.vertex_count(), 3);
@@ -402,7 +399,7 @@ mod tests {
     #[test]
     fn outgoing_and_ingoing_iterators_and_degrees() {
         // edges: 0 -> 1, 1 -> 0, 2 -> 1
-        let csr = Csr::from(vec![(0, 1), (1, 0), (2, 1)]);
+        let csr = CSR::from(vec![(0, 1), (1, 0), (2, 1)]);
 
         // outgoing neighbors
         let out0: Vec<_> = csr.outgoing(0).collect();
@@ -448,14 +445,12 @@ mod tests {
     fn degrees_sum_to_edge_count() {
         // a slightly larger example with multiple edges to the same destination
         let edges = vec![(0, 0), (1, 0), (1, 1), (2, 1)];
-        let csr = Csr::from(edges);
+        let csr = CSR::from(edges);
 
         let total_out: usize = (0..csr.vertex_count())
             .map(|v| csr.outgoing_degree(v))
             .sum();
-        let total_in: usize = (0..csr.vertex_count())
-            .map(|v| csr.ingoing_degree(v))
-            .sum();
+        let total_in: usize = (0..csr.vertex_count()).map(|v| csr.ingoing_degree(v)).sum();
 
         assert_eq!(total_out, csr.edge_count(), "sum of outgoing degrees");
         assert_eq!(total_in, csr.edge_count(), "sum of ingoing degrees");
@@ -466,7 +461,7 @@ mod tests {
         // multiple loops on the same vertex and one extra edge
         // edges: 0 -> 0, 0 -> 0, 1 -> 0
         let edges = vec![(0, 0), (0, 0), (1, 0)];
-        let csr = Csr::from(edges);
+        let csr = CSR::from(edges);
 
         assert_eq!(csr.vertex_count(), 2);
         assert_eq!(csr.edge_count(), 3);
@@ -486,7 +481,7 @@ mod tests {
 
     #[test]
     fn vertices_and_graph_traits_are_consistent() {
-        let csr = Csr::from(vec![(0, 0), (1, 0), (1, 1)]);
+        let csr = CSR::from(vec![(0, 0), (1, 0), (1, 1)]);
 
         // vertices iterator matches vertex_count
         let vs: Vec<_> = csr.vertices().collect();
