@@ -146,7 +146,7 @@ impl Directed for CSR {
             None => 0,
         }
     }
-    
+
     /// Returns an iterator over all edges whose source is from,
     /// and whose destination is to.
     fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_> {
