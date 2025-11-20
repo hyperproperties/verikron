@@ -31,7 +31,9 @@ pub trait Graph {
     /// Implementations usually define this as the sum of the number of
     /// vertices and the number of edges but other consistent measures
     /// are also allowed.
-    fn size(&self) -> usize;
+    fn size(&self) -> usize {
+        self.vertex_store().vertex_count() + self.edge_store().edge_count()
+    }
 
     /// Returns true when the graph is empty.
     ///
