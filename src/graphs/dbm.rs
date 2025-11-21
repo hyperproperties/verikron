@@ -77,13 +77,24 @@ impl DBM {
     /// (for `vertices < 2^32` on 64-bit systems this is fine).
     pub fn new(vertices: usize, complete: bool) -> Self {
         if vertices == 0 {
-            return Self {
+            let dbm = Self {
                 matrix: BitVec::default(),
             };
+            debug_assert_eq!(dbm.vertex_count(), 0);
+            debug_assert_eq!(dbm.matrix.len(), 0);
+            return dbm;
         } else {
-            Self {
-                matrix: BitVec::from_elem(Self::size(vertices), complete),
-            }
+            let size = Self::size(vertices);
+            let matrix = BitVec::from_elem(size, complete);
+            debug_assert_eq!(
+                matrix.len(),
+                size,
+                "DBM::new: BitVec length {} != size({}) = {}",
+                matrix.len(),
+                vertices,
+                size
+            );
+            Self { matrix }
         }
     }
 
@@ -98,6 +109,7 @@ impl DBM {
     /// This function does **not** inspect the current matrix; it only
     /// computes the capacity for a hypothetical graph of this size.
     pub fn size(vertex: usize) -> usize {
+        debug_assert!(vertex > 0, "DBM::size: vertex count must be > 0");
         if vertex < 128 {
             Self::SIZES[vertex - 1]
         } else {
@@ -182,6 +194,14 @@ impl DBM {
         let base = radius * radius;
         let offset = index - base; // 0 ..= 2*radius
 
+        debug_assert!(
+            offset <= 2 * radius,
+            "DBM::inverse_index: offset {} > 2 * radius {} for index {}",
+            offset,
+            2 * radius,
+            index
+        );
+
         if offset <= radius {
             // Top edge: (from, radius)
             (offset, radius)
@@ -221,7 +241,18 @@ impl Vertices for DBM {
         if length == 0 {
             0
         } else {
-            self.matrix.len().isqrt()
+            let vertex_count = self.matrix.len().isqrt();
+            // In debug, enforce that the matrix length is a perfect square
+            // and matches DBM::size(n).
+            debug_assert_eq!(
+                length,
+                DBM::size(vertex_count),
+                "DBM::vertex_count: matrix.len() = {} is not equal to size({}) = {}",
+                length,
+                vertex_count,
+                DBM::size(vertex_count)
+            );
+            vertex_count
         }
     }
 }
@@ -247,6 +278,23 @@ impl Edges for DBM {
 
     /// Returns an iterator over all edges in the graph.
     fn edges(&self) -> Self::Edges<'_> {
+        let vertex_count = self.vertex_count();
+
+        let expected_len = if vertex_count == 0 {
+            0
+        } else {
+            DBM::size(vertex_count)
+        };
+
+        debug_assert_eq!(
+            self.matrix.len(),
+            expected_len,
+            "DBM::edges: matrix.len() = {} != size(vertex_count = {}) = {}",
+            self.matrix.len(),
+            vertex_count,
+            expected_len
+        );
+
         CbmEdges::all(self)
     }
 
@@ -264,7 +312,19 @@ impl Directed for DBM {
     ///
     /// The edge is interpreted as a flat index into the matrix.
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
+        debug_assert!(
+            edge < self.matrix.len(),
+            "DBM::source: edge index {} out of bounds {}",
+            edge,
+            self.matrix.len()
+        );
         let (from, _) = Self::inverse_index(edge);
+        debug_assert!(
+            from < self.vertex_count(),
+            "DBM::source: decoded source {} >= vertex_count {}",
+            from,
+            self.vertex_count()
+        );
         from
     }
 
@@ -272,17 +332,41 @@ impl Directed for DBM {
     ///
     /// The edge is interpreted as a flat index into the matrix.
     fn target(&self, edge: Self::Edge) -> Self::Vertex {
+        debug_assert!(
+            edge < self.matrix.len(),
+            "DBM::target: edge index {} out of bounds {}",
+            edge,
+            self.matrix.len()
+        );
         let (_, to) = Self::inverse_index(edge);
+        debug_assert!(
+            to < self.vertex_count(),
+            "DBM::target: decoded target {} >= vertex_count {}",
+            to,
+            self.vertex_count()
+        );
         to
     }
 
     /// Returns an iterator over all edges outgoing from `source`.
     fn outgoing(&self, source: Self::Vertex) -> Self::Edges<'_> {
+        debug_assert!(
+            source < self.vertex_count(),
+            "DBM::outgoing: source {} out of range {}",
+            source,
+            self.vertex_count()
+        );
         CbmEdges::outgoing(self, source)
     }
 
     /// Returns an iterator over all edges ingoing into `destination`.
     fn ingoing(&self, destination: Self::Vertex) -> Self::Edges<'_> {
+        debug_assert!(
+            destination < self.vertex_count(),
+            "DBM::ingoing: destination {} out of range {}",
+            destination,
+            self.vertex_count()
+        );
         CbmEdges::ingoing(self, destination)
     }
 
@@ -290,6 +374,12 @@ impl Directed for DBM {
     ///
     /// For this simple graph representation, this is either `0` or `1`.
     fn loop_degree(&self, vertex: Self::Vertex) -> usize {
+        debug_assert!(
+            vertex < self.vertex_count(),
+            "DBM::loop_degree: vertex {} out of range {}",
+            vertex,
+            self.vertex_count()
+        );
         if self.is_connected(vertex, vertex) {
             1
         } else {
@@ -301,7 +391,19 @@ impl Directed for DBM {
     ///
     /// This is a constant-time adjacency query.
     fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
-        self.matrix[Self::index(from, to)]
+        debug_assert!(
+            from < self.vertex_count() && to < self.vertex_count(),
+            "DBM::is_connected: ({from}, {to}) out of range vertex_count {}",
+            self.vertex_count()
+        );
+        let index = Self::index(from, to);
+        debug_assert!(
+            index < self.matrix.len(),
+            "DBM::is_connected: index {} out of bounds {} for ({from}, {to})",
+            index,
+            self.matrix.len()
+        );
+        self.matrix[index]
     }
 
     /// Returns `true` if the given edge id corresponds exactly to the edge
@@ -310,7 +412,24 @@ impl Directed for DBM {
     /// This is useful as a consistency check when you want to verify that
     /// an edge id still refers to a specific pair of vertices.
     fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
+        debug_assert!(
+            from < self.vertex_count() && to < self.vertex_count(),
+            "DBM::has_edge: ({from}, {to}) out of range vertex_count {}",
+            self.vertex_count()
+        );
+        debug_assert!(
+            edge < self.matrix.len(),
+            "DBM::has_edge: edge index {} out of bounds {}",
+            edge,
+            self.matrix.len()
+        );
         let index = Self::index(from, to);
+        debug_assert!(
+            index < self.matrix.len(),
+            "DBM::has_edge: computed index {} out of bounds {} for ({from}, {to})",
+            index,
+            self.matrix.len()
+        );
         index == edge && self.matrix[index]
     }
 
@@ -324,6 +443,11 @@ impl Directed for DBM {
     ///
     /// If `from == to` (a loop), at most one edge is returned.
     fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_> {
+        debug_assert!(
+            from < self.vertex_count() && to < self.vertex_count(),
+            "DBM::connections: ({from}, {to}) out of range vertex_count {}",
+            self.vertex_count()
+        );
         CbmEdges::between(self, from, to)
     }
 }
@@ -403,6 +527,20 @@ enum CbmEdgesKind {
 impl<'a> CbmEdges<'a> {
     /// Creates an iterator over **all** edges in the given `DBM`.
     fn all(cbm: &'a DBM) -> Self {
+        let vertex_count = cbm.vertex_count();
+        let expected_len = if vertex_count == 0 {
+            0
+        } else {
+            DBM::size(vertex_count)
+        };
+        debug_assert_eq!(
+            cbm.matrix.len(),
+            expected_len,
+            "CbmEdges::all: matrix.len() = {} != size(vertex_count = {}) = {}",
+            cbm.matrix.len(),
+            vertex_count,
+            expected_len
+        );
         Self {
             cbm,
             kind: CbmEdgesKind::All { edge: 0 },
@@ -411,6 +549,12 @@ impl<'a> CbmEdges<'a> {
 
     /// Creates an iterator over all edges **outgoing** from `from`.
     fn outgoing(cbm: &'a DBM, from: usize) -> Self {
+        debug_assert!(
+            from < cbm.vertex_count(),
+            "CbmEdges::outgoing: from {} out of range {}",
+            from,
+            cbm.vertex_count()
+        );
         Self {
             cbm,
             kind: CbmEdgesKind::Outgoing { from, to: 0 },
@@ -419,6 +563,12 @@ impl<'a> CbmEdges<'a> {
 
     /// Creates an iterator over all edges **ingoing** into `to`.
     fn ingoing(cbm: &'a DBM, to: usize) -> Self {
+        debug_assert!(
+            to < cbm.vertex_count(),
+            "CbmEdges::ingoing: to {} out of range {}",
+            to,
+            cbm.vertex_count()
+        );
         Self {
             cbm,
             kind: CbmEdgesKind::Ingoing { from: 0, to },
@@ -434,6 +584,11 @@ impl<'a> CbmEdges<'a> {
     ///
     /// depending on which edges actually exist in the underlying graph.
     fn between(cbm: &'a DBM, from: usize, to: usize) -> Self {
+        debug_assert!(
+            from < cbm.vertex_count() && to < cbm.vertex_count(),
+            "CbmEdges::between: ({from}, {to}) out of range vertex_count {}",
+            cbm.vertex_count()
+        );
         Self {
             cbm,
             kind: CbmEdgesKind::Between { from, to, state: 0 },
@@ -451,6 +606,14 @@ impl<'a> Iterator for CbmEdges<'a> {
                 while *edge < self.cbm.matrix.len() {
                     if self.cbm.matrix[*edge] {
                         let (from, to) = DBM::inverse_index(*edge);
+
+                        debug_assert!(
+                            from < self.cbm.vertex_count() && to < self.cbm.vertex_count(),
+                            "CbmEdges::All: decoded ({from}, {to}) out of range vertex_count {} for edge {}",
+                            self.cbm.vertex_count(),
+                            *edge
+                        );
+
                         return Some((from, *edge, to));
                     }
 
@@ -462,6 +625,16 @@ impl<'a> Iterator for CbmEdges<'a> {
             CbmEdgesKind::Outgoing { from, to } => {
                 while *to < self.cbm.vertex_count() {
                     let edge = DBM::index(*from, *to);
+
+                    debug_assert!(
+                        edge < self.cbm.matrix.len(),
+                        "CbmEdges::Outgoing: index {} out of bounds {} for ({}, {})",
+                        edge,
+                        self.cbm.matrix.len(),
+                        *from,
+                        *to
+                    );
+
                     if self.cbm.matrix[edge] {
                         return Some((*from, edge, *to));
                     }
@@ -474,6 +647,16 @@ impl<'a> Iterator for CbmEdges<'a> {
             CbmEdgesKind::Ingoing { to, from } => {
                 while *from < self.cbm.vertex_count() {
                     let edge = DBM::index(*from, *to);
+
+                    debug_assert!(
+                        edge < self.cbm.matrix.len(),
+                        "CbmEdges::Ingoing: index {} out of bounds {} for ({}, {})",
+                        edge,
+                        self.cbm.matrix.len(),
+                        *from,
+                        *to
+                    );
+
                     if self.cbm.matrix[edge] {
                         return Some((*from, edge, *to));
                     }
@@ -494,6 +677,16 @@ impl<'a> Iterator for CbmEdges<'a> {
                     }
 
                     let edge = DBM::index(*from, *to);
+
+                    debug_assert!(
+                        edge < self.cbm.matrix.len(),
+                        "CbmEdges::Between: index {} out of bounds {} for ({}, {})",
+                        edge,
+                        self.cbm.matrix.len(),
+                        *from,
+                        *to
+                    );
+
                     if self.cbm.matrix[edge] {
                         return Some((*from, edge, *to));
                     }
@@ -504,6 +697,16 @@ impl<'a> Iterator for CbmEdges<'a> {
                     *state = 2; // mark iteration as finished after this check
 
                     let edge = DBM::index(*to, *from);
+
+                    debug_assert!(
+                        edge < self.cbm.matrix.len(),
+                        "CbmEdges::Between: reversed index {} out of bounds {} for ({}, {})",
+                        edge,
+                        self.cbm.matrix.len(),
+                        *to,
+                        *from
+                    );
+
                     if self.cbm.matrix[edge] {
                         return Some((*to, edge, *from));
                     }
