@@ -528,10 +528,7 @@ impl<'a> Iterator for CsrEdges<'a> {
 mod tests {
     use super::*;
     use crate::graphs::{
-        directed::Directed,
-        edges::ReadEdges,
-        graph::ReadGraph,
-        vertices::ReadVertices,
+        directed::Directed, edges::ReadEdges, graph::ReadGraph, vertices::ReadVertices,
     };
 
     use proptest::prelude::*;
@@ -559,11 +556,7 @@ mod tests {
 
         // offsets must be non-decreasing
         for w in g.offsets.windows(2) {
-            assert!(
-                w[0] <= w[1],
-                "offsets not non-decreasing: {:?}",
-                g.offsets
-            );
+            assert!(w[0] <= w[1], "offsets not non-decreasing: {:?}", g.offsets);
         }
 
         // last offset == number of indices
@@ -842,9 +835,7 @@ mod tests {
         let total_out: usize = (0..csr.vertex_count())
             .map(|v| csr.outgoing_degree(v))
             .sum();
-        let total_in: usize = (0..csr.vertex_count())
-            .map(|v| csr.ingoing_degree(v))
-            .sum();
+        let total_in: usize = (0..csr.vertex_count()).map(|v| csr.ingoing_degree(v)).sum();
 
         assert_eq!(total_out, csr.edge_count(), "sum of outgoing degrees");
         assert_eq!(total_in, csr.edge_count(), "sum of ingoing degrees");
@@ -1048,9 +1039,7 @@ mod tests {
             let total_out: usize = (0..csr.vertex_count())
                 .map(|v| csr.outgoing_degree(v))
                 .sum();
-            let total_in: usize = (0..csr.vertex_count())
-                .map(|v| csr.ingoing_degree(v))
-                .sum();
+            let total_in: usize = (0..csr.vertex_count()).map(|v| csr.ingoing_degree(v)).sum();
             assert_eq!(total_in, total_out);
             assert_eq!(total_in, csr.edge_count());
 
@@ -1151,8 +1140,7 @@ mod tests {
                     offs
                 });
 
-            let indices_strategy =
-                proptest::collection::vec(0usize..n_vertices.max(1), n_edges);
+            let indices_strategy = proptest::collection::vec(0usize..n_vertices.max(1), n_edges);
 
             (offsets_strategy, indices_strategy)
                 .prop_map(|(offsets, indices)| csr_from_parts(&offsets, &indices))
