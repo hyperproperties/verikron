@@ -6,7 +6,7 @@ use crate::graphs::{
     directed::Directed,
     edges::{Edges, ReadEdges},
     graph::Graph,
-    vertices::Vertices,
+    vertices::{ReadVertices, Vertices},
 };
 
 /// A Dense Bit Matrix (DBM) representation of a directed graph.
@@ -220,7 +220,9 @@ impl DBM {
 
 impl Vertices for DBM {
     type Vertex = usize;
+}
 
+impl ReadVertices for DBM {
     type Vertices<'a>
         = Range<usize>
     where
@@ -728,7 +730,7 @@ impl<'a> Iterator for CbmEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::vertices::Vertices;
+    use crate::graphs::vertices::ReadVertices;
     use std::collections::HashSet;
 
     use proptest::prelude::*;

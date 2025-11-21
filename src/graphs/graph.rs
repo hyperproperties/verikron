@@ -1,4 +1,4 @@
-use crate::graphs::{edges::ReadEdges, vertices::Vertices};
+use crate::graphs::{edges::ReadEdges, vertices::ReadVertices};
 
 /// High level abstraction for a finite graph.
 ///
@@ -15,7 +15,7 @@ use crate::graphs::{edges::ReadEdges, vertices::Vertices};
 /// separate structures for vertex data and edge data.
 pub trait Graph {
     /// Vertex storage component.
-    type Vertices: Vertices;
+    type Vertices: ReadVertices;
 
     /// Edge storage component.
     type Edges: ReadEdges;
