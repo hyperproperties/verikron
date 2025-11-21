@@ -1,4 +1,4 @@
-use crate::graphs::edges::Edges;
+use crate::graphs::edges::ReadEdges;
 
 /// Core abstraction for finite directed graphs.
 ///
@@ -14,7 +14,7 @@ use crate::graphs::edges::Edges;
 ///
 /// Iteration uses associated iterator types, so implementations can avoid
 /// extra allocation and avoid dynamic dispatch.
-pub trait Directed: Edges {
+pub trait Directed: ReadEdges {
     /// Source vertex of an edge.
     fn source(&self, edge: Self::Edge) -> Self::Vertex;
 

@@ -1,4 +1,4 @@
-use crate::graphs::{edges::Edges, vertices::Vertices};
+use crate::graphs::{edges::ReadEdges, vertices::Vertices};
 
 /// High level abstraction for a finite graph.
 ///
@@ -18,7 +18,7 @@ pub trait Graph {
     type Vertices: Vertices;
 
     /// Edge storage component.
-    type Edges: Edges;
+    type Edges: ReadEdges;
 
     /// Returns a shared reference to the edge storage.
     fn edge_store(&self) -> &Self::Edges;

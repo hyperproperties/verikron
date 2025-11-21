@@ -1,4 +1,4 @@
-use crate::graphs::edges::Edges;
+use crate::graphs::edges::ReadEdges;
 
 /// Core abstraction for finite undirected graphs.
 ///
@@ -15,7 +15,7 @@ use crate::graphs::edges::Edges;
 ///
 /// Iteration uses associated iterator types, so implementations can avoid
 /// extra allocation and avoid dynamic dispatch.
-pub trait Undirected: Edges {
+pub trait Undirected: ReadEdges {
     /// Endpoints of an undirected edge.
     ///
     /// The returned pair `(a, b)` are the two vertices incident to `edge`.

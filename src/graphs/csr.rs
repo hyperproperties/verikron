@@ -1,6 +1,11 @@
 use std::ops::Range;
 
-use crate::graphs::{directed::Directed, edges::Edges, graph::Graph, vertices::Vertices};
+use crate::graphs::{
+    directed::Directed,
+    edges::{Edges, ReadEdges},
+    graph::Graph,
+    vertices::Vertices,
+};
 
 /// Compressed Sparse Row (CSR) representation of a directed multi graph.
 ///
@@ -315,7 +320,9 @@ impl Edges for CSR {
     type Vertex = usize;
 
     type Edge = usize;
+}
 
+impl ReadEdges for CSR {
     type Edges<'a>
         = CsrEdges<'a>
     where
@@ -477,7 +484,7 @@ impl<'a> Iterator for CsrEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::{directed::Directed, edges::Edges, graph::Graph, vertices::Vertices};
+    use crate::graphs::{directed::Directed, edges::ReadEdges, graph::Graph, vertices::Vertices};
 
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng};
