@@ -3,7 +3,7 @@ use std::ops::Range;
 use crate::graphs::{
     directed::Directed,
     edges::{Edges, ReadEdges},
-    graph::Graph,
+    graph::ReadGraph,
     vertices::{ReadVertices, Vertices},
 };
 
@@ -379,7 +379,7 @@ impl ReadVertices for CSR {
     }
 }
 
-impl Graph for CSR {
+impl ReadGraph for CSR {
     type Vertices = Self;
     type Edges = Self;
 
@@ -487,7 +487,7 @@ impl<'a> Iterator for CsrEdges<'a> {
 mod tests {
     use super::*;
     use crate::graphs::{
-        directed::Directed, edges::ReadEdges, graph::Graph, vertices::ReadVertices,
+        directed::Directed, edges::ReadEdges, graph::ReadGraph, vertices::ReadVertices,
     };
 
     use proptest::prelude::*;

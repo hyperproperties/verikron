@@ -5,7 +5,7 @@ use bit_vec::BitVec;
 use crate::graphs::{
     directed::Directed,
     edges::{Edges, ReadEdges},
-    graph::Graph,
+    graph::ReadGraph,
     vertices::{ReadVertices, Vertices},
 };
 
@@ -461,7 +461,7 @@ impl Directed for DBM {
     }
 }
 
-impl Graph for DBM {
+impl ReadGraph for DBM {
     type Vertices = Self;
 
     type Edges = Self;

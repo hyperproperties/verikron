@@ -13,7 +13,7 @@ use crate::graphs::{edges::ReadEdges, vertices::ReadVertices};
 /// `Vertices` or `Edges` trait.
 /// Concrete graph types can use a single structure for both roles or use
 /// separate structures for vertex data and edge data.
-pub trait Graph {
+pub trait ReadGraph {
     /// Vertex storage component.
     type Vertices: ReadVertices;
 
