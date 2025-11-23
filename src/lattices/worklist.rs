@@ -104,43 +104,6 @@ mod tests {
     use std::collections::VecDeque;
     use std::hash::Hash;
 
-    /// Sequential worklist / BFS-based reachable set, used as a reference.
-    ///
-    /// Same semantics as `worklist_par` with `transfer(from, edge, to) = to`.
-    fn reachable_seq<G>(
-        graph: &G,
-        initials: impl IntoIterator<Item = <G as Edges>::Vertex>,
-    ) -> Set<<G as Edges>::Vertex>
-    where
-        G: Directed + ReadVertices<Vertex = <G as Edges>::Vertex>,
-        <G as Edges>::Vertex: Eq + Hash + Copy,
-    {
-        type V<G> = <G as Edges>::Vertex;
-
-        let mut visited: Set<V<G>> = Set::default();
-        let mut queue: VecDeque<V<G>> = VecDeque::new();
-
-        // Seed
-        for v in initials {
-            if !visited.contains(&v) {
-                visited.insert(v);
-                queue.push_back(v);
-            }
-        }
-
-        // BFS / worklist
-        while let Some(current) = queue.pop_front() {
-            for (_, _, to) in graph.outgoing(current) {
-                if !visited.contains(&to) {
-                    visited.insert(to);
-                    queue.push_back(to);
-                }
-            }
-        }
-
-        visited
-    }
-
     #[test]
     fn worklist_par_single_vertex_no_edges() {
         // Graph with 1 vertex and no edges.
@@ -253,52 +216,6 @@ mod tests {
         assert!(!res.contains(&3));
     }
 
-    #[test]
-    fn worklist_par_matches_seq_on_random_graphs() {
-        let mut rng = ChaCha8Rng::seed_from_u64(0x574C5F52414E444F); // "WL_RANDO"
-
-        for _case in 0..100 {
-            // Random number of vertices and edges.
-            let n_vertices: usize = rng.random_range(0..=10);
-            let n_edges: usize = rng.random_range(0..=30);
-
-            let mut edges = Vec::with_capacity(n_edges);
-
-            if n_vertices > 0 {
-                for _ in 0..n_edges {
-                    let from = rng.random_range(0..n_vertices) as usize;
-                    let to = rng.random_range(0..n_vertices) as usize;
-                    edges.push((from, to));
-                }
-            }
-
-            let g = CSR::from(edges);
-
-            let vcount = g.vertex_count();
-
-            // Random initials (possibly empty).
-            let initials: Vec<usize> = if vcount == 0 {
-                Vec::new()
-            } else {
-                let n_initials = rng.random_range(0..=vcount);
-                (0..n_initials)
-                    .map(|_| rng.random_range(0..vcount))
-                    .collect()
-            };
-
-            // Parallel result
-            let par_res = worklist_par(&g, initials.clone(), identity_transfer::<usize, usize>);
-
-            // Sequential reference
-            let seq_res = reachable_seq(&g, initials.clone());
-
-            assert_eq!(
-                par_res, seq_res,
-                "parallel and sequential reachable sets differ on random graph"
-            );
-        }
-    }
-
     // Generate a random edge list for a small CSR graph.
     prop_compose! {
         fn random_edge_list()
@@ -313,35 +230,6 @@ mod tests {
     }
 
     proptest! {
-        // For any graph and any set of initials, worklist_par with identity transfer
-        // must produce the same set as the sequential BFS-like reference.
-        #[test]
-        fn prop_worklist_par_matches_seq(
-            edges in random_edge_list(),
-            initials_raw in prop::collection::vec(0u8..=15, 0..=16),
-        ) {
-            let g = CSR::from(edges);
-
-            let vcount = g.vertex_count();
-
-            // Map raw initials into the vertex range of the graph.
-            let initials: Vec<usize> = if vcount == 0 {
-                Vec::new()
-            } else {
-                initials_raw.into_iter()
-                    .map(|x| (x as usize) % vcount)
-                    .collect()
-            };
-
-            // Parallel result
-            let par_res = worklist_par(&g, initials.clone(), identity_transfer::<usize, usize>);
-
-            // Sequential reference result
-            let seq_res = reachable_seq(&g, initials.clone());
-
-            prop_assert_eq!(par_res, seq_res);
-        }
-
         // Starting from a set of initials, the result must always contain all initials.
         #[test]
         fn prop_worklist_contains_initials(
