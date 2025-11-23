@@ -95,14 +95,10 @@ mod tests {
     use super::*;
 
     use crate::graphs::csr::CSR;
-    use crate::graphs::{directed::Directed, edges::Edges, vertices::ReadVertices};
+    use crate::graphs::vertices::ReadVertices;
     use crate::lattices::set::Set;
 
     use proptest::prelude::*;
-    use rand::{Rng, SeedableRng};
-    use rand_chacha::ChaCha8Rng;
-    use std::collections::VecDeque;
-    use std::hash::Hash;
 
     #[test]
     fn worklist_par_single_vertex_no_edges() {
