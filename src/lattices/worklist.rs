@@ -44,6 +44,7 @@ where
     // Basic invariants after seeding.
     debug_assert!(frontier.iter().all(|v| visited.contains(v)));
     debug_assert!({
+        // Insertion into seen returns false (and fails the assertion) upon duplicate entries.
         let mut seen = FxHashSet::default();
         frontier.iter().all(|v| seen.insert(*v))
     });
