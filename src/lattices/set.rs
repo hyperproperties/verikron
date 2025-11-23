@@ -23,7 +23,7 @@ use crate::lattices::lattice::{JoinSemiLattice, MeetSemiLattice};
 ///
 /// * `join` corresponds to **union** of sets.
 /// * `meet` corresponds to **intersection** of sets.
-#[derive(Default, Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Set<T: Eq + Hash>(FxHashSet<T>);
 
 impl<T: Eq + Hash> Set<T> {
@@ -258,6 +258,12 @@ impl<T: Eq + Hash> Set<T> {
             }
         }
         out
+    }
+}
+
+impl<T: Eq + Hash> Default for Set<T> {
+    fn default() -> Self {
+        Self::new(FxHashSet::default())
     }
 }
 

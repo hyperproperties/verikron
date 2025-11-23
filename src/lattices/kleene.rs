@@ -1,6 +1,5 @@
 use crate::lattices::lattice::{BoundedLattice, JoinSemiLattice, MeetSemiLattice};
 
-
 /// Generic fixpoint iterator parameterized by a combination operator.
 ///
 /// Repeatedly does:
