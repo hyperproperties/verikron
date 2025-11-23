@@ -44,8 +44,7 @@ where
     // Basic invariants after seeding.
     debug_assert!(frontier.iter().all(|v| visited.contains(v)));
     debug_assert!({
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         frontier.iter().all(|v| seen.insert(*v))
     });
 
