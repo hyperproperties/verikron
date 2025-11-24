@@ -7,7 +7,10 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashSet};
 
-use crate::lattices::lattice::{JoinSemiLattice, MeetSemiLattice};
+use crate::lattices::{
+    lattice::{JoinSemiLattice, MeetSemiLattice},
+    membership_lattice::MembershipLattice,
+};
 
 /// A hash-based finite set of values, backed by [`FxHashSet`].
 ///
@@ -348,6 +351,16 @@ impl<T: Eq + Hash + Clone> JoinSemiLattice for Set<T> {
 impl<T: Eq + Hash + Clone> MeetSemiLattice for Set<T> {
     fn meet(&self, other: &Self) -> Self {
         self.intersection_owned(other)
+    }
+}
+
+impl<T: Eq + Hash + Clone> MembershipLattice<T> for Set<T> {
+    fn insert(&mut self, value: T) -> bool {
+        self.0.insert(value)
+    }
+
+    fn contains(&self, value: &T) -> bool {
+        self.0.contains(value)
     }
 }
 

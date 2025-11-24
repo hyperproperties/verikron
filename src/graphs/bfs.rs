@@ -142,7 +142,6 @@ where
 mod tests {
     use super::*;
 
-    use bit_vec::BitVec;
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
@@ -151,6 +150,7 @@ mod tests {
     use crate::graphs::csr::CSR;
     use crate::graphs::vertices::ReadVertices;
     use crate::graphs::worklist::Worklist;
+    use crate::lattices::bit_vector::BitVector;
     use crate::lattices::set::Set;
 
     #[test]
@@ -554,9 +554,9 @@ mod tests {
                 GraphBFS::new(&g, initials.iter().copied());
             let set_res: Set<usize> = bfs_set.worklist();
 
-            let bfs_bits: GraphBFS<CSR, BitVec> =
+            let bfs_bits: GraphBFS<CSR, BitVector> =
                 GraphBFS::new(&g, initials.iter().copied());
-            let bits_res: BitVec = bfs_bits.worklist();
+            let bits_res: BitVector = bfs_bits.worklist();
 
             let mut from_bits = Set::default();
             for v in 0..vcount {
