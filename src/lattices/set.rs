@@ -42,10 +42,7 @@ impl<T: Eq + Hash> Set<T> {
     /// The set will be able to hold at least `capacity` elements
     /// without reallocating.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self(FxHashSet::with_capacity_and_hasher(
-            capacity,
-            FxBuildHasher::default(),
-        ))
+        Self(FxHashSet::with_capacity_and_hasher(capacity, FxBuildHasher))
     }
 
     /// Returns the number of elements the set can hold without reallocating.

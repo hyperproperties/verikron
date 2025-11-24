@@ -165,10 +165,7 @@ impl MembershipLattice<usize> for BitVector {
     }
 
     fn contains(&self, value: &usize) -> bool {
-        match self.get(*value) {
-            Some(included) => included,
-            None => false,
-        }
+        self.get(*value).unwrap_or_default()
     }
 }
 

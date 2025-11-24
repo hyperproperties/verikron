@@ -87,7 +87,7 @@ impl DBM {
             };
             debug_assert_eq!(dbm.vertex_count(), 0);
             debug_assert_eq!(dbm.matrix.len(), 0);
-            return dbm;
+            dbm
         } else {
             let size = Self::size(vertices);
             let matrix = BitVec::from_elem(size, complete);

@@ -345,7 +345,7 @@ mod tests {
 
         for _ in 0..500 {
             let len = rng.random_range(0..32);
-            let mut data: Vec<u32> = (0..len).map(|_| rng.random()).collect();
+            let data: Vec<u32> = (0..len).map(|_| rng.random()).collect();
             let remove = rng.random_range(0..40); // allow > len cases
 
             let mut boxed: Box<[u32]> = data.clone().into_boxed_slice();
