@@ -421,6 +421,7 @@ impl InsertVertex for CSR {
 }
 
 impl ReadGraph for CSR {
+    type Vertex = usize;
     type Vertices = Self;
     type Edges = Self;
 

@@ -462,6 +462,8 @@ impl Directed for DBM {
 }
 
 impl ReadGraph for DBM {
+    type Vertex = usize;
+
     type Vertices = Self;
 
     type Edges = Self;

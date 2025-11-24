@@ -14,11 +14,14 @@ use crate::graphs::{edges::ReadEdges, vertices::ReadVertices};
 /// Concrete graph types can use a single structure for both roles or use
 /// separate structures for vertex data and edge data.
 pub trait ReadGraph {
+    /// Common vertex type for both the vertex store and the edge store.
+    type Vertex: Eq + Copy;
+
     /// Vertex storage component.
-    type Vertices: ReadVertices;
+    type Vertices: ReadVertices<Vertex = Self::Vertex>;
 
     /// Edge storage component.
-    type Edges: ReadEdges;
+    type Edges: ReadEdges<Vertex = Self::Vertex>;
 
     /// Returns a shared reference to the edge storage.
     fn edge_store(&self) -> &Self::Edges;
