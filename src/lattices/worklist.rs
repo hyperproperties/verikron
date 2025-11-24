@@ -8,11 +8,95 @@ use crate::{
     lattices::set::Set,
 };
 
+/// A trivial transfer function for `worklist_par` that forwards the edge’s
+/// target vertex unchanged.
+///
+/// This is useful when you just want to traverse the graph structure
+/// (e.g. compute the set of vertices reachable from some initials) without
+/// doing any extra bookkeeping or state transformation.
+///
+/// # Type Parameters
+///
+/// - `V`: Vertex type.
+/// - `E`: Edge type (unused).
+///
+/// # Parameters
+///
+/// - `_from`: The source vertex of the edge (ignored).
+/// - `_edge`: The edge itself (ignored).
+/// - `to`: The target vertex of the edge.
+///
+/// # Returns
+///
+/// Simply returns `to`.
 #[inline]
 pub fn identity_transfer<V, E>(_from: V, _edge: E, to: V) -> V {
     to
 }
 
+/// Run a parallel worklist (BFS-style) traversal over a directed graph.
+///
+/// Starting from a set of initial vertices, this function repeatedly:
+///
+/// 1. Collects all outgoing edges from the current “frontier” of vertices
+///    (sequentially).
+/// 2. Applies the user-provided `transfer` function to every edge in parallel,
+///    producing successor vertices.
+/// 3. Builds the next frontier from all successors that have not yet been
+///    visited.
+///
+/// The process continues until the frontier is empty. Each vertex is inserted
+/// into the frontier at most once, so every vertex’s outgoing edges are
+/// processed at most once.
+///
+/// Use [`identity_transfer`] if you just want to explore the graph structure
+/// and collect all vertices reachable from `initials`.
+///
+/// # Type Parameters
+///
+/// - `G`: Graph type implementing the required graph traits (`Directed`,
+///   `ReadVertices` and `Edges`).
+/// - `F`: Transfer function type. Must be `Sync` because it is invoked in
+///   parallel over all edges.
+///
+/// # Parameters
+///
+/// - `graph`: The directed graph to traverse.
+/// - `initials`: Initial set of vertices to seed the worklist. Duplicates are
+///   ignored; only the first occurrence of a vertex is used.
+/// - `transfer`: A function applied to each edge `(from, edge, to)` that
+///   computes the successor vertex to enqueue. This function must be
+///   thread-safe and free of data races, as it is executed in parallel.
+///
+///   Signature:
+///   ```ignore
+///   Fn(Vertex, Edge, Vertex) -> Vertex
+///   ```
+///
+///   Examples of what `transfer` can do:
+///   - Return `to` unchanged (plain reachability / BFS).
+///   - Redirect traversal to a different vertex based on edge labels.
+///   - Implement custom dataflow-like propagation logic over the graph.
+///
+/// # Returns
+///
+/// A `Set` containing all vertices that were ever inserted into the worklist,
+/// i.e., all visited vertices reachable under the behavior defined by
+/// `transfer` starting from `initials`.
+///
+/// # Complexity
+///
+/// Assuming `transfer` is `O(1)`, each vertex is processed at most once and
+/// each outgoing edge is seen at most once. The total work is therefore
+/// `O(|V| + |E|)` over the reachable subgraph, with the calls to `transfer`
+/// parallelized across edges.
+///
+/// # Concurrency
+///
+/// - The transfer function `F` is required to be `Sync` because it is called
+///   from multiple threads via `into_par_iter`.
+/// - Vertices and edges (`Vertex`, `Edge`) must implement `Send + Sync` so
+///   they can safely cross thread boundaries.
 pub fn worklist_par<G, F>(
     graph: &G,
     initials: impl IntoIterator<Item = <G as Edges>::Vertex>,
@@ -90,6 +174,7 @@ where
 
     visited
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
