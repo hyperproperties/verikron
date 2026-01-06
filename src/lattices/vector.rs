@@ -5,7 +5,7 @@ use crate::lattices::lattice::{JoinSemiLattice, MeetSemiLattice};
 ///
 /// Semantics:
 ///
-/// * The “order” this is aiming for is: `self ⊑ other` iff every element of
+/// * The "order" this is aiming for is: `self ⊑ other` iff every element of
 ///   `self` appears in `other` (ignoring multiplicity), i.e. subset-like.
 /// * `join` corresponds to a **union** of elements, preserving the order
 ///   of the first vector and then appending new elements from the second.
@@ -72,7 +72,7 @@ mod tests {
     }
 
     // Generate a Vec<i32> with *no duplicates* (so semilattice laws make sense
-    // under the “vector as set” interpretation).
+    // under the "vector as set" interpretation).
     prop_compose! {
         fn arb_vec_set()(s in proptest::collection::btree_set(any::<i32>(), 0..20)) -> Vec<i32> {
             // BTreeSet removes duplicates and sorts; order is deterministic but

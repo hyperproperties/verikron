@@ -21,7 +21,7 @@
 ///
 /// This trait exists so that other lattice/poset traits (such as
 /// [`JoinSemiLattice`](crate::lattices::lattice::JoinSemiLattice))
-/// can require “poset-like” behavior without redefining the ordering
+/// can require "poset-like" behavior without redefining the ordering
 /// operations themselves.
 pub trait PartialOrder: PartialEq + PartialOrd {}
 
