@@ -1,4 +1,4 @@
-pub mod bfs;
+pub mod backward;
 pub mod csr;
 pub mod dbm;
 pub mod directed;
@@ -6,6 +6,9 @@ pub mod edges;
 pub mod forward;
 pub mod frontier;
 pub mod graph;
+pub mod parallel_bfs;
+pub mod sequential_backward_search;
+pub mod sequential_forward_search;
 pub mod undirected;
 pub mod vertices;
 pub mod visited;

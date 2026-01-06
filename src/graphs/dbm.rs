@@ -1009,7 +1009,7 @@ mod tests {
         let mut rng = ChaCha8Rng::seed_from_u64(813494);
 
         for _case in 0..50 {
-            let n = rng.gen_range(0..=64);
+            let n = rng.random_range(0..=64);
             let dbm = DBM::new(n, true);
 
             // Basic structural properties

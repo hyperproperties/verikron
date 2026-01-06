@@ -1,4 +1,4 @@
-use std::mem;
+use std::{collections::VecDeque, mem, ops::Index};
 
 pub trait Frontier<T> {
     fn step<F>(&mut self, expand: F) -> Option<Vec<T>>
@@ -35,6 +35,14 @@ impl<T> LayeredFrontier<T> {
     }
 }
 
+impl<T> Index<usize> for LayeredFrontier<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.frontier[index]
+    }
+}
+
 impl<T> Frontier<T> for LayeredFrontier<T> {
     fn step<F>(&mut self, mut expand: F) -> Option<Vec<T>>
     where
@@ -51,5 +59,60 @@ impl<T> Frontier<T> for LayeredFrontier<T> {
 
         self.frontier = mem::take(&mut self.next);
         Some(current)
+    }
+}
+
+pub trait SearchFrontier<T> {
+    fn push(&mut self, v: T);
+    fn pop(&mut self) -> Option<T>;
+    fn is_empty(&self) -> bool;
+}
+
+pub struct StackFrontier<T>(Vec<T>);
+pub struct QueueFrontier<T>(VecDeque<T>);
+
+impl<T> StackFrontier<T> {
+    pub fn new() -> Self {
+        StackFrontier(Vec::new())
+    }
+}
+
+impl<T> QueueFrontier<T> {
+    pub fn new() -> Self {
+        QueueFrontier(VecDeque::new())
+    }
+}
+
+impl<T> SearchFrontier<T> for StackFrontier<T> {
+    #[inline]
+    fn push(&mut self, v: T) {
+        self.0.push(v)
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<T> {
+        self.0.pop()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl<T> SearchFrontier<T> for QueueFrontier<T> {
+    #[inline]
+    fn push(&mut self, v: T) {
+        self.0.push_back(v)
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<T> {
+        self.0.pop_front()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }

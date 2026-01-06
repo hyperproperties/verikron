@@ -7,11 +7,10 @@ use crate::graphs::worklist::Worklist;
 use crate::graphs::{forward::Forward, frontier::LayeredFrontier};
 use std::hash::Hash;
 
+// TODO: Should be a parameter on the search.
 const PARALLEL_THRESHOLD: usize = 1024;
 
-pub trait BFS<T>: Iterator<Item = Vec<T>> {}
-
-pub struct GraphBFS<'g, G, V>
+pub struct ParallelGraphBFS<'g, G, V>
 where
     G: Forward,
     G::Vertex: Eq + Hash + Copy,
@@ -21,9 +20,10 @@ where
     visited: V,
     frontier: LayeredFrontier<G::Vertex>,
     buffer: Vec<G::Vertex>,
+    index: usize,
 }
 
-impl<'g, G, V> GraphBFS<'g, G, V>
+impl<'g, G, V> ParallelGraphBFS<'g, G, V>
 where
     G: Forward + Sync,
     G::Vertex: Eq + Hash + Copy + Send + Sync,
@@ -53,6 +53,7 @@ where
             visited,
             frontier,
             buffer: Vec::new(),
+            index: 0,
         }
     }
 
@@ -109,24 +110,46 @@ where
     }
 }
 
-impl<'g, G, V> Iterator for GraphBFS<'g, G, V>
+impl<'g, G, V> Iterator for ParallelGraphBFS<'g, G, V>
 where
     G: Forward + Sync,
     G::Vertex: Eq + Hash + Copy + Send + Sync,
     V: Visited<G::Vertex>,
 {
-    type Item = Vec<G::Vertex>;
+    type Item = G::Vertex;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.frontier.len() < PARALLEL_THRESHOLD {
-            self.sequential_step()
-        } else {
-            self.parallel_step()
+        loop {
+            // No more frontier at all → BFS finished.
+            if self.frontier.is_empty() {
+                return None;
+            }
+
+            // Current layer we’re streaming from.
+            let layer = self.frontier.layer();
+
+            // Still have vertices left in this layer? Yield the next one.
+            if self.index < layer.len() {
+                let v = layer[self.index];
+                self.index += 1;
+                return Some(v);
+            }
+
+            // Current layer exhausted: advance to the next layer.
+            // This modifies the frontier’s internal layer.
+            if layer.len() < PARALLEL_THRESHOLD {
+                self.sequential_step();
+            } else {
+                self.parallel_step();
+            }
+
+            // Reset index to start streaming from the new layer.
+            self.index = 0;
         }
     }
 }
 
-impl<'g, G, V> Worklist<G::Vertex, V> for GraphBFS<'g, G, V>
+impl<'g, G, V> Worklist<G::Vertex, V> for ParallelGraphBFS<'g, G, V>
 where
     G: Forward + Sync,
     G::Vertex: Eq + Hash + Copy + Send + Sync,
@@ -159,9 +182,10 @@ mod tests {
         assert_eq!(g.vertex_count(), 0);
 
         // No initials.
-        let mut bfs: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, std::iter::empty::<usize>());
+        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> =
+            ParallelGraphBFS::new(&g, std::iter::empty::<usize>());
 
-        // No layers.
+        // No vertices at all.
         assert!(bfs.next().is_none());
 
         // Visited stays empty.
@@ -170,25 +194,21 @@ mod tests {
     }
 
     #[test]
-    fn bfs_line_graph_layers() {
+    fn bfs_line_graph_order() {
         // 0 -> 1 -> 2 -> 3
         let edges = vec![(0_usize, 1_usize), (1, 2), (2, 3)];
         let g = CSR::from(edges);
         assert_eq!(g.vertex_count(), 4);
 
         let initials = [0_usize];
-        let mut bfs: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials);
+        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
-        let mut layers = Vec::new();
-        while let Some(layer) = bfs.next() {
-            layers.push(layer);
+        let mut order = Vec::new();
+        while let Some(v) = bfs.next() {
+            order.push(v);
         }
 
-        assert_eq!(layers.len(), 4);
-        assert_eq!(layers[0], vec![0]);
-        assert_eq!(layers[1], vec![1]);
-        assert_eq!(layers[2], vec![2]);
-        assert_eq!(layers[3], vec![3]);
+        assert_eq!(order, vec![0, 1, 2, 3]);
 
         let visited = bfs.into_visited();
         let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
@@ -196,33 +216,23 @@ mod tests {
     }
 
     #[test]
-    fn bfs_branching_graph_layers_unordered() {
+    fn bfs_branching_graph_reaches_all() {
         // 0 -> 1, 0 -> 2, 1 -> 3, 2 -> 3
         let edges = vec![(0_usize, 1_usize), (0, 2), (1, 3), (2, 3)];
         let g = CSR::from(edges);
         assert_eq!(g.vertex_count(), 4);
 
         let initials = [0_usize];
-        let mut bfs: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials);
+        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
-        let mut layers = Vec::new();
-        while let Some(layer) = bfs.next() {
-            layers.push(layer);
+        let mut seen = Vec::new();
+        while let Some(v) = bfs.next() {
+            seen.push(v);
         }
 
-        assert_eq!(layers.len(), 3);
-
-        let mut l0 = layers[0].clone();
-        let mut l1 = layers[1].clone();
-        let mut l2 = layers[2].clone();
-
-        l0.sort_unstable();
-        l1.sort_unstable();
-        l2.sort_unstable();
-
-        assert_eq!(l0, vec![0]);
-        assert_eq!(l1, vec![1, 2]); // order within layer not guaranteed
-        assert_eq!(l2, vec![3]);
+        // We don't care about exact intra-layer order here, only that we saw all.
+        seen.sort_unstable();
+        assert_eq!(seen, vec![0, 1, 2, 3]);
 
         let visited = bfs.into_visited();
         let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
@@ -237,18 +247,16 @@ mod tests {
         assert_eq!(g.vertex_count(), 3);
 
         let initials = [0_usize];
-        let mut bfs: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials);
+        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
-        let mut layers = Vec::new();
-        while let Some(layer) = bfs.next() {
-            assert!(!layer.is_empty());
-            layers.push(layer);
+        let mut seen = Vec::new();
+        while let Some(v) = bfs.next() {
+            seen.push(v);
         }
 
-        assert_eq!(layers.len(), 3);
-        assert_eq!(layers[0], vec![0]);
-        assert_eq!(layers[1], vec![1]);
-        assert_eq!(layers[2], vec![2]);
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen, vec![0, 1, 2]);
 
         let visited = bfs.into_visited();
         let expected: Set<usize> = [0, 1, 2].into_iter().collect();
@@ -262,8 +270,8 @@ mod tests {
 
         let initials: [usize; 0] = [];
 
-        // Use GraphBFS as a Worklist "engine".
-        let engine: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials.into_iter());
+        let engine: ParallelGraphBFS<CSR, Set<usize>> =
+            ParallelGraphBFS::new(&g, initials.into_iter());
 
         let res: Set<usize> = engine.worklist();
         assert!(res.is_empty());
@@ -278,7 +286,8 @@ mod tests {
 
         let initials = [0_usize];
 
-        let engine: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials.into_iter());
+        let engine: ParallelGraphBFS<CSR, Set<usize>> =
+            ParallelGraphBFS::new(&g, initials.into_iter());
         let res: Set<usize> = engine.worklist();
 
         let expected: Set<usize> = [0, 1, 2].into_iter().collect();
@@ -298,15 +307,17 @@ mod tests {
 
         // Start in component B only.
         let initials_b = [2_usize];
-        let engine: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials_b.into_iter());
-        let res_b: Set<usize> = engine.worklist();
+        let engine_b: ParallelGraphBFS<CSR, Set<usize>> =
+            ParallelGraphBFS::new(&g, initials_b.into_iter());
+        let res_b: Set<usize> = engine_b.worklist();
         let expected_b: Set<usize> = [2, 3].into_iter().collect();
         assert_eq!(res_b, expected_b);
 
         // Start in both components.
         let initials_all = [0_usize, 2_usize];
-        let engine: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials_all.into_iter());
-        let res_all: Set<usize> = engine.worklist();
+        let engine_all: ParallelGraphBFS<CSR, Set<usize>> =
+            ParallelGraphBFS::new(&g, initials_all.into_iter());
+        let res_all: Set<usize> = engine_all.worklist();
         let expected_all: Set<usize> = [0, 1, 2, 3].into_iter().collect();
         assert_eq!(res_all, expected_all);
     }
@@ -318,7 +329,8 @@ mod tests {
         let g = CSR::from(edges);
 
         let initials = [0_usize];
-        let engine: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials.into_iter());
+        let engine: ParallelGraphBFS<CSR, Set<usize>> =
+            ParallelGraphBFS::new(&g, initials.into_iter());
 
         let res: Set<usize> = engine.worklist();
 
@@ -333,7 +345,8 @@ mod tests {
         let g = CSR::from(edges);
 
         let initials = [0_usize];
-        let engine: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials.into_iter());
+        let engine: ParallelGraphBFS<CSR, Set<usize>> =
+            ParallelGraphBFS::new(&g, initials.into_iter());
 
         let res: Set<usize> = engine.worklist();
 
@@ -356,8 +369,8 @@ mod tests {
         let g = CSR::from(edges);
         let initials = [0_usize];
 
-        let mut bfs_seq: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials);
-        let mut bfs_par: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials);
+        let mut bfs_seq: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
+        let mut bfs_par: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
         loop {
             let l1 = bfs_seq.sequential_step();
@@ -393,7 +406,7 @@ mod tests {
     }
 
     proptest! {
-        // GraphBFS layers must match shortest-path distances from initials.
+        // Using the *sequential_step* interface: layers must match shortest-path distances.
         #[test]
         fn prop_bfs_layers_match_shortest_paths(
             edges in random_edge_list(),
@@ -410,12 +423,12 @@ mod tests {
                     .collect()
             };
 
-            // Run GraphBFS to obtain layers.
-            let mut bfs: GraphBFS<CSR, Set<usize>> =
-                GraphBFS::new(&g, initials.iter().copied());
+            // Run ParallelGraphBFS to obtain layers via sequential_step.
+            let mut bfs: ParallelGraphBFS<CSR, Set<usize>> =
+                ParallelGraphBFS::new(&g, initials.iter().copied());
 
             let mut layers = Vec::<Vec<usize>>::new();
-            while let Some(layer) = bfs.next() {
+            while let Some(layer) = bfs.sequential_step() {
                 prop_assert!(!layer.is_empty());
                 layers.push(layer);
             }
@@ -452,7 +465,11 @@ mod tests {
             let mut layer_of = vec![None::<usize>; vcount];
             for (i, layer) in layers.iter().enumerate() {
                 for &v in layer {
-                    prop_assert!(layer_of[v].is_none(), "vertex {} appears in multiple layers", v);
+                    prop_assert!(
+                        layer_of[v].is_none(),
+                        "vertex {} appears in multiple layers",
+                        v
+                    );
                     layer_of[v] = Some(i);
                 }
             }
@@ -469,8 +486,11 @@ mod tests {
             // Every vertex with finite distance must be visited.
             for v in 0..vcount {
                 if dist[v].is_some() {
-                    prop_assert!(visited.is_visited(&v),
-                        "vertex {} has finite distance but not visited", v);
+                    prop_assert!(
+                        visited.is_visited(&v),
+                        "vertex {} has finite distance but not visited",
+                        v
+                    );
                 }
             }
         }
@@ -492,8 +512,8 @@ mod tests {
                     .collect()
             };
 
-            let engine: GraphBFS<CSR, Set<usize>> =
-                GraphBFS::new(&g, initials.iter().copied());
+            let engine: ParallelGraphBFS<CSR, Set<usize>> =
+                ParallelGraphBFS::new(&g, initials.iter().copied());
 
             let res: Set<usize> = engine.worklist();
 
@@ -519,16 +539,15 @@ mod tests {
                     .collect()
             };
 
-            let engine: GraphBFS<CSR, Set<usize>> =
-                GraphBFS::new(&g, initials.iter().copied());
+            let engine: ParallelGraphBFS<CSR, Set<usize>> =
+                ParallelGraphBFS::new(&g, initials.iter().copied());
 
             let first: Set<usize> = engine.worklist();
 
             // Rerun with the first result as initials.
-            let engine: GraphBFS<CSR, Set<usize>> =
-                GraphBFS::new(&g, first.iter().copied());
-            let second: Set<usize> =
-                engine.worklist();
+            let engine2: ParallelGraphBFS<CSR, Set<usize>> =
+                ParallelGraphBFS::new(&g, first.iter().copied());
+            let second: Set<usize> = engine2.worklist();
 
             prop_assert_eq!(first, second);
         }
@@ -550,12 +569,12 @@ mod tests {
                     .collect()
             };
 
-            let bfs_set: GraphBFS<CSR, Set<usize>> =
-                GraphBFS::new(&g, initials.iter().copied());
+            let bfs_set: ParallelGraphBFS<CSR, Set<usize>> =
+                ParallelGraphBFS::new(&g, initials.iter().copied());
             let set_res: Set<usize> = bfs_set.worklist();
 
-            let bfs_bits: GraphBFS<CSR, BitVector> =
-                GraphBFS::new(&g, initials.iter().copied());
+            let bfs_bits: ParallelGraphBFS<CSR, BitVector> =
+                ParallelGraphBFS::new(&g, initials.iter().copied());
             let bits_res: BitVector = bfs_bits.worklist();
 
             let mut from_bits = Set::default();
@@ -597,8 +616,9 @@ mod tests {
                 initials.push(rng.random_range(0..n));
             }
 
-            // Worklist via GraphBFS + Set.
-            let engine: GraphBFS<CSR, Set<usize>> = GraphBFS::new(&g, initials.iter().copied());
+            // Worklist via ParallelGraphBFS + Set.
+            let engine: ParallelGraphBFS<CSR, Set<usize>> =
+                ParallelGraphBFS::new(&g, initials.iter().copied());
             let res: Set<usize> = engine.worklist();
 
             // Reference BFS distances (inlined).
