@@ -1,4 +1,7 @@
 pub mod backward;
+pub mod bcsr;
+pub mod bipartite;
+pub mod colored;
 pub mod csr;
 pub mod dbm;
 pub mod directed;
@@ -6,6 +9,7 @@ pub mod edges;
 pub mod forward;
 pub mod frontier;
 pub mod graph;
+pub mod labeled_edges;
 pub mod parallel_bfs;
 pub mod sequential_backward_search;
 pub mod sequential_forward_search;

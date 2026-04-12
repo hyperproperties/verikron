@@ -1,23 +1,23 @@
 use crate::graphs::{directed::Directed, edges::ReadEdges};
 
 pub trait Backward: Directed {
-    type Successors<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    type Predecessors<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
     where
         Self: 'a;
 
-    fn predecessors(&self, vertex: Self::Vertex) -> Self::Successors<'_>;
+    fn predecessors(&self, vertex: Self::Vertex) -> Self::Predecessors<'_>;
 }
 
 impl<T> Backward for T
 where
     T: Directed,
 {
-    type Successors<'a>
+    type Predecessors<'a>
         = <T as ReadEdges>::Edges<'a>
     where
         Self: 'a;
 
-    fn predecessors(&self, vertex: Self::Vertex) -> Self::Successors<'_> {
+    fn predecessors(&self, vertex: Self::Vertex) -> Self::Predecessors<'_> {
         self.ingoing(vertex)
     }
 }

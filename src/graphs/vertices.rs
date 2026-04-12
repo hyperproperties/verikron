@@ -30,6 +30,11 @@ pub trait ReadVertices: Vertices {
     fn vertex_count(&self) -> usize {
         self.vertices().count()
     }
+
+    /// Returns true if the vertices includes the vertex.
+    fn contains(&self, v: &Self::Vertex) -> bool {
+        self.vertices().any(|u| &u == v)
+    }
 }
 
 /// A graph that supports both querying and mutating vertices.
