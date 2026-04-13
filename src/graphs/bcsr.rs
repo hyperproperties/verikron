@@ -78,7 +78,8 @@ impl Edges for BCSR {
 }
 
 impl ReadEdges for BCSR {
-    type Edges<'a> = CsrEdges<'a>
+    type Edges<'a>
+        = CsrEdges<'a>
     where
         Self: 'a;
 
@@ -152,7 +153,8 @@ impl Vertices for BCSR {
 }
 
 impl ReadVertices for BCSR {
-    type Vertices<'a> = Range<usize>
+    type Vertices<'a>
+        = Range<usize>
     where
         Self: 'a;
 
@@ -277,10 +279,7 @@ impl RepartitionVertex for BCSR {
 mod tests {
     use super::*;
     use crate::graphs::{
-        bipartite::ReadBipartiteVertices,
-        directed::Directed,
-        edges::ReadEdges,
-        graph::ReadGraph,
+        bipartite::ReadBipartiteVertices, directed::Directed, edges::ReadEdges, graph::ReadGraph,
         vertices::ReadVertices,
     };
 
@@ -298,7 +297,9 @@ mod tests {
     /// Isolated vertices are added to the inner CSR as needed.
     fn bcsr_from_parts(edges: &[(usize, usize)], colors: &[Side]) -> BCSR {
         assert!(
-            edges.iter().all(|&(u, v)| u < colors.len() && v < colors.len()),
+            edges
+                .iter()
+                .all(|&(u, v)| u < colors.len() && v < colors.len()),
             "edge endpoint out of range for provided color vector"
         );
 
@@ -726,11 +727,8 @@ mod tests {
 
     fn arb_bcsr_instance() -> impl Strategy<Value = (Vec<Side>, Vec<(usize, usize)>)> {
         (0usize..16).prop_flat_map(|vertex_count| {
-            let colors = prop::collection::vec(any::<bool>(), vertex_count).prop_map(|bits| {
-                bits.into_iter()
-                    .map(Side::from_bit)
-                    .collect::<Vec<_>>()
-            });
+            let colors = prop::collection::vec(any::<bool>(), vertex_count)
+                .prop_map(|bits| bits.into_iter().map(Side::from_bit).collect::<Vec<_>>());
 
             let raw_edges = prop::collection::vec(
                 (0usize..vertex_count.max(1), 0usize..vertex_count.max(1)),
