@@ -1,5 +1,7 @@
 use std::ops::Range;
 
+use crate::graphs::vertices::{ReadVertices, Vertices};
+
 pub trait Hyperedges {
     type Vertex: Eq + Copy;
     type Hyperedge: Eq + Copy;
@@ -14,22 +16,6 @@ pub trait ReadHyperedges: Hyperedges {
 
     fn hyperedge_count(&self) -> usize {
         self.hyperedges().count()
-    }
-}
-
-pub trait Vertices {
-    type Vertex: Eq + Copy;
-}
-
-pub trait ReadVertices: Vertices {
-    type Vertices<'a>: Iterator<Item = Self::Vertex>
-    where
-        Self: 'a;
-
-    fn vertices(&self) -> Self::Vertices<'_>;
-
-    fn vertex_count(&self) -> usize {
-        self.vertices().count()
     }
 }
 
@@ -435,7 +421,7 @@ impl DirectedHypergraph for DHCSR {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{rngs::StdRng, Rng, SeedableRng};
+    use rand::{Rng, SeedableRng, rngs::StdRng};
 
     fn naive_vertex_count(hyperedges: &[(Vec<usize>, Vec<usize>)]) -> usize {
         hyperedges
@@ -447,31 +433,31 @@ mod tests {
     }
 
     fn naive_outgoing(hyperedges: &[(Vec<usize>, Vec<usize>)], v: usize) -> Vec<usize> {
-        let mut out = Vec::new();
+        let mut outgoing = Vec::new();
 
         for (e, (tail, _)) in hyperedges.iter().enumerate() {
             for &u in tail {
                 if u == v {
-                    out.push(e);
+                    outgoing.push(e);
                 }
             }
         }
 
-        out
+        outgoing
     }
 
     fn naive_ingoing(hyperedges: &[(Vec<usize>, Vec<usize>)], v: usize) -> Vec<usize> {
-        let mut inn = Vec::new();
+        let mut ingoing = Vec::new();
 
         for (e, (_, head)) in hyperedges.iter().enumerate() {
             for &u in head {
                 if u == v {
-                    inn.push(e);
+                    ingoing.push(e);
                 }
             }
         }
 
-        inn
+        ingoing
     }
 
     fn assert_graph_matches_input(g: &DHCSR, hyperedges: &[(Vec<usize>, Vec<usize>)]) {
@@ -479,17 +465,36 @@ mod tests {
 
         assert_eq!(g.vertex_count(), vertex_count);
         assert_eq!(g.hyperedge_count(), hyperedges.len());
-        assert_eq!(g.vertices().collect::<Vec<_>>(), (0..vertex_count).collect::<Vec<_>>());
+        assert_eq!(
+            g.vertices().collect::<Vec<_>>(),
+            (0..vertex_count).collect::<Vec<_>>()
+        );
         assert_eq!(
             g.hyperedges().collect::<Vec<_>>(),
             (0..hyperedges.len()).collect::<Vec<_>>()
         );
 
         for (e, (tail, head)) in hyperedges.iter().enumerate() {
-            assert_eq!(g.tail(e).collect::<Vec<_>>(), *tail, "tail mismatch for hyperedge {e}");
-            assert_eq!(g.head(e).collect::<Vec<_>>(), *head, "head mismatch for hyperedge {e}");
-            assert_eq!(g.tail_cardinality(e), tail.len(), "tail cardinality mismatch for hyperedge {e}");
-            assert_eq!(g.head_cardinality(e), head.len(), "head cardinality mismatch for hyperedge {e}");
+            assert_eq!(
+                g.tail(e).collect::<Vec<_>>(),
+                *tail,
+                "tail mismatch for hyperedge {e}"
+            );
+            assert_eq!(
+                g.head(e).collect::<Vec<_>>(),
+                *head,
+                "head mismatch for hyperedge {e}"
+            );
+            assert_eq!(
+                g.tail_cardinality(e),
+                tail.len(),
+                "tail cardinality mismatch for hyperedge {e}"
+            );
+            assert_eq!(
+                g.head_cardinality(e),
+                head.len(),
+                "head cardinality mismatch for hyperedge {e}"
+            );
 
             for v in 0..vertex_count {
                 assert_eq!(
@@ -509,10 +514,26 @@ mod tests {
             let expected_out = naive_outgoing(hyperedges, v);
             let expected_in = naive_ingoing(hyperedges, v);
 
-            assert_eq!(g.outgoing(v).collect::<Vec<_>>(), expected_out, "outgoing mismatch for vertex {v}");
-            assert_eq!(g.ingoing(v).collect::<Vec<_>>(), expected_in, "ingoing mismatch for vertex {v}");
-            assert_eq!(g.outgoing_degree(v), expected_out.len(), "outgoing degree mismatch for vertex {v}");
-            assert_eq!(g.ingoing_degree(v), expected_in.len(), "ingoing degree mismatch for vertex {v}");
+            assert_eq!(
+                g.outgoing(v).collect::<Vec<_>>(),
+                expected_out,
+                "outgoing mismatch for vertex {v}"
+            );
+            assert_eq!(
+                g.ingoing(v).collect::<Vec<_>>(),
+                expected_in,
+                "ingoing mismatch for vertex {v}"
+            );
+            assert_eq!(
+                g.outgoing_degree(v),
+                expected_out.len(),
+                "outgoing degree mismatch for vertex {v}"
+            );
+            assert_eq!(
+                g.ingoing_degree(v),
+                expected_in.len(),
+                "ingoing degree mismatch for vertex {v}"
+            );
         }
     }
 
@@ -541,10 +562,7 @@ mod tests {
 
     #[test]
     fn repeated_vertices_inside_hyperedge_are_preserved() {
-        let input = vec![
-            (vec![0, 0, 1], vec![2, 2]),
-            (vec![1], vec![1, 1, 1]),
-        ];
+        let input = vec![(vec![0, 0, 1], vec![2, 2]), (vec![1], vec![1, 1, 1])];
         let g = DHCSR::from(input.clone());
 
         assert_eq!(g.tail(0).collect::<Vec<_>>(), vec![0, 0, 1]);
@@ -650,11 +668,7 @@ mod tests {
                 input.push((tail, head));
             }
 
-            let normalized_input = if vertex_bound == 0 {
-                Vec::new()
-            } else {
-                input
-            };
+            let normalized_input = if vertex_bound == 0 { Vec::new() } else { input };
 
             let g = DHCSR::from(normalized_input.clone());
             assert_graph_matches_input(&g, &normalized_input);
