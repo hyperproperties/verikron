@@ -12,6 +12,7 @@ pub mod frontier;
 pub mod graph;
 pub mod hyper;
 pub mod labeled_edges;
+pub mod mcsr;
 pub mod parallel_bfs;
 pub mod sequential_backward_search;
 pub mod sequential_forward_search;
