@@ -1,9 +1,10 @@
-use crate::mem::boxed_slices::grow_boxed_slice;
+use crate::{
+    graphs::graph::{EdgeType, VertexType},
+    mem::boxed_slices::grow_boxed_slice,
+};
 use std::ops::Range;
 
-use crate::graphs::graph::{
-    Directed, Edges, InsertVertex, Graph, Vertices,
-};
+use crate::graphs::graph::{Directed, Edges, Graph, InsertVertex, Vertices};
 
 /// Compressed Sparse Row (CSR) representation of a directed multi graph.
 ///
@@ -142,6 +143,21 @@ impl CSR {
 }
 
 impl Directed for CSR {
+    type Outgoing<'a>
+        = CsrEdges<'a>
+    where
+        Self: 'a;
+
+    type Ingoing<'a>
+        = CsrEdges<'a>
+    where
+        Self: 'a;
+
+    type Connections<'a>
+        = CsrEdges<'a>
+    where
+        Self: 'a;
+
     /// Source vertex of an edge.
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
         debug_assert!(
@@ -210,7 +226,7 @@ impl Directed for CSR {
     }
 
     /// Iterator over all edges whose source equals the given vertex.
-    fn outgoing(&self, source: Self::Vertex) -> Self::Edges<'_> {
+    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
         debug_assert!(
             source < self.vertex_count(),
             "CSR::outgoing: source {} out of range {}",
@@ -221,9 +237,9 @@ impl Directed for CSR {
             Some((start, end)) => {
                 debug_assert!(start <= end);
                 debug_assert!(end <= self.edge_count());
-                Self::Edges::new(self, start, end, None)
+                Self::Outgoing::new(self, start, end, None)
             }
-            None => Self::Edges::empty(self),
+            None => Self::Outgoing::empty(self),
         }
     }
 
@@ -245,14 +261,14 @@ impl Directed for CSR {
     ///
     /// This scans all edges and filters by destination
     /// which is optimal given a single CSR layout.
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Edges<'_> {
+    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
         debug_assert!(
             destination < self.vertex_count(),
             "CSR::ingoing: destination {} out of range {}",
             destination,
             self.vertex_count()
         );
-        Self::Edges::new(self, 0, self.edge_count(), Some(destination))
+        Self::Ingoing::new(self, 0, self.edge_count(), Some(destination))
     }
 
     /// Number of incoming edges for a vertex.
@@ -283,7 +299,11 @@ impl Directed for CSR {
             Some((start, end)) => {
                 debug_assert!(start <= end);
                 debug_assert!(end <= self.edge_count());
-                Self::Edges::new(self, start, end, Some(vertex)).count()
+
+                self.indices[start..end]
+                    .iter()
+                    .filter(|&&destination| destination == vertex)
+                    .count()
             }
             None => 0,
         }
@@ -291,7 +311,7 @@ impl Directed for CSR {
 
     /// Returns an iterator over all edges whose source is from,
     /// and whose destination is to.
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_> {
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
         debug_assert!(
             from < self.vertex_count(),
             "CSR::connections: from {} out of range {}",
@@ -308,17 +328,18 @@ impl Directed for CSR {
             Some((start, end)) => {
                 debug_assert!(start <= end);
                 debug_assert!(end <= self.edge_count());
-                Self::Edges::new(self, start, end, Some(to))
+                Self::Connections::new(self, start, end, Some(to))
             }
-            None => Self::Edges::empty(self),
+            None => Self::Connections::empty(self),
         }
     }
 }
 
-impl Edges for CSR {
-    type Vertex = usize;
+impl EdgeType for CSR {
     type Edge = usize;
+}
 
+impl Edges for CSR {
     type Edges<'a>
         = CsrEdges<'a>
     where
@@ -345,9 +366,11 @@ impl Edges for CSR {
     }
 }
 
-impl Vertices for CSR {
+impl VertexType for CSR {
     type Vertex = usize;
+}
 
+impl Vertices for CSR {
     type Vertices<'a>
         = Range<usize>
     where
@@ -413,7 +436,6 @@ impl InsertVertex for CSR {
 }
 
 impl Graph for CSR {
-    type Vertex = usize;
     type Vertices = Self;
     type Edges = Self;
 

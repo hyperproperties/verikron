@@ -68,11 +68,6 @@ pub trait LabeledEdgesMut:
 }
 
 impl<T> LabeledEdgesMut for T where
-    T: LabeledEdges
-        + Edges
-        + ReadLabeledEdges
-        + InsertLabeledEdge
-        + RemoveEdge
-        + WriteEdgeLabel
+    T: LabeledEdges + Edges + ReadLabeledEdges + InsertLabeledEdge + RemoveEdge + WriteEdgeLabel
 {
 }

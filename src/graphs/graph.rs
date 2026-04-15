@@ -1,8 +1,11 @@
-/// Finite graph with global access to its vertices.
-pub trait Vertices {
+/// Common vertex identifier type.
+pub trait VertexType {
     /// Type used to identify vertices.
     type Vertex: Eq + Copy;
+}
 
+/// Finite graph with global access to its vertices.
+pub trait Vertices: VertexType {
     /// Iterator over all vertices.
     type Vertices<'a>: Iterator<Item = Self::Vertex>
     where
@@ -23,13 +26,13 @@ pub trait Vertices {
 }
 
 /// Vertex insertion.
-pub trait InsertVertex: Vertices {
+pub trait InsertVertex: VertexType {
     /// Inserts a new vertex and returns its identifier on success.
     fn insert_vertex(&mut self) -> Option<Self::Vertex>;
 }
 
 /// Vertex removal.
-pub trait RemoveVertex: Vertices {
+pub trait RemoveVertex: VertexType {
     /// Removes `vertex` and returns whether it existed.
     fn remove_vertex(&mut self, vertex: Self::Vertex) -> bool;
 }
@@ -38,14 +41,14 @@ pub trait RemoveVertex: Vertices {
 pub trait VerticesMut: Vertices + InsertVertex + RemoveVertex {}
 impl<T> VerticesMut for T where T: Vertices + InsertVertex + RemoveVertex {}
 
-/// Finite graph with global access to its edges.
-pub trait Edges {
-    /// Type used to identify vertices.
-    type Vertex: Eq + Copy;
-
+/// Common edge identifier type.
+pub trait EdgeType: VertexType {
     /// Type used to identify edges.
     type Edge: Eq + Copy;
+}
 
+/// Finite graph with global access to its edges.
+pub trait Edges: EdgeType {
     /// Iterator over all edges as `(source, edge, destination)`.
     type Edges<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
     where
@@ -61,13 +64,13 @@ pub trait Edges {
 }
 
 /// Edge insertion.
-pub trait InsertEdge: Edges {
+pub trait InsertEdge: EdgeType {
     /// Inserts an edge between the given endpoints.
     fn insert_edge(&mut self, endpoints: (Self::Vertex, Self::Vertex)) -> Option<Self::Edge>;
 }
 
 /// Edge removal.
-pub trait RemoveEdge: Edges {
+pub trait RemoveEdge: EdgeType {
     /// Removes `edge` and returns its endpoints on success.
     fn remove_edge(&mut self, edge: Self::Edge) -> Option<(Self::Vertex, Self::Vertex)>;
 }
@@ -80,7 +83,22 @@ impl<T> EdgesMut for T where T: Edges + InsertEdge + RemoveEdge {}
 ///
 /// The trait exposes structural queries such as sources, targets,
 /// outgoing edges, incoming edges, and direct connections.
-pub trait Directed: Edges {
+pub trait Directed: EdgeType {
+    /// Iterator over outgoing edges from a source vertex.
+    type Outgoing<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    where
+        Self: 'a;
+
+    /// Iterator over incoming edges to a destination vertex.
+    type Ingoing<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    where
+        Self: 'a;
+
+    /// Iterator over edges from `from` to `to`.
+    type Connections<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    where
+        Self: 'a;
+
     /// Returns the source vertex of `edge`.
     fn source(&self, edge: Self::Edge) -> Self::Vertex;
 
@@ -88,7 +106,7 @@ pub trait Directed: Edges {
     fn target(&self, edge: Self::Edge) -> Self::Vertex;
 
     /// Returns all outgoing edges from `source`.
-    fn outgoing(&self, source: Self::Vertex) -> Self::Edges<'_>;
+    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_>;
 
     /// Returns the number of outgoing edges from `vertex`.
     fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
@@ -96,7 +114,7 @@ pub trait Directed: Edges {
     }
 
     /// Returns all incoming edges to `destination`.
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Edges<'_>;
+    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_>;
 
     /// Returns the number of incoming edges to `vertex`.
     fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
@@ -117,17 +135,69 @@ pub trait Directed: Edges {
     }
 
     /// Returns all edges from `from` to `to`.
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_>;
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_>;
+}
+
+/// Core abstraction for undirected graphs.
+///
+/// The trait exposes structural queries such as endpoints,
+/// incident edges, degrees, loops, and direct connections.
+pub trait Undirected: EdgeType {
+    /// Iterator over edges incident to a vertex.
+    type Incident<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    where
+        Self: 'a;
+
+    /// Iterator over edges between two vertices.
+    type Connections<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    where
+        Self: 'a;
+
+    /// Returns the endpoints of `edge`.
+    ///
+    /// For a loop edge, both endpoints are the same vertex.
+    fn endpoints(&self, edge: Self::Edge) -> (Self::Vertex, Self::Vertex);
+
+    /// Returns all edges incident to `vertex`.
+    fn incident(&self, vertex: Self::Vertex) -> Self::Incident<'_>;
+
+    /// Returns the degree of `vertex`.
+    ///
+    /// By convention, each loop contributes `2` to the degree.
+    fn degree(&self, vertex: Self::Vertex) -> usize {
+        self.incident(vertex)
+            .map(|(u, _, v)| if u == v { 2 } else { 1 })
+            .sum()
+    }
+
+    /// Returns the number of loop edges at `vertex`.
+    fn loop_degree(&self, vertex: Self::Vertex) -> usize {
+        self.incident(vertex)
+            .filter(|(u, _, v)| *u == vertex && *v == vertex)
+            .count()
+    }
+
+    /// Returns true when there exists an edge between `u` and `v`.
+    fn is_connected(&self, u: Self::Vertex, v: Self::Vertex) -> bool {
+        self.connections(u, v).next().is_some()
+    }
+
+    /// Returns true when `edge` is an edge between `u` and `v`.
+    fn has_edge(&self, u: Self::Vertex, edge: Self::Edge, v: Self::Vertex) -> bool {
+        self.connections(u, v).any(|(_, e, _)| e == edge)
+    }
+
+    /// Returns all edges between `u` and `v`.
+    ///
+    /// For undirected graphs, `(u, v)` and `(v, u)` refer to the same pair.
+    fn connections(&self, u: Self::Vertex, v: Self::Vertex) -> Self::Connections<'_>;
 }
 
 /// High-level abstraction for a finite graph.
 ///
 /// A graph is composed from a vertex store and an edge store
 /// that share the same vertex identifier type.
-pub trait Graph {
-    /// Common vertex type.
-    type Vertex: Eq + Copy;
-
+pub trait Graph: VertexType {
     /// Vertex storage component.
     type Vertices: Vertices<Vertex = Self::Vertex>;
 
@@ -151,8 +221,9 @@ pub trait Graph {
     }
 }
 
-/// Marker trait for infinite or implicitly defined graphs.
-///
-/// Such graphs may support local exploration without supporting
+/// Graph-like structure with local exploration but without assumed
 /// global enumeration of all vertices or all edges.
-pub trait InfiniteGraph {}
+///
+/// This is intended for infinite or implicitly defined graphs such as
+/// transition systems, symbolic graphs, or lazily generated state spaces.
+pub trait InfiniteGraph: Directed {}

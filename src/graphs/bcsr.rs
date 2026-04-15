@@ -6,7 +6,7 @@ use crate::graphs::{
     bipartite::{RepartitionVertex, Side},
     colored::{ColoredVertices, InsertColoredVertex, ReadColoredVertices},
     csr::{CSR, CsrEdges},
-    graph::{Directed, Edges, InsertVertex, Graph, Vertices},
+    graph::{Directed, EdgeType, Edges, Graph, InsertVertex, VertexType, Vertices},
 };
 
 /// Bipartite graph backed by a CSR edge store and a dense bit-vector coloring.
@@ -69,10 +69,11 @@ impl BCSR {
     }
 }
 
-impl Edges for BCSR {
-    type Vertex = usize;
+impl EdgeType for BCSR {
     type Edge = usize;
+}
 
+impl Edges for BCSR {
     type Edges<'a>
         = CsrEdges<'a>
     where
@@ -94,6 +95,21 @@ impl Edges for BCSR {
 }
 
 impl Directed for BCSR {
+    type Outgoing<'a>
+        = <CSR as Directed>::Outgoing<'a>
+    where
+        Self: 'a;
+
+    type Ingoing<'a>
+        = <CSR as Directed>::Ingoing<'a>
+    where
+        Self: 'a;
+
+    type Connections<'a>
+        = <CSR as Directed>::Connections<'a>
+    where
+        Self: 'a;
+
     /// Source vertex of an edge.
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
         self.debug_check_invariant();
@@ -107,7 +123,7 @@ impl Directed for BCSR {
     }
 
     /// Iterator over all edges whose source equals the given vertex.
-    fn outgoing(&self, source: Self::Vertex) -> Self::Edges<'_> {
+    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
         self.debug_check_invariant();
         self.csr.outgoing(source)
     }
@@ -119,7 +135,7 @@ impl Directed for BCSR {
     }
 
     /// Iterator over all edges whose destination equals the given vertex.
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Edges<'_> {
+    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
         self.debug_check_invariant();
         self.csr.ingoing(destination)
     }
@@ -137,15 +153,17 @@ impl Directed for BCSR {
     }
 
     /// Returns an iterator over all edges from `from` to `to`.
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_> {
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
         self.debug_check_invariant();
         self.csr.connections(from, to)
     }
 }
 
-impl Vertices for BCSR {
+impl VertexType for BCSR {
     type Vertex = usize;
+}
 
+impl Vertices for BCSR {
     type Vertices<'a>
         = Range<usize>
     where
@@ -167,7 +185,6 @@ impl Vertices for BCSR {
 }
 
 impl Graph for BCSR {
-    type Vertex = usize;
     type Vertices = Self;
     type Edges = Self;
 

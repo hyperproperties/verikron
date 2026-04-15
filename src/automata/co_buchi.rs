@@ -9,7 +9,7 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Edges, Graph},
+        graph::{EdgeType, Edges, Graph, VertexType},
         labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,
@@ -53,19 +53,18 @@ impl<S: Eq + Hash> Acceptor<S> for CoBuchi<S> {
     }
 }
 
-impl<G> Automaton<G, CoBuchi<<G as Graph>::Vertex>>
+impl<G> Automaton<G, CoBuchi<<G as VertexType>::Vertex>>
 where
-    G: Graph
-        + Forward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>
-        + Backward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>,
-    <G as Graph>::Vertex: Eq + Hash + Debug,
-    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as Graph>::Vertex, Label = IoLabel>,
+    G: Graph + Forward + Backward,
+    <G as VertexType>::Vertex: Eq + Hash + Debug,
+    <G as Graph>::Edges: EdgeType<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>,
+    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
 {
     #[inline]
     pub fn with_co_buchi(
-        initial: <G as Graph>::Vertex,
+        initial: <G as VertexType>::Vertex,
         graph: G,
-        rejecting: Set<<G as Graph>::Vertex>,
+        rejecting: Set<<G as VertexType>::Vertex>,
     ) -> Self {
         Self::new(initial, graph, CoBuchi::new(rejecting))
     }

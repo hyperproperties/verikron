@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use bit_vec::BitVec;
 
-use crate::graphs::graph::{Directed, Edges, Graph, Vertices};
+use crate::graphs::graph::{Directed, EdgeType, Edges, Graph, VertexType, Vertices};
 
 /// A Dense Bit Matrix (DBM) representation of a directed graph.
 ///
@@ -213,9 +213,11 @@ impl DBM {
     }
 }
 
-impl Vertices for DBM {
+impl VertexType for DBM {
     type Vertex = usize;
+}
 
+impl Vertices for DBM {
     type Vertices<'a>
         = Range<usize>
     where
@@ -257,16 +259,16 @@ impl Vertices for DBM {
     }
 }
 
-impl Edges for DBM {
-    type Vertex = usize;
-
+impl EdgeType for DBM {
     /// Edge identifier.
     ///
     /// This is the flat index into the underlying `BitVec`. It uniquely
     /// identifies the directed edge in the graph and can be converted back
     /// to `(from, to)` using [`DBM::inverse_index`].
     type Edge = usize;
+}
 
+impl Edges for DBM {
     /// Iterator type over edges.
     ///
     /// This iterator yields triples `(from, edge, to)`, where `edge` is the
@@ -308,6 +310,21 @@ impl Edges for DBM {
 }
 
 impl Directed for DBM {
+    type Outgoing<'a>
+        = CbmEdges<'a>
+    where
+        Self: 'a;
+
+    type Ingoing<'a>
+        = CbmEdges<'a>
+    where
+        Self: 'a;
+
+    type Connections<'a>
+        = CbmEdges<'a>
+    where
+        Self: 'a;
+
     /// Returns the source vertex of the given `edge`.
     ///
     /// The edge is interpreted as a flat index into the matrix.
@@ -349,7 +366,7 @@ impl Directed for DBM {
     }
 
     /// Returns an iterator over all edges outgoing from `source`.
-    fn outgoing(&self, source: Self::Vertex) -> Self::Edges<'_> {
+    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
         debug_assert!(
             source < self.vertex_count(),
             "DBM::outgoing: source {} out of range {}",
@@ -360,7 +377,7 @@ impl Directed for DBM {
     }
 
     /// Returns an iterator over all edges ingoing into `destination`.
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Edges<'_> {
+    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
         debug_assert!(
             destination < self.vertex_count(),
             "DBM::ingoing: destination {} out of range {}",
@@ -442,7 +459,7 @@ impl Directed for DBM {
     /// * `to -> from`
     ///
     /// If `from == to` (a loop), at most one edge is returned.
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_> {
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
         debug_assert!(
             from < self.vertex_count() && to < self.vertex_count(),
             "DBM::connections: ({from}, {to}) out of range vertex_count {}",
@@ -453,10 +470,7 @@ impl Directed for DBM {
 }
 
 impl Graph for DBM {
-    type Vertex = usize;
-
     type Vertices = Self;
-
     type Edges = Self;
 
     /// Returns the edge store for this graph.

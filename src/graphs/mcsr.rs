@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::graphs::graph::{Directed, Edges, Graph, Vertices};
+use crate::graphs::graph::{Directed, EdgeType, Edges, Graph, VertexType, Vertices};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MCSR {
@@ -69,9 +69,11 @@ impl MCSR {
     }
 }
 
-impl Vertices for MCSR {
+impl VertexType for MCSR {
     type Vertex = usize;
+}
 
+impl Vertices for MCSR {
     type Vertices<'a>
         = Range<usize>
     where
@@ -82,10 +84,11 @@ impl Vertices for MCSR {
     }
 }
 
-impl Edges for MCSR {
-    type Vertex = usize;
+impl EdgeType for MCSR {
     type Edge = usize;
+}
 
+impl Edges for MCSR {
     type Edges<'a>
         = Box<dyn Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)> + 'a>
     where
@@ -101,6 +104,21 @@ impl Edges for MCSR {
 }
 
 impl Directed for MCSR {
+    type Outgoing<'a>
+        = <Self as Edges>::Edges<'a>
+    where
+        Self: 'a;
+
+    type Ingoing<'a>
+        = <Self as Edges>::Edges<'a>
+    where
+        Self: 'a;
+
+    type Connections<'a>
+        = <Self as Edges>::Edges<'a>
+    where
+        Self: 'a;
+
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
         assert!(edge < self.edge_count(), "edge out of bounds");
         self.locate_source(edge)
@@ -111,7 +129,7 @@ impl Directed for MCSR {
         self.indices[edge]
     }
 
-    fn outgoing(&self, source: Self::Vertex) -> Self::Edges<'_> {
+    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
         assert!(source < self.vertex_count(), "vertex out of bounds");
 
         let (start, end) = self.row_range(source).unwrap();
@@ -119,7 +137,7 @@ impl Directed for MCSR {
         Box::new((start..end).map(move |edge| (source, edge, self.indices[edge])))
     }
 
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Edges<'_> {
+    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
         assert!(destination < self.vertex_count(), "vertex out of bounds");
 
         Box::new((0..self.edge_count()).filter_map(move |edge| {
@@ -139,7 +157,7 @@ impl Directed for MCSR {
             .count()
     }
 
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Edges<'_> {
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
         assert!(from < self.vertex_count(), "source vertex out of bounds");
         assert!(to < self.vertex_count(), "destination vertex out of bounds");
 
@@ -153,7 +171,6 @@ impl Directed for MCSR {
 }
 
 impl Graph for MCSR {
-    type Vertex = usize;
     type Vertices = Self;
     type Edges = Self;
 

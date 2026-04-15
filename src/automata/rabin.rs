@@ -9,7 +9,7 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Edges, Graph},
+        graph::{EdgeType, Edges, Graph, VertexType},
         labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,
@@ -86,19 +86,18 @@ impl<S: Eq + Hash> Acceptor<S> for Rabin<S> {
     }
 }
 
-impl<G> Automaton<G, Rabin<<G as Graph>::Vertex>>
+impl<G> Automaton<G, Rabin<<G as VertexType>::Vertex>>
 where
-    G: Graph
-        + Forward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>
-        + Backward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>,
-    <G as Graph>::Vertex: Eq + Hash + Debug,
-    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as Graph>::Vertex, Label = IoLabel>,
+    G: Graph + Forward + Backward,
+    <G as VertexType>::Vertex: Eq + Hash + Debug,
+    <G as Graph>::Edges: EdgeType<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>,
+    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
 {
     #[inline]
     pub fn with_rabin(
-        initial: <G as Graph>::Vertex,
+        initial: <G as VertexType>::Vertex,
         graph: G,
-        pairs: Vec<RabinPair<<G as Graph>::Vertex>>,
+        pairs: Vec<RabinPair<<G as VertexType>::Vertex>>,
     ) -> Self {
         Self::new(initial, graph, Rabin::new(pairs))
     }

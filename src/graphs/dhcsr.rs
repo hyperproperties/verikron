@@ -1,6 +1,9 @@
 use std::ops::Range;
 
-use crate::graphs::{graph::Vertices, hyper::{DirectedHypergraph, Hyperedges}};
+use crate::graphs::{
+    graph::{VertexType, Vertices},
+    hyper::{DirectedHypergraph, Hyperedges},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DHCSR {
@@ -291,9 +294,11 @@ impl Hyperedges for DHCSR {
     }
 }
 
-impl Vertices for DHCSR {
+impl VertexType for DHCSR {
     type Vertex = usize;
+}
 
+impl Vertices for DHCSR {
     type Vertices<'a>
         = Range<usize>
     where

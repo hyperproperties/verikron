@@ -13,7 +13,7 @@ where
     T: Directed,
 {
     type Predecessors<'a>
-        = <T as Edges>::Edges<'a>
+        = T::Ingoing<'a>
     where
         Self: 'a;
 
