@@ -14,6 +14,5 @@ pub mod mcsr;
 pub mod parallel_bfs;
 pub mod sequential_backward_search;
 pub mod sequential_forward_search;
-pub mod undirected;
 pub mod visited;
 pub mod worklist;

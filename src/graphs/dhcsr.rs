@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use crate::graphs::{
-    graph::{VertexType, Vertices},
-    hyper::{DirectedHypergraph, Hyperedges},
+    graph::{FiniteVertices, VertexType, Vertices},
+    hyper::{DirectedHypergraph, HyperedgeType, Hyperedges, InfiniteDirectedHypergraph},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -276,10 +276,15 @@ impl From<Vec<(Vec<usize>, Vec<usize>)>> for DHCSR {
     }
 }
 
-impl Hyperedges for DHCSR {
+impl VertexType for DHCSR {
     type Vertex = usize;
-    type Hyperedge = usize;
+}
 
+impl HyperedgeType for DHCSR {
+    type Hyperedge = usize;
+}
+
+impl Hyperedges for DHCSR {
     type Hyperedges<'a>
         = Range<usize>
     where
@@ -294,10 +299,6 @@ impl Hyperedges for DHCSR {
     }
 }
 
-impl VertexType for DHCSR {
-    type Vertex = usize;
-}
-
 impl Vertices for DHCSR {
     type Vertices<'a>
         = Range<usize>
@@ -307,13 +308,15 @@ impl Vertices for DHCSR {
     fn vertices(&self) -> Self::Vertices<'_> {
         0..self.vertex_count
     }
+}
 
+impl FiniteVertices for DHCSR {
     fn vertex_count(&self) -> usize {
         self.vertex_count
     }
 }
 
-impl DirectedHypergraph for DHCSR {
+impl InfiniteDirectedHypergraph for DHCSR {
     type Tail<'a>
         = std::iter::Copied<std::slice::Iter<'a, usize>>
     where
@@ -354,6 +357,8 @@ impl DirectedHypergraph for DHCSR {
         self.in_hyperedges()[start..end].iter().copied()
     }
 }
+
+impl DirectedHypergraph for DHCSR {}
 
 #[cfg(test)]
 mod tests {

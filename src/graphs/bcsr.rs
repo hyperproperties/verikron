@@ -6,7 +6,10 @@ use crate::graphs::{
     bipartite::{RepartitionVertex, Side},
     colored::{ColoredVertices, InsertColoredVertex, VertexColor},
     csr::{CSR, CsrEdges},
-    graph::{Directed, EdgeType, Edges, Graph, InsertVertex, VertexType, Vertices},
+    graph::{
+        Directed, EdgeType, Edges, FiniteDirected, FiniteEdges, FiniteVertices, Graph,
+        InsertVertex, VertexType, Vertices,
+    },
 };
 
 /// Bipartite graph backed by CSR plus a dense side map.
@@ -54,7 +57,9 @@ impl Vertices for BCSR {
     fn vertices(&self) -> Self::Vertices<'_> {
         self.csr.vertices()
     }
+}
 
+impl FiniteVertices for BCSR {
     /// Returns the number of vertices.
     fn vertex_count(&self) -> usize {
         self.csr.vertex_count()
@@ -71,7 +76,9 @@ impl Edges for BCSR {
     fn edges(&self) -> Self::Edges<'_> {
         self.csr.edges()
     }
+}
 
+impl FiniteEdges for BCSR {
     /// Returns the number of edges.
     fn edge_count(&self) -> usize {
         self.csr.edge_count()
@@ -109,14 +116,21 @@ impl Directed for BCSR {
         self.csr.outgoing(source)
     }
 
-    /// Returns the outgoing degree of `vertex`.
-    fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
-        self.csr.outgoing_degree(vertex)
-    }
-
     /// Returns all incoming edges to `destination`.
     fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
         self.csr.ingoing(destination)
+    }
+
+    /// Returns all edges from `from` to `to`.
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
+        self.csr.connections(from, to)
+    }
+}
+
+impl FiniteDirected for BCSR {
+    /// Returns the outgoing degree of `vertex`.
+    fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
+        self.csr.outgoing_degree(vertex)
     }
 
     /// Returns the incoming degree of `vertex`.
@@ -127,11 +141,6 @@ impl Directed for BCSR {
     /// Returns the number of loop edges at `vertex`.
     fn loop_degree(&self, vertex: Self::Vertex) -> usize {
         self.csr.loop_degree(vertex)
-    }
-
-    /// Returns all edges from `from` to `to`.
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        self.csr.connections(from, to)
     }
 }
 
@@ -321,8 +330,6 @@ mod tests {
 
         assert_eq!(g.vertex_count(), 0);
         assert_eq!(g.edge_count(), 0);
-        assert_eq!(g.size(), 0);
-        assert!(g.is_empty());
 
         assert_eq!(g.vertices().count(), 0);
         assert_eq!(g.edges().count(), 0);
@@ -362,8 +369,6 @@ mod tests {
 
         assert_eq!(g.vertex_count(), 3);
         assert_eq!(g.edge_count(), 2);
-        assert_eq!(g.size(), 5);
-        assert!(!g.is_empty());
 
         let vertices: Vec<_> = g.vertices().collect();
         assert_eq!(vertices, vec![0, 1, 2]);

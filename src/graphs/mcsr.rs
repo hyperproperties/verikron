@@ -1,6 +1,9 @@
 use std::ops::Range;
 
-use crate::graphs::graph::{Directed, EdgeType, Edges, Graph, VertexType, Vertices};
+use crate::graphs::graph::{
+    Directed, EdgeType, Edges, FiniteDirected, FiniteEdges, FiniteVertices, Graph, VertexType,
+    Vertices,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MCSR {
@@ -84,6 +87,8 @@ impl Vertices for MCSR {
     }
 }
 
+impl FiniteVertices for MCSR {}
+
 impl EdgeType for MCSR {
     type Edge = usize;
 }
@@ -102,6 +107,8 @@ impl Edges for MCSR {
         }))
     }
 }
+
+impl FiniteEdges for MCSR {}
 
 impl Directed for MCSR {
     type Outgoing<'a>
@@ -146,17 +153,6 @@ impl Directed for MCSR {
         }))
     }
 
-    fn loop_degree(&self, vertex: Self::Vertex) -> usize {
-        assert!(vertex < self.vertex_count(), "vertex out of bounds");
-
-        let (start, end) = self.row_range(vertex).unwrap();
-
-        self.indices[start..end]
-            .iter()
-            .filter(|&&target| target == vertex)
-            .count()
-    }
-
     fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
         assert!(from < self.vertex_count(), "source vertex out of bounds");
         assert!(to < self.vertex_count(), "destination vertex out of bounds");
@@ -167,6 +163,19 @@ impl Directed for MCSR {
             let target = self.indices[edge];
             (target == to).then_some((from, edge, target))
         }))
+    }
+}
+
+impl FiniteDirected for MCSR {
+    fn loop_degree(&self, vertex: Self::Vertex) -> usize {
+        assert!(vertex < self.vertex_count(), "vertex out of bounds");
+
+        let (start, end) = self.row_range(vertex).unwrap();
+
+        self.indices[start..end]
+            .iter()
+            .filter(|&&target| target == vertex)
+            .count()
     }
 }
 

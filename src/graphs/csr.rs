@@ -1,10 +1,10 @@
 use crate::{
-    graphs::graph::{EdgeType, VertexType},
+    graphs::graph::{Directed, EdgeType, Edges, VertexType, Vertices},
     mem::boxed_slices::grow_boxed_slice,
 };
 use std::ops::Range;
 
-use crate::graphs::graph::{Directed, Edges, Graph, InsertVertex, Vertices};
+use crate::graphs::graph::{FiniteDirected, FiniteEdges, FiniteVertices, Graph, InsertVertex};
 
 /// Compressed Sparse Row (CSR) representation of a directed multi graph.
 ///
@@ -243,20 +243,6 @@ impl Directed for CSR {
         }
     }
 
-    /// Number of outgoing edges for a vertex.
-    fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
-        debug_assert!(
-            vertex < self.vertex_count(),
-            "CSR::outgoing_degree: vertex {} out of range {}",
-            vertex,
-            self.vertex_count()
-        );
-        match self.neighbor_range(vertex) {
-            Some((start, end)) => end - start,
-            None => 0,
-        }
-    }
-
     /// Iterator over all edges whose destination equals the given vertex.
     ///
     /// This scans all edges and filters by destination
@@ -269,6 +255,47 @@ impl Directed for CSR {
             self.vertex_count()
         );
         Self::Ingoing::new(self, 0, self.edge_count(), Some(destination))
+    }
+
+    /// Returns an iterator over all edges whose source is from,
+    /// and whose destination is to.
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
+        debug_assert!(
+            from < self.vertex_count(),
+            "CSR::connections: from {} out of range {}",
+            from,
+            self.vertex_count()
+        );
+        debug_assert!(
+            to < self.vertex_count(),
+            "CSR::connections: to {} out of range {}",
+            to,
+            self.vertex_count()
+        );
+        match self.neighbor_range(from) {
+            Some((start, end)) => {
+                debug_assert!(start <= end);
+                debug_assert!(end <= self.edge_count());
+                Self::Connections::new(self, start, end, Some(to))
+            }
+            None => Self::Connections::empty(self),
+        }
+    }
+}
+
+impl FiniteDirected for CSR {
+    /// Number of outgoing edges for a vertex.
+    fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
+        debug_assert!(
+            vertex < self.vertex_count(),
+            "CSR::outgoing_degree: vertex {} out of range {}",
+            vertex,
+            self.vertex_count()
+        );
+        match self.neighbor_range(vertex) {
+            Some((start, end)) => end - start,
+            None => 0,
+        }
     }
 
     /// Number of incoming edges for a vertex.
@@ -308,31 +335,6 @@ impl Directed for CSR {
             None => 0,
         }
     }
-
-    /// Returns an iterator over all edges whose source is from,
-    /// and whose destination is to.
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        debug_assert!(
-            from < self.vertex_count(),
-            "CSR::connections: from {} out of range {}",
-            from,
-            self.vertex_count()
-        );
-        debug_assert!(
-            to < self.vertex_count(),
-            "CSR::connections: to {} out of range {}",
-            to,
-            self.vertex_count()
-        );
-        match self.neighbor_range(from) {
-            Some((start, end)) => {
-                debug_assert!(start <= end);
-                debug_assert!(end <= self.edge_count());
-                Self::Connections::new(self, start, end, Some(to))
-            }
-            None => Self::Connections::empty(self),
-        }
-    }
 }
 
 impl EdgeType for CSR {
@@ -359,7 +361,9 @@ impl Edges for CSR {
         );
         Self::Edges::new(self, 0, self.edge_count(), None)
     }
+}
 
+impl FiniteEdges for CSR {
     /// Number of edges.
     fn edge_count(&self) -> usize {
         self.indices.len()
@@ -382,7 +386,9 @@ impl Vertices for CSR {
     fn vertices(&self) -> Self::Vertices<'_> {
         0..self.vertex_count()
     }
+}
 
+impl FiniteVertices for CSR {
     /// Number of vertices.
     fn vertex_count(&self) -> usize {
         let count = self.offsets.len().saturating_sub(1);
@@ -542,7 +548,7 @@ impl<'a> Iterator for CsrEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::graph::{Directed, Edges, Graph, Vertices};
+    use crate::graphs::graph::{FiniteDirected, FiniteEdges, FiniteVertices, Graph};
 
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng};
@@ -623,8 +629,6 @@ mod tests {
         // basic counts
         assert_eq!(csr.vertex_count(), 0, "default has no vertices");
         assert_eq!(csr.edge_count(), 0, "default has no edges");
-        assert_eq!(csr.size(), 0, "size must be zero for an empty graph");
-        assert!(csr.is_empty(), "is_empty must be true for default graph");
 
         // iterators
         assert_eq!(csr.vertices().count(), 0, "no vertices to iterate");
@@ -642,7 +646,6 @@ mod tests {
 
         assert_eq!(from_empty.vertex_count(), default.vertex_count());
         assert_eq!(from_empty.edge_count(), default.edge_count());
-        assert_eq!(from_empty.size(), default.size());
         assert_eq!(from_empty.offsets.as_ref(), default.offsets.as_ref());
         assert_eq!(from_empty.indices.as_ref(), default.indices.as_ref());
     }
@@ -690,10 +693,6 @@ mod tests {
         // edges iterator matches edge_count
         let es: Vec<_> = csr.edges().collect();
         assert_eq!(es.len(), csr.edge_count());
-
-        // size is vertices plus edges
-        assert_eq!(csr.size(), csr.vertex_count() + csr.edge_count());
-        assert!(!csr.is_empty());
     }
 
     // ============================================================
@@ -727,10 +726,6 @@ mod tests {
         assert_eq!(csr.outgoing_degree(0), 1);
         assert_eq!(csr.ingoing_degree(0), 1);
         assert_eq!(csr.loop_degree(0), 1);
-
-        // graph view
-        assert_eq!(csr.size(), csr.vertex_count() + csr.edge_count());
-        assert!(!csr.is_empty());
     }
 
     #[test]

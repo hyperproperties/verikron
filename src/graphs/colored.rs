@@ -1,4 +1,4 @@
-use crate::graphs::graph::{Graph, RemoveVertex, VertexType, Vertices};
+use crate::graphs::graph::{FiniteVertices, Graph, RemoveVertex, VertexType};
 
 /// Vertex color information.
 pub trait VertexColor: VertexType {
@@ -7,7 +7,7 @@ pub trait VertexColor: VertexType {
 }
 
 /// Finite graph with global access to vertex colors.
-pub trait ColoredVertices: Vertices + VertexColor {
+pub trait ColoredVertices: FiniteVertices + VertexColor {
     /// Returns the color of `vertex`, or `None` if it does not exist.
     fn vertex_color(&self, vertex: Self::Vertex) -> Option<Self::Color>;
 }

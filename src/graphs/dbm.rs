@@ -2,7 +2,10 @@ use std::ops::Range;
 
 use bit_vec::BitVec;
 
-use crate::graphs::graph::{Directed, EdgeType, Edges, Graph, VertexType, Vertices};
+use crate::graphs::graph::{
+    Directed, EdgeType, Edges, FiniteDirected, FiniteEdges, FiniteVertices, Graph, VertexType,
+    Vertices,
+};
 
 /// A Dense Bit Matrix (DBM) representation of a directed graph.
 ///
@@ -230,7 +233,9 @@ impl Vertices for DBM {
     fn vertices(&self) -> Self::Vertices<'_> {
         0..self.vertex_count()
     }
+}
 
+impl FiniteVertices for DBM {
     /// Returns the number of vertices in the graph.
     ///
     /// The number of vertices `n` is inferred from the length of the
@@ -299,7 +304,9 @@ impl Edges for DBM {
 
         CbmEdges::all(self)
     }
+}
 
+impl FiniteEdges for DBM {
     /// Returns the total number of edges present in the graph.
     ///
     /// This is equal to the number of bits set to `1` in the underlying
@@ -387,6 +394,26 @@ impl Directed for DBM {
         CbmEdges::ingoing(self, destination)
     }
 
+    /// Returns an iterator over all edges between `from` and `to`.
+    ///
+    /// At most two edges can exist between `from` and `to` in a directed
+    /// simple graph:
+    ///
+    /// * `from -> to`
+    /// * `to -> from`
+    ///
+    /// If `from == to` (a loop), at most one edge is returned.
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
+        debug_assert!(
+            from < self.vertex_count() && to < self.vertex_count(),
+            "DBM::connections: ({from}, {to}) out of range vertex_count {}",
+            self.vertex_count()
+        );
+        CbmEdges::between(self, from, to)
+    }
+}
+
+impl FiniteDirected for DBM {
     /// Returns the number of loop edges `(v, v)` at `vertex`.
     ///
     /// For this simple graph representation, this is either `0` or `1`.
@@ -448,24 +475,6 @@ impl Directed for DBM {
             self.matrix.len()
         );
         index == edge && self.matrix[index]
-    }
-
-    /// Returns an iterator over all edges between `from` and `to`.
-    ///
-    /// At most two edges can exist between `from` and `to` in a directed
-    /// simple graph:
-    ///
-    /// * `from -> to`
-    /// * `to -> from`
-    ///
-    /// If `from == to` (a loop), at most one edge is returned.
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        debug_assert!(
-            from < self.vertex_count() && to < self.vertex_count(),
-            "DBM::connections: ({from}, {to}) out of range vertex_count {}",
-            self.vertex_count()
-        );
-        CbmEdges::between(self, from, to)
     }
 }
 
@@ -737,7 +746,7 @@ impl<'a> Iterator for CbmEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::graph::Vertices;
+    use crate::graphs::graph::FiniteVertices;
     use std::collections::HashSet;
 
     use proptest::prelude::*;
