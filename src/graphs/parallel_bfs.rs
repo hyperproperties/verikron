@@ -171,7 +171,7 @@ mod tests {
     use std::collections::VecDeque;
 
     use crate::graphs::csr::CSR;
-    use crate::graphs::vertices::ReadVertices;
+    use crate::graphs::graph::ReadVertices;
     use crate::graphs::worklist::Worklist;
     use crate::lattices::bit_vector::BitVector;
     use crate::lattices::set::Set;

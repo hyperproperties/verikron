@@ -1,4 +1,4 @@
-use crate::graphs::edges::{Edges, ReadEdges, RemoveEdge};
+use crate::graphs::graph::{Edges, ReadEdges, RemoveEdge};
 
 /// Common vertex, edge, and label types used by labeled-edge traits.
 pub trait LabeledEdges: Edges {

@@ -1,4 +1,4 @@
-use crate::graphs::vertices::{ReadVertices, RemoveVertex, Vertices};
+use crate::graphs::graph::{ReadVertices, RemoveVertex, Vertices};
 
 /// A graph whose vertices are each associated with a color.
 ///

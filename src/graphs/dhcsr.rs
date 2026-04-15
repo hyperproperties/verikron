@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::graphs::vertices::{ReadVertices, Vertices};
+use crate::graphs::graph::{ReadVertices, Vertices};
 
 pub trait Hyperedges {
     type Vertex: Eq + Copy;

@@ -1,11 +1,8 @@
 use crate::mem::boxed_slices::grow_boxed_slice;
 use std::ops::Range;
 
-use crate::graphs::{
-    directed::Directed,
-    edges::{Edges, ReadEdges},
-    graph::ReadGraph,
-    vertices::{InsertVertex, ReadVertices, Vertices},
+use crate::graphs::graph::{
+    Directed, Edges, InsertVertex, ReadEdges, ReadGraph, ReadVertices, Vertices,
 };
 
 /// Compressed Sparse Row (CSR) representation of a directed multi graph.
@@ -528,9 +525,7 @@ impl<'a> Iterator for CsrEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::{
-        directed::Directed, edges::ReadEdges, graph::ReadGraph, vertices::ReadVertices,
-    };
+    use crate::graphs::graph::{Directed, ReadEdges, ReadGraph, ReadVertices};
 
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng};

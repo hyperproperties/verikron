@@ -6,10 +6,7 @@ use crate::graphs::{
     bipartite::{RepartitionVertex, Side},
     colored::{ColoredVertices, InsertColoredVertex, ReadColoredVertices},
     csr::{CSR, CsrEdges},
-    directed::Directed,
-    edges::{Edges, ReadEdges},
-    graph::ReadGraph,
-    vertices::{InsertVertex, ReadVertices, Vertices},
+    graph::{Directed, Edges, InsertVertex, ReadEdges, ReadGraph, ReadVertices, Vertices},
 };
 
 /// Bipartite graph backed by a CSR edge store and a dense bit-vector coloring.
@@ -278,10 +275,7 @@ impl RepartitionVertex for BCSR {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::{
-        bipartite::ReadBipartiteVertices, directed::Directed, edges::ReadEdges, graph::ReadGraph,
-        vertices::ReadVertices,
-    };
+    use crate::graphs::{bipartite::ReadBipartiteVertices, graph::ReadGraph};
 
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng};

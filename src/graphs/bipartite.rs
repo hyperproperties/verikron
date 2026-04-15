@@ -1,6 +1,6 @@
 use crate::graphs::{
     colored::{ColoredVertices, InsertColoredVertex, ReadColoredVertices},
-    vertices::RemoveVertex,
+    graph::RemoveVertex,
 };
 
 /// Canonical side type used by bipartite-vertex traits.

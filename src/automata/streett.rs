@@ -7,7 +7,9 @@ use crate::{
         trace::Summary,
     },
     graphs::{
-        backward::Backward, edges::Edges, forward::Forward, graph::ReadGraph,
+        backward::Backward,
+        forward::Forward,
+        graph::{Edges, ReadGraph},
         labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,

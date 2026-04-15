@@ -1,4 +1,4 @@
-use crate::graphs::{directed::Directed, edges::ReadEdges};
+use crate::graphs::graph::{Directed, ReadEdges};
 
 pub trait Backward: Directed {
     type Predecessors<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>

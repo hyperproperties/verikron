@@ -1,11 +1,6 @@
 use std::ops::Range;
 
-use crate::graphs::{
-    directed::Directed,
-    edges::{Edges, ReadEdges},
-    graph::ReadGraph,
-    vertices::{ReadVertices, Vertices},
-};
+use crate::graphs::graph::{Directed, Edges, ReadEdges, ReadGraph, ReadVertices, Vertices};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MCSR {

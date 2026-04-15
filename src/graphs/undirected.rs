@@ -1,4 +1,4 @@
-use crate::graphs::edges::ReadEdges;
+use crate::graphs::graph::ReadEdges;
 
 /// Core abstraction for finite undirected graphs.
 ///

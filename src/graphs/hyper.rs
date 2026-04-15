@@ -1,4 +1,4 @@
-use crate::graphs::vertices::ReadVertices;
+use crate::graphs::graph::ReadVertices;
 
 /// Common identifier types used by hypergraph traits.
 ///

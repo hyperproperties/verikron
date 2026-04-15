@@ -5,8 +5,10 @@ use symbol_table::Symbol;
 use crate::{
     automata::{acceptors::Acceptor, trace::Summary},
     graphs::{
-        backward::Backward, edges::Edges, forward::Forward, graph::ReadGraph,
-        labeled_edges::ReadLabeledEdges, vertices::ReadVertices,
+        backward::Backward,
+        forward::Forward,
+        graph::{Edges, ReadGraph, ReadVertices},
+        labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,
 };

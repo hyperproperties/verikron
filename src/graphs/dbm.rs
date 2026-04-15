@@ -2,12 +2,7 @@ use std::ops::Range;
 
 use bit_vec::BitVec;
 
-use crate::graphs::{
-    directed::Directed,
-    edges::{Edges, ReadEdges},
-    graph::ReadGraph,
-    vertices::{ReadVertices, Vertices},
-};
+use crate::graphs::graph::{Directed, Edges, ReadEdges, ReadGraph, ReadVertices, Vertices};
 
 /// A Dense Bit Matrix (DBM) representation of a directed graph.
 ///
@@ -732,7 +727,7 @@ impl<'a> Iterator for CbmEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::vertices::ReadVertices;
+    use crate::graphs::graph::ReadVertices;
     use std::collections::HashSet;
 
     use proptest::prelude::*;

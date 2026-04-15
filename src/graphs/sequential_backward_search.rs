@@ -151,7 +151,7 @@ mod tests {
     use super::*;
 
     use crate::graphs::csr::CSR;
-    use crate::graphs::vertices::ReadVertices;
+    use crate::graphs::graph::ReadVertices;
     use crate::lattices::set::Set;
     use proptest::prelude::*;
 
