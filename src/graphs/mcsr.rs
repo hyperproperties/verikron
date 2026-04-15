@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::graphs::graph::{Directed, Edges, ReadEdges, ReadGraph, ReadVertices, Vertices};
+use crate::graphs::graph::{Directed, Edges, Graph, Vertices};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MCSR {
@@ -71,9 +71,7 @@ impl MCSR {
 
 impl Vertices for MCSR {
     type Vertex = usize;
-}
 
-impl ReadVertices for MCSR {
     type Vertices<'a>
         = Range<usize>
     where
@@ -87,9 +85,7 @@ impl ReadVertices for MCSR {
 impl Edges for MCSR {
     type Vertex = usize;
     type Edge = usize;
-}
 
-impl ReadEdges for MCSR {
     type Edges<'a>
         = Box<dyn Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)> + 'a>
     where
@@ -156,7 +152,7 @@ impl Directed for MCSR {
     }
 }
 
-impl ReadGraph for MCSR {
+impl Graph for MCSR {
     type Vertex = usize;
     type Vertices = Self;
     type Edges = Self;

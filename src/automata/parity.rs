@@ -11,7 +11,7 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Edges, ReadGraph},
+        graph::{Edges, Graph},
         labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,
@@ -93,19 +93,19 @@ impl<S: Eq + Hash> Acceptor<S> for Parity<S> {
     }
 }
 
-impl<G> Automaton<G, Parity<<G as ReadGraph>::Vertex>>
+impl<G> Automaton<G, Parity<<G as Graph>::Vertex>>
 where
-    G: ReadGraph
-        + Forward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>
-        + Backward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>,
-    <G as ReadGraph>::Vertex: Eq + Hash + Debug,
-    <G as ReadGraph>::Edges: ReadLabeledEdges<Vertex = <G as ReadGraph>::Vertex, Label = IoLabel>,
+    G: Graph
+        + Forward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>
+        + Backward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>,
+    <G as Graph>::Vertex: Eq + Hash + Debug,
+    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as Graph>::Vertex, Label = IoLabel>,
 {
     #[inline]
     pub fn with_parity(
-        initial: <G as ReadGraph>::Vertex,
+        initial: <G as Graph>::Vertex,
         graph: G,
-        priorities: FxHashMap<<G as ReadGraph>::Vertex, usize>,
+        priorities: FxHashMap<<G as Graph>::Vertex, usize>,
         convention: ParityConvention,
     ) -> Self {
         Self::new(initial, graph, Parity::new(priorities, convention))

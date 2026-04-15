@@ -159,7 +159,7 @@ mod tests {
     use proptest::prelude::*;
 
     use crate::graphs::csr::CSR;
-    use crate::graphs::graph::ReadVertices;
+    use crate::graphs::graph::Vertices;
     use crate::graphs::worklist::Worklist;
     use crate::lattices::bit_vector::BitVector;
     use crate::lattices::set::Set;

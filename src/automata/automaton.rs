@@ -7,7 +7,7 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Edges, ReadGraph, ReadVertices},
+        graph::{Edges, Graph, Vertices},
         labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,
@@ -22,29 +22,29 @@ pub struct IoLabel {
 #[derive(Clone, Debug)]
 pub struct Automaton<G, A>
 where
-    G: ReadGraph
-        + Forward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>
-        + Backward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>,
-    <G as ReadGraph>::Vertex: Eq + Hash + Debug,
-    <G as ReadGraph>::Edges: ReadLabeledEdges<Vertex = <G as ReadGraph>::Vertex, Label = IoLabel>,
-    A: Acceptor<<G as ReadGraph>::Vertex>,
+    G: Graph
+        + Forward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>
+        + Backward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>,
+    <G as Graph>::Vertex: Eq + Hash + Debug,
+    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as Graph>::Vertex, Label = IoLabel>,
+    A: Acceptor<<G as Graph>::Vertex>,
 {
-    initial: <G as ReadGraph>::Vertex,
+    initial: <G as Graph>::Vertex,
     graph: G,
     acceptor: A,
 }
 
 impl<G, A> Automaton<G, A>
 where
-    G: ReadGraph
-        + Forward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>
-        + Backward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>,
-    <G as ReadGraph>::Vertex: Eq + Hash + Debug,
-    <G as ReadGraph>::Edges: ReadLabeledEdges<Vertex = <G as ReadGraph>::Vertex, Label = IoLabel>,
-    A: Acceptor<<G as ReadGraph>::Vertex>,
+    G: Graph
+        + Forward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>
+        + Backward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>,
+    <G as Graph>::Vertex: Eq + Hash + Debug,
+    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as Graph>::Vertex, Label = IoLabel>,
+    A: Acceptor<<G as Graph>::Vertex>,
 {
     #[inline]
-    pub fn new(initial: <G as ReadGraph>::Vertex, graph: G, acceptor: A) -> Self {
+    pub fn new(initial: <G as Graph>::Vertex, graph: G, acceptor: A) -> Self {
         assert!(graph.vertex_store().contains(&initial));
         Self {
             initial,
@@ -54,7 +54,7 @@ where
     }
 
     #[inline]
-    pub fn initial(&self) -> &<G as ReadGraph>::Vertex {
+    pub fn initial(&self) -> &<G as Graph>::Vertex {
         &self.initial
     }
 
@@ -69,32 +69,32 @@ where
     }
 
     #[inline]
-    pub fn accepts(&self, summary: &Summary<<G as ReadGraph>::Vertex>) -> bool {
+    pub fn accepts(&self, summary: &Summary<<G as Graph>::Vertex>) -> bool {
         self.acceptor.accepts(summary)
     }
 
     #[inline]
-    pub fn label(&self, edge: <<G as ReadGraph>::Edges as Edges>::Edge) -> Option<&IoLabel> {
+    pub fn label(&self, edge: <<G as Graph>::Edges as Edges>::Edge) -> Option<&IoLabel> {
         self.graph.edge_store().label(edge)
     }
 
     #[inline]
-    pub fn successors(&self, vertex: <G as ReadGraph>::Vertex) -> <G as Forward>::Successors<'_> {
+    pub fn successors(&self, vertex: <G as Graph>::Vertex) -> <G as Forward>::Successors<'_> {
         self.graph.successors(vertex)
     }
 
     #[inline]
     pub fn predecessors(
         &self,
-        vertex: <G as ReadGraph>::Vertex,
+        vertex: <G as Graph>::Vertex,
     ) -> <G as Backward>::Predecessors<'_> {
         self.graph.predecessors(vertex)
     }
 
     pub fn labeled_successors(
         &self,
-        vertex: <G as ReadGraph>::Vertex,
-    ) -> impl Iterator<Item = (<G as ReadGraph>::Vertex, IoLabel, <G as ReadGraph>::Vertex)> + '_
+        vertex: <G as Graph>::Vertex,
+    ) -> impl Iterator<Item = (<G as Graph>::Vertex, IoLabel, <G as Graph>::Vertex)> + '_
     {
         self.successors(vertex)
             .filter_map(|(from, edge, to)| self.label(edge).copied().map(|label| (from, label, to)))
@@ -102,8 +102,8 @@ where
 
     pub fn labeled_predecessors(
         &self,
-        vertex: <G as ReadGraph>::Vertex,
-    ) -> impl Iterator<Item = (<G as ReadGraph>::Vertex, IoLabel, <G as ReadGraph>::Vertex)> + '_
+        vertex: <G as Graph>::Vertex,
+    ) -> impl Iterator<Item = (<G as Graph>::Vertex, IoLabel, <G as Graph>::Vertex)> + '_
     {
         self.predecessors(vertex)
             .filter_map(|(from, edge, to)| self.label(edge).copied().map(|label| (from, label, to)))

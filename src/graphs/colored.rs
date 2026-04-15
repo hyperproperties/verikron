@@ -1,4 +1,4 @@
-use crate::graphs::graph::{ReadVertices, RemoveVertex, Vertices};
+use crate::graphs::graph::{Vertices, RemoveVertex};
 
 /// A graph whose vertices are each associated with a color.
 ///
@@ -23,7 +23,7 @@ pub trait ColoredVertices: Vertices {
 /// Every existing vertex is expected to have a color. Since a queried vertex
 /// identifier may be invalid, [`ReadColoredVertices::vertex_color`] returns
 /// an [`Option`].
-pub trait ReadColoredVertices: ColoredVertices + ReadVertices {
+pub trait ReadColoredVertices: ColoredVertices + Vertices {
     /// Returns the color of the given vertex.
     ///
     /// The `vertex` parameter is the identifier of the vertex whose color

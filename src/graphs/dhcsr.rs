@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::graphs::graph::{ReadVertices, Vertices};
+use crate::graphs::graph::Vertices;
 
 pub trait Hyperedges {
     type Vertex: Eq + Copy;
@@ -359,9 +359,7 @@ impl ReadHyperedges for DHCSR {
 
 impl Vertices for DHCSR {
     type Vertex = usize;
-}
 
-impl ReadVertices for DHCSR {
     type Vertices<'a>
         = Range<usize>
     where

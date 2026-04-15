@@ -1,4 +1,4 @@
-use crate::graphs::graph::ReadVertices;
+use crate::graphs::graph::Vertices;
 
 /// Common identifier types used by hypergraph traits.
 ///
@@ -63,7 +63,7 @@ pub trait ReadHypergraph {
     type Hyperedge: Eq + Copy;
 
     /// Vertex storage component.
-    type Vertices: ReadVertices<Vertex = Self::Vertex>;
+    type Vertices: Vertices<Vertex = Self::Vertex>;
 
     /// Hyperedge storage component.
     type Hyperedges: ReadHyperedges<Vertex = Self::Vertex, Hyperedge = Self::Hyperedge>;

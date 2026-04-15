@@ -1,4 +1,4 @@
-use crate::graphs::graph::{Edges, ReadEdges, RemoveEdge};
+use crate::graphs::graph::{Edges, RemoveEdge};
 
 /// Common vertex, edge, and label types used by labeled-edge traits.
 pub trait LabeledEdges: Edges {
@@ -9,7 +9,7 @@ pub trait LabeledEdges: Edges {
 }
 
 /// A graph that supports read-only access to edge labels.
-pub trait ReadLabeledEdges: ReadEdges + LabeledEdges {
+pub trait ReadLabeledEdges: Edges + LabeledEdges {
     /// Iterator over all labeled edges in the graph.
     ///
     /// Each item is a quadruple `(source, edge, label, destination)`.
@@ -63,13 +63,13 @@ pub trait InsertLabeledEdge: LabeledEdges {
 
 /// Convenience alias for a labeled graph that supports both querying and mutation.
 pub trait LabeledEdgesMut:
-    LabeledEdges + ReadEdges + ReadLabeledEdges + InsertLabeledEdge + RemoveEdge + WriteEdgeLabel
+    LabeledEdges + Edges + ReadLabeledEdges + InsertLabeledEdge + RemoveEdge + WriteEdgeLabel
 {
 }
 
 impl<T> LabeledEdgesMut for T where
     T: LabeledEdges
-        + ReadEdges
+        + Edges
         + ReadLabeledEdges
         + InsertLabeledEdge
         + RemoveEdge

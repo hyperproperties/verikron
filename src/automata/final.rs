@@ -9,7 +9,7 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Edges, ReadGraph},
+        graph::{Edges, Graph},
         labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,
@@ -53,19 +53,19 @@ impl<S: Eq + Hash> Acceptor<S> for Final<S> {
     }
 }
 
-impl<G> Automaton<G, Final<<G as ReadGraph>::Vertex>>
+impl<G> Automaton<G, Final<<G as Graph>::Vertex>>
 where
-    G: ReadGraph
-        + Forward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>
-        + Backward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>,
-    <G as ReadGraph>::Vertex: Eq + Hash + Debug,
-    <G as ReadGraph>::Edges: ReadLabeledEdges<Vertex = <G as ReadGraph>::Vertex, Label = IoLabel>,
+    G: Graph
+        + Forward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>
+        + Backward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>,
+    <G as Graph>::Vertex: Eq + Hash + Debug,
+    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as Graph>::Vertex, Label = IoLabel>,
 {
     #[inline]
     pub fn with_final(
-        initial: <G as ReadGraph>::Vertex,
+        initial: <G as Graph>::Vertex,
         graph: G,
-        accepting: Set<<G as ReadGraph>::Vertex>,
+        accepting: Set<<G as Graph>::Vertex>,
     ) -> Self {
         Self::new(initial, graph, Final::new(accepting))
     }

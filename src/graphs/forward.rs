@@ -1,4 +1,4 @@
-use crate::graphs::graph::{Directed, ReadEdges};
+use crate::graphs::graph::{Directed, Edges};
 
 pub trait Forward: Directed {
     type Successors<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
@@ -13,7 +13,7 @@ where
     T: Directed,
 {
     type Successors<'a>
-        = <T as ReadEdges>::Edges<'a>
+        = <T as Edges>::Edges<'a>
     where
         Self: 'a;
 

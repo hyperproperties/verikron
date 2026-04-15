@@ -9,7 +9,7 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Edges, ReadGraph},
+        graph::{Edges, Graph},
         labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,
@@ -83,19 +83,19 @@ impl<S: Eq + Hash> Acceptor<S> for Streett<S> {
     }
 }
 
-impl<G> Automaton<G, Streett<<G as ReadGraph>::Vertex>>
+impl<G> Automaton<G, Streett<<G as Graph>::Vertex>>
 where
-    G: ReadGraph
-        + Forward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>
-        + Backward<Vertex = <G as ReadGraph>::Vertex, Edge = <<G as ReadGraph>::Edges as Edges>::Edge>,
-    <G as ReadGraph>::Vertex: Eq + Hash + Debug,
-    <G as ReadGraph>::Edges: ReadLabeledEdges<Vertex = <G as ReadGraph>::Vertex, Label = IoLabel>,
+    G: Graph
+        + Forward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>
+        + Backward<Vertex = <G as Graph>::Vertex, Edge = <<G as Graph>::Edges as Edges>::Edge>,
+    <G as Graph>::Vertex: Eq + Hash + Debug,
+    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as Graph>::Vertex, Label = IoLabel>,
 {
     #[inline]
     pub fn with_streett(
-        initial: <G as ReadGraph>::Vertex,
+        initial: <G as Graph>::Vertex,
         graph: G,
-        pairs: Vec<StreettPair<<G as ReadGraph>::Vertex>>,
+        pairs: Vec<StreettPair<<G as Graph>::Vertex>>,
     ) -> Self {
         Self::new(initial, graph, Streett::new(pairs))
     }
