@@ -4,73 +4,61 @@ use bit_vec::BitVec;
 
 use crate::graphs::{
     bipartite::{RepartitionVertex, Side},
-    colored::{ColoredVertices, InsertColoredVertex, ReadColoredVertices},
+    colored::{ColoredVertices, InsertColoredVertex, VertexColor},
     csr::{CSR, CsrEdges},
     graph::{Directed, EdgeType, Edges, Graph, InsertVertex, VertexType, Vertices},
 };
 
-/// Bipartite graph backed by a CSR edge store and a dense bit-vector coloring.
+/// Bipartite graph backed by CSR plus a dense side map.
 ///
-/// This representation stores the graph structure in an inner [`CSR`], while
-/// the bipartition is stored separately in `colors`.
+/// Structure is stored in `csr`.
+/// The bipartition is stored in `colors`, where:
+/// - `false` = [`Side::Left`]
+/// - `true` = [`Side::Right`]
 ///
-/// Each vertex has exactly one side:
-/// - `false` means [`Side::Left`]
-/// - `true` means [`Side::Right`]
-///
-/// The key invariant is:
+/// Invariant:
 /// every edge connects vertices on opposite sides.
-///
-/// This type is intended for forward-heavy graph algorithms, where the CSR
-/// layout provides efficient outgoing-edge traversal while the bit-vector
-/// provides compact O(1) side lookup.
 #[derive(Debug)]
 pub struct BCSR {
     /// Directed graph structure.
     csr: CSR,
 
-    /// Total bipartition coloring.
-    ///
-    /// `colors[v]` is the side of vertex `v`.
-    /// `false` encodes [`Side::Left`], `true` encodes [`Side::Right`].
+    /// Total bipartition coloring, one bit per vertex.
     colors: BitVec,
 }
 
 impl Default for BCSR {
-    /// Empty bipartite CSR graph with no vertices and no edges.
     fn default() -> Self {
-        let graph = Self {
-            csr: Default::default(),
-            colors: Default::default(),
-        };
-
-        debug_assert_eq!(graph.vertex_count(), 0);
-        debug_assert_eq!(graph.edge_count(), 0);
-        debug_assert_eq!(graph.colors.len(), 0);
-
-        graph
+        Self {
+            csr: CSR::default(),
+            colors: BitVec::default(),
+        }
     }
 }
 
-impl BCSR {
-    /// Checks the internal representation invariant in debug builds.
-    ///
-    /// The number of stored colors must always match the number of vertices
-    /// in the underlying CSR graph.
-    #[inline]
-    fn debug_check_invariant(&self) {
-        debug_assert_eq!(
-            self.colors.len(),
-            self.csr.vertex_count(),
-            "BCSR invariant violated: colors.len() = {}, vertex_count = {}",
-            self.colors.len(),
-            self.csr.vertex_count()
-        );
-    }
+impl VertexType for BCSR {
+    type Vertex = usize;
 }
 
 impl EdgeType for BCSR {
     type Edge = usize;
+}
+
+impl Vertices for BCSR {
+    type Vertices<'a>
+        = Range<usize>
+    where
+        Self: 'a;
+
+    /// Returns all vertices.
+    fn vertices(&self) -> Self::Vertices<'_> {
+        self.csr.vertices()
+    }
+
+    /// Returns the number of vertices.
+    fn vertex_count(&self) -> usize {
+        self.csr.vertex_count()
+    }
 }
 
 impl Edges for BCSR {
@@ -79,17 +67,13 @@ impl Edges for BCSR {
     where
         Self: 'a;
 
-    /// Iterator over all edges in the graph.
+    /// Returns all edges.
     fn edges(&self) -> Self::Edges<'_> {
-        self.debug_check_invariant();
         self.csr.edges()
     }
 
-    /// Number of edges.
-    ///
-    /// Delegated directly to the inner CSR store to avoid counting by iteration.
+    /// Returns the number of edges.
     fn edge_count(&self) -> usize {
-        self.debug_check_invariant();
         self.csr.edge_count()
     }
 }
@@ -110,77 +94,44 @@ impl Directed for BCSR {
     where
         Self: 'a;
 
-    /// Source vertex of an edge.
+    /// Returns the source of `edge`.
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
-        self.debug_check_invariant();
         self.csr.source(edge)
     }
 
-    /// Destination vertex of an edge.
+    /// Returns the destination of `edge`.
     fn target(&self, edge: Self::Edge) -> Self::Vertex {
-        self.debug_check_invariant();
         self.csr.target(edge)
     }
 
-    /// Iterator over all edges whose source equals the given vertex.
+    /// Returns all outgoing edges from `source`.
     fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
-        self.debug_check_invariant();
         self.csr.outgoing(source)
     }
 
-    /// Number of outgoing edges for a vertex.
+    /// Returns the outgoing degree of `vertex`.
     fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
-        self.debug_check_invariant();
         self.csr.outgoing_degree(vertex)
     }
 
-    /// Iterator over all edges whose destination equals the given vertex.
+    /// Returns all incoming edges to `destination`.
     fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
-        self.debug_check_invariant();
         self.csr.ingoing(destination)
     }
 
-    /// Number of incoming edges for a vertex.
+    /// Returns the incoming degree of `vertex`.
     fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
-        self.debug_check_invariant();
         self.csr.ingoing_degree(vertex)
     }
 
-    /// Number of loop edges at a vertex.
+    /// Returns the number of loop edges at `vertex`.
     fn loop_degree(&self, vertex: Self::Vertex) -> usize {
-        self.debug_check_invariant();
         self.csr.loop_degree(vertex)
     }
 
-    /// Returns an iterator over all edges from `from` to `to`.
+    /// Returns all edges from `from` to `to`.
     fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        self.debug_check_invariant();
         self.csr.connections(from, to)
-    }
-}
-
-impl VertexType for BCSR {
-    type Vertex = usize;
-}
-
-impl Vertices for BCSR {
-    type Vertices<'a>
-        = Range<usize>
-    where
-        Self: 'a;
-
-    /// Iterator over all vertices in the graph.
-    fn vertices(&self) -> Self::Vertices<'_> {
-        self.debug_check_invariant();
-        self.csr.vertices()
-    }
-
-    /// Number of vertices.
-    ///
-    /// Delegated directly to the inner CSR store to avoid counting by iteration.
-    fn vertex_count(&self) -> usize {
-        self.debug_check_invariant();
-        self.csr.vertex_count()
     }
 }
 
@@ -188,90 +139,63 @@ impl Graph for BCSR {
     type Vertices = Self;
     type Edges = Self;
 
-    /// Access to the edge store.
+    /// Returns the edge store.
     fn edge_store(&self) -> &Self::Edges {
         self
     }
 
-    /// Access to the vertex store.
+    /// Returns the vertex store.
     fn vertex_store(&self) -> &Self::Vertices {
         self
     }
 }
 
-impl ColoredVertices for BCSR {
+impl VertexColor for BCSR {
     type Color = Side;
 }
 
-impl ReadColoredVertices for BCSR {
-    /// Returns the side of the given vertex.
-    ///
-    /// On success, returns a reference to the side of the vertex.
-    /// If `vertex` is out of range, returns `None`.
+impl ColoredVertices for BCSR {
+    /// Returns the side of `vertex`, or `None` if it does not exist.
     #[inline]
-    fn vertex_color(&self, vertex: Self::Vertex) -> Option<&Self::Color> {
-        self.debug_check_invariant();
-        self.colors.get(vertex).map(Side::from_bit_ref)
+    fn vertex_color(&self, vertex: Self::Vertex) -> Option<Self::Color> {
+        self.colors.get(vertex).map(Side::from)
     }
 }
 
 impl InsertColoredVertex for BCSR {
     /// Inserts a new isolated vertex with the given side.
-    ///
-    /// The vertex is inserted into the underlying CSR structure and its side
-    /// is stored in the color bit-vector.
-    ///
-    /// On success, returns the identifier of the new vertex.
     #[inline]
     fn insert_colored_vertex(&mut self, color: Self::Color) -> Option<Self::Vertex> {
-        self.debug_check_invariant();
-
         let vertex = self.csr.insert_vertex()?;
-        let bit = color.as_bit();
+        let bit = color.into();
 
-        if vertex == self.colors.len() {
-            self.colors.push(bit);
-        } else if vertex < self.colors.len() {
-            self.colors.set(vertex, bit);
-        } else {
-            self.colors.grow(vertex + 1 - self.colors.len(), false);
-            self.colors.set(vertex, bit);
-        }
+        debug_assert_eq!(vertex, self.colors.len());
+        self.colors.push(bit);
 
-        self.debug_check_invariant();
         Some(vertex)
     }
 }
 
 impl RepartitionVertex for BCSR {
-    /// Attempts to move an existing vertex to the given side.
+    /// Moves `vertex` to `side` if all incident edges remain bipartite.
     ///
-    /// Repartitioning succeeds only if all incident edges continue to connect
-    /// vertices on opposite sides after the change.
-    ///
-    /// On success, returns the old side of the vertex.
-    /// Returns `Err(())` if the vertex does not exist or if the change would
-    /// violate the bipartite invariant.
+    /// Returns the previous side on success.
     #[inline]
     fn repartition_vertex(&mut self, vertex: Self::Vertex, side: Side) -> Result<Side, ()> {
-        self.debug_check_invariant();
-
         let old_bit = self.colors.get(vertex).ok_or(())?;
-        let old_side = Side::from_bit(old_bit);
-        let new_bit = side.as_bit();
+        let old_side = old_bit.into();
+        let new_bit = side.into();
 
         if old_bit == new_bit {
             return Ok(old_side);
         }
 
-        // All outgoing neighbors must remain on the opposite side.
         for (_, _, target) in self.csr.outgoing(vertex) {
             if self.colors.get(target) == Some(new_bit) {
                 return Err(());
             }
         }
 
-        // All incoming neighbors must remain on the opposite side.
         for (source, _, _) in self.csr.ingoing(vertex) {
             if self.colors.get(source) == Some(new_bit) {
                 return Err(());
@@ -279,8 +203,6 @@ impl RepartitionVertex for BCSR {
         }
 
         self.colors.set(vertex, new_bit);
-
-        self.debug_check_invariant();
         Ok(old_side)
     }
 }
@@ -288,7 +210,7 @@ impl RepartitionVertex for BCSR {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::{bipartite::ReadBipartiteVertices, graph::Graph};
+    use crate::graphs::{bipartite::BipartiteGraph, graph::Graph};
 
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng};
@@ -317,7 +239,7 @@ mod tests {
 
         let mut bits = BitVec::from_elem(colors.len(), false);
         for (i, side) in colors.iter().copied().enumerate() {
-            bits.set(i, side.as_bit());
+            bits.set(i, side.into());
         }
 
         let g = BCSR { csr, colors: bits };
@@ -341,8 +263,8 @@ mod tests {
         }
 
         for (src, _, dst) in g.edges() {
-            let s = g.vertex_color(src).copied();
-            let t = g.vertex_color(dst).copied();
+            let s = g.vertex_color(src);
+            let t = g.vertex_color(dst);
             assert!(
                 s.is_some() && t.is_some() && s != t,
                 "edge ({src}, {dst}) does not cross the bipartition"
@@ -366,7 +288,7 @@ mod tests {
 
     /// Returns whether repartitioning a vertex to `new_side` should be valid.
     fn repartition_allowed(g: &BCSR, vertex: usize, new_side: Side) -> bool {
-        let Some(old_side) = g.vertex_color(vertex).copied() else {
+        let Some(old_side) = g.vertex_color(vertex) else {
             return false;
         };
 
@@ -375,13 +297,13 @@ mod tests {
         }
 
         for (_, _, target) in g.outgoing(vertex) {
-            if g.vertex_color(target).copied() == Some(new_side) {
+            if g.vertex_color(target) == Some(new_side) {
                 return false;
             }
         }
 
         for (source, _, _) in g.ingoing(vertex) {
-            if g.vertex_color(source).copied() == Some(new_side) {
+            if g.vertex_color(source) == Some(new_side) {
                 return false;
             }
         }
@@ -417,10 +339,10 @@ mod tests {
         let edges = [(0, 1), (1, 2)];
         let g = bcsr_from_parts(&edges, &colors);
 
-        assert_eq!(g.vertex_color(0).copied(), Some(Side::Left));
-        assert_eq!(g.vertex_color(1).copied(), Some(Side::Right));
-        assert_eq!(g.vertex_color(2).copied(), Some(Side::Left));
-        assert_eq!(g.vertex_color(3).copied(), None);
+        assert_eq!(g.vertex_color(0), Some(Side::Left));
+        assert_eq!(g.vertex_color(1), Some(Side::Right));
+        assert_eq!(g.vertex_color(2), Some(Side::Left));
+        assert_eq!(g.vertex_color(3), None);
 
         assert!(g.is_left(0));
         assert!(g.is_right(1));
@@ -481,7 +403,7 @@ mod tests {
         assert_eq!(v, 0);
         assert_eq!(g.vertex_count(), 1);
         assert_eq!(g.edge_count(), 0);
-        assert_eq!(g.vertex_color(0).copied(), Some(Side::Right));
+        assert_eq!(g.vertex_color(0), Some(Side::Right));
 
         assert_bcsr_invariants(&g);
     }
@@ -502,9 +424,9 @@ mod tests {
         assert_eq!(g.vertex_count(), 3);
         assert_eq!(g.edge_count(), 2);
 
-        assert_eq!(g.vertex_color(0).copied(), Some(Side::Left));
-        assert_eq!(g.vertex_color(1).copied(), Some(Side::Right));
-        assert_eq!(g.vertex_color(2).copied(), Some(Side::Left));
+        assert_eq!(g.vertex_color(0), Some(Side::Left));
+        assert_eq!(g.vertex_color(1), Some(Side::Right));
+        assert_eq!(g.vertex_color(2), Some(Side::Left));
 
         let new_edges: Vec<_> = g.edges().collect();
         assert_eq!(new_edges, old_edges);
@@ -524,7 +446,7 @@ mod tests {
 
         let old = g.repartition_vertex(0, Side::Left).unwrap();
         assert_eq!(old, Side::Left);
-        assert_eq!(g.vertex_color(0).copied(), Some(Side::Left));
+        assert_eq!(g.vertex_color(0), Some(Side::Left));
 
         assert_bcsr_invariants(&g);
     }
@@ -536,7 +458,7 @@ mod tests {
         let mut g = bcsr_from_parts(&edges, &colors);
 
         assert_eq!(g.repartition_vertex(0, Side::Right), Err(()));
-        assert_eq!(g.vertex_color(0).copied(), Some(Side::Left));
+        assert_eq!(g.vertex_color(0), Some(Side::Left));
 
         assert_bcsr_invariants(&g);
     }
@@ -548,7 +470,7 @@ mod tests {
         let mut g = bcsr_from_parts(&edges, &colors);
 
         assert_eq!(g.repartition_vertex(0, Side::Right), Err(()));
-        assert_eq!(g.vertex_color(0).copied(), Some(Side::Left));
+        assert_eq!(g.vertex_color(0), Some(Side::Left));
 
         assert_bcsr_invariants(&g);
     }
@@ -561,7 +483,7 @@ mod tests {
 
         let old = g.repartition_vertex(2, Side::Right).unwrap();
         assert_eq!(old, Side::Left);
-        assert_eq!(g.vertex_color(2).copied(), Some(Side::Right));
+        assert_eq!(g.vertex_color(2), Some(Side::Right));
 
         assert_bcsr_invariants(&g);
     }
@@ -588,7 +510,7 @@ mod tests {
             let vertex_count = rng.random_range(0..=16usize);
 
             let colors: Vec<Side> = (0..vertex_count)
-                .map(|_| Side::from_bit(rng.random()))
+                .map(|_| rng.random_bool(0.5).into())
                 .collect();
 
             let raw_edge_count = rng.random_range(0..=100usize);
@@ -628,7 +550,7 @@ mod tests {
             let vertex_count = rng.random_range(0..=12usize);
 
             let colors: Vec<Side> = (0..vertex_count)
-                .map(|_| Side::from_bit(rng.random()))
+                .map(|_| rng.random_bool(0.5).into())
                 .collect();
 
             let raw_edge_count = rng.random_range(0..=64usize);
@@ -653,10 +575,10 @@ mod tests {
             let old_edge_count = g.edge_count();
             let old_edges: Vec<_> = g.edges().collect();
             let old_colors: Vec<_> = (0..g.vertex_count())
-                .map(|v| g.vertex_color(v).copied().unwrap())
+                .map(|v| g.vertex_color(v).unwrap())
                 .collect();
 
-            let new_side = Side::from_bit(rng.random());
+            let new_side = rng.random_bool(0.5).into();
             let v = g.insert_colored_vertex(new_side).unwrap();
 
             assert_eq!(v, old_vertex_count);
@@ -665,10 +587,10 @@ mod tests {
             assert_eq!(g.edges().collect::<Vec<_>>(), old_edges);
 
             for (i, &side) in old_colors.iter().enumerate() {
-                assert_eq!(g.vertex_color(i).copied(), Some(side));
+                assert_eq!(g.vertex_color(i), Some(side));
             }
 
-            assert_eq!(g.vertex_color(v).copied(), Some(new_side));
+            assert_eq!(g.vertex_color(v), Some(new_side));
             assert_bcsr_invariants(&g);
         }
     }
@@ -681,7 +603,7 @@ mod tests {
             let vertex_count = rng.random_range(0..=12usize);
 
             let colors: Vec<Side> = (0..vertex_count)
-                .map(|_| Side::from_bit(rng.random()))
+                .map(|_| rng.random_bool(0.5).into())
                 .collect();
 
             let raw_edge_count = rng.random_range(0..=64usize);
@@ -708,19 +630,19 @@ mod tests {
             }
 
             let vertex = rng.random_range(0..g.vertex_count());
-            let new_side = Side::from_bit(rng.random());
+            let new_side = rng.random_bool(0.5).into();
 
             let expected_ok = repartition_allowed(&g, vertex, new_side);
-            let old_side = g.vertex_color(vertex).copied().unwrap();
+            let old_side = g.vertex_color(vertex).unwrap();
 
             let result = g.repartition_vertex(vertex, new_side);
 
             if expected_ok {
                 assert_eq!(result, Ok(old_side));
-                assert_eq!(g.vertex_color(vertex).copied(), Some(new_side));
+                assert_eq!(g.vertex_color(vertex), Some(new_side));
             } else {
                 assert_eq!(result, Err(()));
-                assert_eq!(g.vertex_color(vertex).copied(), Some(old_side));
+                assert_eq!(g.vertex_color(vertex), Some(old_side));
             }
 
             assert_bcsr_invariants(&g);
@@ -734,7 +656,7 @@ mod tests {
     fn arb_bcsr_instance() -> impl Strategy<Value = (Vec<Side>, Vec<(usize, usize)>)> {
         (0usize..16).prop_flat_map(|vertex_count| {
             let colors = prop::collection::vec(any::<bool>(), vertex_count)
-                .prop_map(|bits| bits.into_iter().map(Side::from_bit).collect::<Vec<_>>());
+                .prop_map(|bits| bits.into_iter().map(bool::into).collect::<Vec<_>>());
 
             let raw_edges = prop::collection::vec(
                 (0usize..vertex_count.max(1), 0usize..vertex_count.max(1)),
@@ -764,7 +686,7 @@ mod tests {
 
             prop_assert_eq!(g.vertex_count(), colors.len());
             for (v, side) in colors.iter().copied().enumerate() {
-                prop_assert_eq!(g.vertex_color(v).copied(), Some(side));
+                prop_assert_eq!(g.vertex_color(v), Some(side));
             }
         }
 
@@ -793,10 +715,10 @@ mod tests {
             let old_edge_count = g.edge_count();
             let old_edges: Vec<_> = g.edges().collect();
             let old_colors: Vec<_> = (0..g.vertex_count())
-                .map(|v| g.vertex_color(v).copied().unwrap())
+                .map(|v| g.vertex_color(v).unwrap())
                 .collect();
 
-            let new_side = Side::from_bit(new_side_bit);
+            let new_side = new_side_bit.into();
             let v = g.insert_colored_vertex(new_side).unwrap();
 
             prop_assert_eq!(v, old_vertex_count);
@@ -805,10 +727,10 @@ mod tests {
             prop_assert_eq!(g.edges().collect::<Vec<_>>(), old_edges);
 
             for (i, side) in old_colors.iter().copied().enumerate() {
-                prop_assert_eq!(g.vertex_color(i).copied(), Some(side));
+                prop_assert_eq!(g.vertex_color(i), Some(side));
             }
 
-            prop_assert_eq!(g.vertex_color(v).copied(), Some(new_side));
+            prop_assert_eq!(g.vertex_color(v), Some(new_side));
             assert_bcsr_invariants(&g);
         }
 
@@ -821,23 +743,23 @@ mod tests {
             let mut g = bcsr_from_parts(&edges, &colors);
 
             if g.vertex_count() == 0 {
-                prop_assert_eq!(g.repartition_vertex(0, Side::from_bit(side_bit)), Err(()));
+                prop_assert_eq!(g.repartition_vertex(0, side_bit.into()), Err(()));
                 return Ok(());
             }
 
             let vertex = vertex_hint % g.vertex_count();
-            let new_side = Side::from_bit(side_bit);
+            let new_side = side_bit.into();
             let expected_ok = repartition_allowed(&g, vertex, new_side);
-            let old_side = g.vertex_color(vertex).copied().unwrap();
+            let old_side = g.vertex_color(vertex).unwrap();
 
             let result = g.repartition_vertex(vertex, new_side);
 
             if expected_ok {
                 prop_assert_eq!(result, Ok(old_side));
-                prop_assert_eq!(g.vertex_color(vertex).copied(), Some(new_side));
+                prop_assert_eq!(g.vertex_color(vertex), Some(new_side));
             } else {
                 prop_assert_eq!(result, Err(()));
-                prop_assert_eq!(g.vertex_color(vertex).copied(), Some(old_side));
+                prop_assert_eq!(g.vertex_color(vertex), Some(old_side));
             }
 
             assert_bcsr_invariants(&g);
