@@ -11,7 +11,7 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{EdgeType, Edges, Graph, VertexType},
+        graph::{EdgeType, Graph, VertexType},
         labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,
@@ -34,7 +34,7 @@ impl ParityConvention {
     #[inline]
     fn accepts_priority(self, priority: usize) -> bool {
         match self {
-            Self::MinEven | Self::MaxEven => priority % 2 == 0,
+            Self::MinEven | Self::MaxEven => priority.is_multiple_of(2),
             Self::MinOdd | Self::MaxOdd => priority % 2 == 1,
         }
     }

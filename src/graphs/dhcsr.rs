@@ -260,9 +260,9 @@ impl From<Vec<(Vec<usize>, Vec<usize>)>> for DHCSR {
             offsets.len(),
             2 * (hyperedge_count + 1) + 2 * (vertex_count + 1)
         );
-        debug_assert_eq!(head_members_start <= out_hyperedges_start, true);
-        debug_assert_eq!(out_hyperedges_start <= in_hyperedges_start, true);
-        debug_assert_eq!(in_hyperedges_start <= indices.len(), true);
+        debug_assert!(head_members_start <= out_hyperedges_start);
+        debug_assert!(out_hyperedges_start <= in_hyperedges_start);
+        debug_assert!(in_hyperedges_start <= indices.len());
 
         Self {
             vertex_count,

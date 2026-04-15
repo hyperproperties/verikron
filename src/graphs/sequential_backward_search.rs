@@ -196,7 +196,7 @@ mod tests {
         let mut search =
             SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(&g, initials);
 
-        while let Some(_v) = search.next() {}
+        for _v in search.by_ref() {}
 
         let visited = search.into_visited();
         let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
@@ -215,7 +215,7 @@ mod tests {
         let mut search =
             SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(&g, initials);
 
-        while let Some(_v) = search.next() {}
+        for _v in search.by_ref() {}
 
         let visited = search.into_visited();
         let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
@@ -259,7 +259,7 @@ mod tests {
                 SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>
                     ::bfs(&g, initials.iter().copied());
 
-            while let Some(_v) = search.next() {}
+            for _v in search.by_ref() {}
 
             let visited = search.into_visited();
 

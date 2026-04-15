@@ -488,14 +488,11 @@ mod tests {
                 }
             };
 
-            match a.checked_add(b) {
-                Ok(r) => {
-                    assert!(
-                        !r.is_infinity(),
-                        "checked_add returned INFINITY from finite inputs: a={a}, b={b}"
-                    );
-                }
-                Err(_) => {}
+            if let Ok(r) = a.checked_add(b) {
+                assert!(
+                    !r.is_infinity(),
+                    "checked_add returned INFINITY from finite inputs: a={a}, b={b}"
+                );
             }
         }
     }

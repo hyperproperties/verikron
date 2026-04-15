@@ -207,7 +207,7 @@ mod tests {
             SequentialGraphSearch::dfs(&g, 0);
 
         let mut order = Vec::new();
-        while let Some(v) = dfs.next() {
+        for v in dfs.by_ref() {
             order.push(v);
         }
 
@@ -229,7 +229,7 @@ mod tests {
             SequentialGraphSearch::dfs(&g, 0);
 
         let mut seen = Vec::new();
-        while let Some(v) = dfs.next() {
+        for v in dfs.by_ref() {
             seen.push(v);
         }
 
@@ -254,7 +254,7 @@ mod tests {
             SequentialGraphSearch::dfs(&g, 0);
 
         let mut seen = Vec::new();
-        while let Some(v) = dfs.next() {
+        for v in dfs.by_ref() {
             seen.push(v);
         }
 
@@ -308,7 +308,7 @@ mod tests {
             SequentialGraphSearch::bfs(&g, initials);
 
         let mut order = Vec::new();
-        while let Some(v) = bfs.next() {
+        for v in bfs.by_ref() {
             order.push(v);
         }
 
@@ -331,7 +331,7 @@ mod tests {
             SequentialGraphSearch::bfs(&g, initials);
 
         let mut order = Vec::new();
-        while let Some(v) = bfs.next() {
+        for v in bfs.by_ref() {
             order.push(v);
         }
 
@@ -364,7 +364,7 @@ mod tests {
         let mut bfs_b: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
             SequentialGraphSearch::bfs(&g, initials_b);
         let mut seen_b = Vec::new();
-        while let Some(v) = bfs_b.next() {
+        for v in bfs_b.by_ref() {
             seen_b.push(v);
         }
         seen_b.sort_unstable();
@@ -379,7 +379,7 @@ mod tests {
         let mut bfs_all: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
             SequentialGraphSearch::bfs(&g, initials_all);
         let mut seen_all = Vec::new();
-        while let Some(v) = bfs_all.next() {
+        for v in bfs_all.by_ref() {
             seen_all.push(v);
         }
         seen_all.sort_unstable();

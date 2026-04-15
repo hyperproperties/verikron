@@ -9,7 +9,7 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{EdgeType, Edges, Graph, VertexType},
+        graph::{EdgeType, Graph, VertexType},
         labeled_edges::ReadLabeledEdges,
     },
     lattices::set::Set,

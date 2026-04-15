@@ -71,9 +71,21 @@ pub trait SearchFrontier<T> {
 pub struct StackFrontier<T>(Vec<T>);
 pub struct QueueFrontier<T>(VecDeque<T>);
 
+impl<T> Default for StackFrontier<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> StackFrontier<T> {
     pub fn new() -> Self {
         StackFrontier(Vec::new())
+    }
+}
+
+impl<T> Default for QueueFrontier<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

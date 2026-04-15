@@ -204,7 +204,7 @@ mod tests {
         let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
         let mut order = Vec::new();
-        while let Some(v) = bfs.next() {
+        for v in bfs.by_ref() {
             order.push(v);
         }
 
@@ -226,7 +226,7 @@ mod tests {
         let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
         let mut seen = Vec::new();
-        while let Some(v) = bfs.next() {
+        for v in bfs.by_ref() {
             seen.push(v);
         }
 
@@ -250,7 +250,7 @@ mod tests {
         let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
         let mut seen = Vec::new();
-        while let Some(v) = bfs.next() {
+        for v in bfs.by_ref() {
             seen.push(v);
         }
 
@@ -270,8 +270,7 @@ mod tests {
 
         let initials: [usize; 0] = [];
 
-        let engine: ParallelGraphBFS<CSR, Set<usize>> =
-            ParallelGraphBFS::new(&g, initials.into_iter());
+        let engine: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
         let res: Set<usize> = engine.worklist();
         assert!(res.is_empty());
@@ -286,8 +285,7 @@ mod tests {
 
         let initials = [0_usize];
 
-        let engine: ParallelGraphBFS<CSR, Set<usize>> =
-            ParallelGraphBFS::new(&g, initials.into_iter());
+        let engine: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
         let res: Set<usize> = engine.worklist();
 
         let expected: Set<usize> = [0, 1, 2].into_iter().collect();
@@ -307,16 +305,14 @@ mod tests {
 
         // Start in component B only.
         let initials_b = [2_usize];
-        let engine_b: ParallelGraphBFS<CSR, Set<usize>> =
-            ParallelGraphBFS::new(&g, initials_b.into_iter());
+        let engine_b: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials_b);
         let res_b: Set<usize> = engine_b.worklist();
         let expected_b: Set<usize> = [2, 3].into_iter().collect();
         assert_eq!(res_b, expected_b);
 
         // Start in both components.
         let initials_all = [0_usize, 2_usize];
-        let engine_all: ParallelGraphBFS<CSR, Set<usize>> =
-            ParallelGraphBFS::new(&g, initials_all.into_iter());
+        let engine_all: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials_all);
         let res_all: Set<usize> = engine_all.worklist();
         let expected_all: Set<usize> = [0, 1, 2, 3].into_iter().collect();
         assert_eq!(res_all, expected_all);
@@ -329,8 +325,7 @@ mod tests {
         let g = CSR::from(edges);
 
         let initials = [0_usize];
-        let engine: ParallelGraphBFS<CSR, Set<usize>> =
-            ParallelGraphBFS::new(&g, initials.into_iter());
+        let engine: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
         let res: Set<usize> = engine.worklist();
 
@@ -345,8 +340,7 @@ mod tests {
         let g = CSR::from(edges);
 
         let initials = [0_usize];
-        let engine: ParallelGraphBFS<CSR, Set<usize>> =
-            ParallelGraphBFS::new(&g, initials.into_iter());
+        let engine: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
 
         let res: Set<usize> = engine.worklist();
 

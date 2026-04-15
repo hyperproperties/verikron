@@ -50,13 +50,11 @@ impl CanonicalZone {
         j: Clock,
         relation: Relation,
     ) -> Result<Self, UncheckedZone> {
-        if self.base.tighten(i, j, relation) {
-            if self.base.close_pair(i, j).is_err() {
-                return Err(UncheckedZone {
-                    base: self.base,
-                    _state: PhantomData,
-                });
-            }
+        if self.base.tighten(i, j, relation) && self.base.close_pair(i, j).is_err() {
+            return Err(UncheckedZone {
+                base: self.base,
+                _state: PhantomData,
+            });
         }
         Ok(self)
     }

@@ -165,7 +165,7 @@ impl Directed for MCSR {
 
         Box::new((start..end).filter_map(move |edge| {
             let target = self.indices[edge];
-            (target == to).then(|| (from, edge, target))
+            (target == to).then_some((from, edge, target))
         }))
     }
 }

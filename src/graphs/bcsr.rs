@@ -343,9 +343,8 @@ mod tests {
         for (src, _, dst) in g.edges() {
             let s = g.vertex_color(src).copied();
             let t = g.vertex_color(dst).copied();
-            assert_eq!(
+            assert!(
                 s.is_some() && t.is_some() && s != t,
-                true,
                 "edge ({src}, {dst}) does not cross the bipartition"
             );
         }
