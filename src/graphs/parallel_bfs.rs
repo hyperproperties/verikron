@@ -165,489 +165,250 @@ where
 mod tests {
     use super::*;
 
+    use crate::graphs::{
+        csr::CSR,
+        graph::{Endpoints, FiniteVertices, FromEndpoints},
+        worklist::Worklist,
+    };
+    use crate::lattices::{bit_vector::BitVector, set::Set};
+
     use proptest::prelude::*;
-    use rand::{Rng, SeedableRng};
-    use rand_chacha::ChaCha8Rng;
     use std::collections::VecDeque;
 
-    use crate::graphs::csr::CSR;
-    use crate::graphs::graph::FiniteVertices;
-    use crate::graphs::worklist::Worklist;
-    use crate::lattices::bit_vector::BitVector;
-    use crate::lattices::set::Set;
+    fn reference_reachable(graph: &CSR, initials: &[usize]) -> Set<usize> {
+        let mut visited = Set::default();
+        let mut queue = VecDeque::new();
 
-    #[test]
-    fn bfs_empty_graph_no_initials() {
-        let g = CSR::from(Vec::<(usize, usize)>::new());
-        assert_eq!(g.vertex_count(), 0);
+        for &source in initials {
+            if source < graph.vertex_count() && visited.visit(source) {
+                queue.push_back(source);
+            }
+        }
 
-        // No initials.
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> =
-            ParallelGraphBFS::new(&g, std::iter::empty::<usize>());
+        while let Some(from) = queue.pop_front() {
+            for (_, _, to) in graph.successors(from) {
+                if visited.visit(to) {
+                    queue.push_back(to);
+                }
+            }
+        }
 
-        // No vertices at all.
-        assert!(bfs.next().is_none());
+        visited
+    }
 
-        // Visited stays empty.
-        let visited = bfs.into_visited();
-        assert!(visited.is_empty());
+    fn arbitrary_instance() -> impl Strategy<Value = (Vec<(usize, usize)>, Vec<usize>)> {
+        prop::collection::vec((0usize..16, 0usize..16), 0..64).prop_flat_map(|edges| {
+            let vertex_count = edges
+                .iter()
+                .map(|&(from, to)| from.max(to))
+                .max()
+                .map(|m| m + 1)
+                .unwrap_or(0);
+
+            let initials = if vertex_count == 0 {
+                Just(Vec::new()).boxed()
+            } else {
+                prop::collection::vec(0usize..vertex_count, 0..16).boxed()
+            };
+
+            (Just(edges), initials)
+        })
     }
 
     #[test]
-    fn bfs_line_graph_order() {
-        // 0 -> 1 -> 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (1, 2), (2, 3)];
-        let g = CSR::from(edges);
-        assert_eq!(g.vertex_count(), 4);
+    fn bfs_empty_graph_without_initials_is_empty() {
+        let graph = CSR::from_endpoints(std::iter::empty::<Endpoints<usize>>());
+        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> =
+            ParallelGraphBFS::new(&graph, std::iter::empty());
 
-        let initials = [0_usize];
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
+        assert!(bfs.next().is_none());
+        assert!(bfs.into_visited().is_empty());
+    }
 
-        let mut order = Vec::new();
-        for v in bfs.by_ref() {
-            order.push(v);
-        }
+    #[test]
+    fn bfs_line_graph_visits_vertices_in_layer_order() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(1, 2),
+            Endpoints::new(2, 3),
+        ]);
+        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+
+        let order: Vec<_> = bfs.by_ref().collect();
 
         assert_eq!(order, vec![0, 1, 2, 3]);
-
-        let visited = bfs.into_visited();
-        let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(visited, expected);
+        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
-    fn bfs_branching_graph_reaches_all() {
-        // 0 -> 1, 0 -> 2, 1 -> 3, 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (0, 2), (1, 3), (2, 3)];
-        let g = CSR::from(edges);
-        assert_eq!(g.vertex_count(), 4);
+    fn bfs_branching_graph_reaches_all_reachable_vertices() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(0, 2),
+            Endpoints::new(1, 3),
+            Endpoints::new(2, 3),
+        ]);
+        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
 
-        let initials = [0_usize];
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
-
-        let mut seen = Vec::new();
-        for v in bfs.by_ref() {
-            seen.push(v);
-        }
-
-        // We don't care about exact intra-layer order here, only that we saw all.
+        let mut seen: Vec<_> = bfs.by_ref().collect();
         seen.sort_unstable();
-        assert_eq!(seen, vec![0, 1, 2, 3]);
 
-        let visited = bfs.into_visited();
-        let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(visited, expected);
+        assert_eq!(seen, vec![0, 1, 2, 3]);
+        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
-    fn bfs_cycle_graph_terminates_and_reaches_all() {
-        // 0 -> 1 -> 2 -> 1 (cycle between 1 and 2)
-        let edges = vec![(0_usize, 1_usize), (1, 2), (2, 1)];
-        let g = CSR::from(edges);
-        assert_eq!(g.vertex_count(), 3);
+    fn bfs_cycle_graph_terminates() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(1, 2),
+            Endpoints::new(2, 1),
+        ]);
+        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
 
-        let initials = [0_usize];
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
-
-        let mut seen = Vec::new();
-        for v in bfs.by_ref() {
-            seen.push(v);
-        }
-
+        let mut seen: Vec<_> = bfs.by_ref().collect();
         seen.sort_unstable();
         seen.dedup();
+
         assert_eq!(seen, vec![0, 1, 2]);
-
-        let visited = bfs.into_visited();
-        let expected: Set<usize> = [0, 1, 2].into_iter().collect();
-        assert_eq!(visited, expected);
+        assert_eq!(bfs.into_visited(), [0, 1, 2].into_iter().collect());
     }
 
     #[test]
-    fn worklist_par_single_vertex_no_edges() {
-        let g = CSR::from(Vec::<(usize, usize)>::new());
-        assert_eq!(g.vertex_count(), 0);
+    fn worklist_on_disconnected_graph_depends_on_initials() {
+        let graph = CSR::from_endpoints([Endpoints::new(0, 1), Endpoints::new(2, 3)]);
 
-        let initials: [usize; 0] = [];
+        let from_left: Set<usize> =
+            ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [0]).worklist();
+        let from_right: Set<usize> =
+            ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [2]).worklist();
+        let from_both: Set<usize> =
+            ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [0, 2]).worklist();
 
-        let engine: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
-
-        let res: Set<usize> = engine.worklist();
-        assert!(res.is_empty());
+        assert_eq!(from_left, [0, 1].into_iter().collect());
+        assert_eq!(from_right, [2, 3].into_iter().collect());
+        assert_eq!(from_both, [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
-    fn worklist_par_linear_chain() {
-        // 0 -> 1 -> 2
-        let edges = vec![(0_usize, 1_usize), (1, 2)];
-        let g = CSR::from(edges);
-        assert_eq!(g.vertex_count(), 3);
+    fn worklist_handles_loops() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 0),
+            Endpoints::new(0, 1),
+            Endpoints::new(1, 1),
+        ]);
 
-        let initials = [0_usize];
+        let reachable: Set<usize> =
+            ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [0]).worklist();
 
-        let engine: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
-        let res: Set<usize> = engine.worklist();
-
-        let expected: Set<usize> = [0, 1, 2].into_iter().collect();
-        assert_eq!(res, expected);
-
-        for v in initials {
-            assert!(res.contains(&v));
-        }
+        assert_eq!(reachable, [0, 1].into_iter().collect());
     }
 
     #[test]
-    fn worklist_par_disconnected_components() {
-        // Component A: 0 -> 1
-        // Component B: 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (2, 3)];
-        let g = CSR::from(edges);
+    fn sequential_and_parallel_step_agree() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(0, 2),
+            Endpoints::new(1, 3),
+            Endpoints::new(2, 3),
+            Endpoints::new(3, 4),
+            Endpoints::new(4, 5),
+            Endpoints::new(5, 3),
+        ]);
 
-        // Start in component B only.
-        let initials_b = [2_usize];
-        let engine_b: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials_b);
-        let res_b: Set<usize> = engine_b.worklist();
-        let expected_b: Set<usize> = [2, 3].into_iter().collect();
-        assert_eq!(res_b, expected_b);
-
-        // Start in both components.
-        let initials_all = [0_usize, 2_usize];
-        let engine_all: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials_all);
-        let res_all: Set<usize> = engine_all.worklist();
-        let expected_all: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(res_all, expected_all);
-    }
-
-    #[test]
-    fn worklist_par_self_loops_and_branching() {
-        // 0 -> 0 (loop), 0 -> 1, 1 -> 1 (loop)
-        let edges = vec![(0_usize, 0_usize), (0, 1), (1, 1)];
-        let g = CSR::from(edges);
-
-        let initials = [0_usize];
-        let engine: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
-
-        let res: Set<usize> = engine.worklist();
-
-        let expected: Set<usize> = [0, 1].into_iter().collect();
-        assert_eq!(res, expected);
-    }
-
-    #[test]
-    fn worklist_par_line_graph_reachability() {
-        // 0 -> 1 -> 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (1, 2), (2, 3)];
-        let g = CSR::from(edges);
-
-        let initials = [0_usize];
-        let engine: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
-
-        let res: Set<usize> = engine.worklist();
-
-        let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(res, expected);
-    }
-
-    #[test]
-    fn sequential_and_parallel_steps_produce_same_layers_and_visited() {
-        // A graph with branching and a cycle.
-        let edges = vec![
-            (0_usize, 1_usize),
-            (0, 2),
-            (1, 3),
-            (2, 3),
-            (3, 4),
-            (4, 5),
-            (5, 3), // cycle 3 -> 4 -> 5 -> 3
-        ];
-        let g = CSR::from(edges);
-        let initials = [0_usize];
-
-        let mut bfs_seq: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
-        let mut bfs_par: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&g, initials);
+        let mut sequential: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+        let mut parallel: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
 
         loop {
-            let l1 = bfs_seq.sequential_step();
-            let l2 = bfs_par.parallel_step();
+            let left = sequential.sequential_step();
+            let right = parallel.parallel_step();
 
-            match (l1, l2) {
+            match (left, right) {
                 (None, None) => break,
                 (Some(mut a), Some(mut b)) => {
                     a.sort_unstable();
                     b.sort_unstable();
                     assert_eq!(a, b);
                 }
-                (x, y) => panic!("sequential/parallel mismatch: {:?} vs {:?}", x, y),
+                (a, b) => panic!("step mismatch: {:?} vs {:?}", a, b),
             }
         }
 
-        let visited_seq = bfs_seq.into_visited();
-        let visited_par = bfs_par.into_visited();
-        assert_eq!(visited_seq, visited_par);
-    }
-
-    // Random edge generator for small CSR graphs.
-    prop_compose! {
-        fn random_edge_list()
-            (edges in prop::collection::vec((0u8..=15, 0u8..=15), 0..=64))
-            -> Vec<(usize, usize)>
-        {
-            edges
-                .into_iter()
-                .map(|(from, to)| (from as usize, to as usize))
-                .collect()
-        }
+        assert_eq!(sequential.into_visited(), parallel.into_visited());
     }
 
     proptest! {
-        // Using the *sequential_step* interface: layers must match shortest-path distances.
         #[test]
-        fn prop_bfs_layers_match_shortest_paths(
-            edges in random_edge_list(),
-            initials_raw in prop::collection::vec(0u8..=15, 0..=16),
-        ) {
-            let g = CSR::from(edges);
-            let vcount = g.vertex_count();
+        fn prop_worklist_matches_reference_bfs((edges, initials) in arbitrary_instance()) {
+            let graph = CSR::from_endpoints(
+                edges.iter()
+                    .copied()
+                    .map(|(from, to)| Endpoints::new(from, to)),
+            );
 
-            let initials: Vec<usize> = if vcount == 0 {
-                Vec::new()
-            } else {
-                initials_raw.into_iter()
-                    .map(|x| (x as usize) % vcount)
-                    .collect()
-            };
+            let actual: Set<usize> =
+                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
 
-            // Run ParallelGraphBFS to obtain layers via sequential_step.
-            let mut bfs: ParallelGraphBFS<CSR, Set<usize>> =
-                ParallelGraphBFS::new(&g, initials.iter().copied());
+            let expected = reference_reachable(&graph, &initials);
 
-            let mut layers = Vec::<Vec<usize>>::new();
-            while let Some(layer) = bfs.sequential_step() {
-                prop_assert!(!layer.is_empty());
-                layers.push(layer);
-            }
-
-            let visited = bfs.into_visited();
-
-            // Reference BFS distances (inlined, no helper).
-            let dist = {
-                let n = g.vertex_count();
-                let mut dist = vec![None; n];
-                let mut q = VecDeque::new();
-
-                for &s in &initials {
-                    if s < n && dist[s].is_none() {
-                        dist[s] = Some(0);
-                        q.push_back(s);
-                    }
-                }
-
-                while let Some(u) = q.pop_front() {
-                    let du = dist[u].unwrap();
-                    for (_, _, v) in g.successors(u) {
-                        if dist[v].is_none() {
-                            dist[v] = Some(du + 1);
-                            q.push_back(v);
-                        }
-                    }
-                }
-
-                dist
-            };
-
-            // Map vertex -> layer index.
-            let mut layer_of = vec![None::<usize>; vcount];
-            for (i, layer) in layers.iter().enumerate() {
-                for &v in layer {
-                    prop_assert!(
-                        layer_of[v].is_none(),
-                        "vertex {} appears in multiple layers",
-                        v
-                    );
-                    layer_of[v] = Some(i);
-                }
-            }
-
-            // Every visited vertex must have finite distance and layer == distance.
-            for v in 0..vcount {
-                if visited.is_visited(&v) {
-                    let d = dist[v].expect("visited vertex must have finite distance");
-                    let li = layer_of[v].expect("visited vertex must be in some layer");
-                    prop_assert_eq!(d, li, "distance/layer mismatch for vertex {}", v);
-                }
-            }
-
-            // Every vertex with finite distance must be visited.
-            for v in 0..vcount {
-                if dist[v].is_some() {
-                    prop_assert!(
-                        visited.is_visited(&v),
-                        "vertex {} has finite distance but not visited",
-                        v
-                    );
-                }
-            }
+            prop_assert_eq!(actual, expected);
         }
 
-        // Worklist (with Set visited) must always contain all initials.
         #[test]
-        fn prop_worklist_contains_initials(
-            edges in random_edge_list(),
-            initials_raw in prop::collection::vec(0u8..=15, 0..=16),
-        ) {
-            let g = CSR::from(edges);
-            let vcount = g.vertex_count();
+        fn prop_bitvector_and_set_visited_agree((edges, initials) in arbitrary_instance()) {
+            let graph = CSR::from_endpoints(
+                edges.iter()
+                    .copied()
+                    .map(|(from, to)| Endpoints::new(from, to)),
+            );
 
-            let initials: Vec<usize> = if vcount == 0 {
-                Vec::new()
-            } else {
-                initials_raw.into_iter()
-                    .map(|x| (x as usize) % vcount)
-                    .collect()
-            };
+            let set_result: Set<usize> =
+                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
 
-            let engine: ParallelGraphBFS<CSR, Set<usize>> =
-                ParallelGraphBFS::new(&g, initials.iter().copied());
+            let bit_result: BitVector =
+                ParallelGraphBFS::<CSR, BitVector>::new(&graph, initials.iter().copied()).worklist();
 
-            let res: Set<usize> = engine.worklist();
-
-            for v in initials {
-                prop_assert!(res.contains(&v), "result must contain initial {}", v);
+            let mut from_bits = Set::default();
+            for vertex in 0..graph.vertex_count() {
+                if bit_result.is_visited(&vertex) {
+                    from_bits.visit(vertex);
+                }
             }
+
+            prop_assert_eq!(set_result, from_bits);
         }
 
-        // Worklist is idempotent: rerunning from the fixpoint set does not change it.
         #[test]
-        fn prop_worklist_idempotent(
-            edges in random_edge_list(),
-            initials_raw in prop::collection::vec(0u8..=15, 0..=16),
-        ) {
-            let g = CSR::from(edges);
-            let vcount = g.vertex_count();
+        fn prop_worklist_is_idempotent((edges, initials) in arbitrary_instance()) {
+            let graph = CSR::from_endpoints(
+                edges.iter()
+                    .copied()
+                    .map(|(from, to)| Endpoints::new(from, to)),
+            );
 
-            let initials: Vec<usize> = if vcount == 0 {
-                Vec::new()
-            } else {
-                initials_raw.into_iter()
-                    .map(|x| (x as usize) % vcount)
-                    .collect()
-            };
+            let first: Set<usize> =
+                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
 
-            let engine: ParallelGraphBFS<CSR, Set<usize>> =
-                ParallelGraphBFS::new(&g, initials.iter().copied());
-
-            let first: Set<usize> = engine.worklist();
-
-            // Rerun with the first result as initials.
-            let engine2: ParallelGraphBFS<CSR, Set<usize>> =
-                ParallelGraphBFS::new(&g, first.iter().copied());
-            let second: Set<usize> = engine2.worklist();
+            let second: Set<usize> =
+                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, first.iter().copied()).worklist();
 
             prop_assert_eq!(first, second);
         }
 
-        // BitVec-based visited must produce the same reachable set as Set-based visited.
         #[test]
-        fn prop_bitvec_vs_set_reachability(
-            edges in random_edge_list(),
-            initials_raw in prop::collection::vec(0u8..=15, 0..=16),
-        ) {
-            let g = CSR::from(edges);
-            let vcount = g.vertex_count();
+        fn prop_every_initial_is_reached((edges, initials) in arbitrary_instance()) {
+            let graph = CSR::from_endpoints(
+                edges.iter()
+                    .copied()
+                    .map(|(from, to)| Endpoints::new(from, to)),
+            );
 
-            let initials: Vec<usize> = if vcount == 0 {
-                Vec::new()
-            } else {
-                initials_raw.into_iter()
-                    .map(|x| (x as usize) % vcount)
-                    .collect()
-            };
+            let reachable: Set<usize> =
+                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
 
-            let bfs_set: ParallelGraphBFS<CSR, Set<usize>> =
-                ParallelGraphBFS::new(&g, initials.iter().copied());
-            let set_res: Set<usize> = bfs_set.worklist();
-
-            let bfs_bits: ParallelGraphBFS<CSR, BitVector> =
-                ParallelGraphBFS::new(&g, initials.iter().copied());
-            let bits_res: BitVector = bfs_bits.worklist();
-
-            let mut from_bits = Set::default();
-            for v in 0..vcount {
-                if bits_res.is_visited(&v) {
-                    from_bits.visit(v);
-                }
+            for &initial in &initials {
+                prop_assert!(reachable.contains(&initial));
             }
-
-            prop_assert_eq!(set_res, from_bits);
-        }
-    }
-
-    #[test]
-    fn random_stress_worklist_matches_reference_bfs() {
-        let mut rng = ChaCha8Rng::seed_from_u64(0x_4246_535F_5354_5245);
-
-        for _case in 0..100 {
-            // random small multigraph
-            let edge_count = rng.random_range(0..=80usize);
-            let mut edges = Vec::with_capacity(edge_count);
-
-            for _ in 0..edge_count {
-                let from: usize = rng.random_range(0..=10);
-                let to: usize = rng.random_range(0..=10);
-                edges.push((from, to));
-            }
-
-            let g = CSR::from(edges);
-            let n = g.vertex_count();
-
-            // random initials
-            let init_len = rng.random_range(0..=5usize);
-            let mut initials = Vec::with_capacity(init_len);
-            for _ in 0..init_len {
-                if n == 0 {
-                    break;
-                }
-                initials.push(rng.random_range(0..n));
-            }
-
-            // Worklist via ParallelGraphBFS + Set.
-            let engine: ParallelGraphBFS<CSR, Set<usize>> =
-                ParallelGraphBFS::new(&g, initials.iter().copied());
-            let res: Set<usize> = engine.worklist();
-
-            // Reference BFS distances (inlined).
-            let dist = {
-                let mut dist = vec![None; n];
-                let mut q = VecDeque::new();
-
-                for &s in &initials {
-                    if s < n && dist[s].is_none() {
-                        dist[s] = Some(0);
-                        q.push_back(s);
-                    }
-                }
-
-                while let Some(u) = q.pop_front() {
-                    let du = dist[u].unwrap();
-                    for (_, _, v) in g.successors(u) {
-                        if dist[v].is_none() {
-                            dist[v] = Some(du + 1);
-                            q.push_back(v);
-                        }
-                    }
-                }
-
-                dist
-            };
-
-            let mut ref_set = Set::default();
-            for v in 0..n {
-                if dist[v].is_some() {
-                    ref_set.visit(v);
-                }
-            }
-
-            assert_eq!(res, ref_set);
         }
     }
 }

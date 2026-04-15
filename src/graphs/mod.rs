@@ -1,6 +1,6 @@
 pub mod backward;
-pub mod bcsr;
 pub mod bipartite;
+pub mod bit_bipartite;
 pub mod colored;
 pub mod csr;
 pub mod dbm;

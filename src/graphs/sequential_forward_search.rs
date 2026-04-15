@@ -108,11 +108,12 @@ where
     }
 }
 
-impl<'g, G, V> Worklist<G::Vertex, V> for SequentialGraphSearch<'g, G, V, StackFrontier<G::Vertex>>
+impl<'g, G, V, F> Worklist<G::Vertex, V> for SequentialGraphSearch<'g, G, V, F>
 where
     G: Forward,
     G::Vertex: Eq + Hash + Copy,
     V: Visited<G::Vertex> + Default,
+    F: SearchFrontier<G::Vertex>,
 {
     fn worklist(mut self) -> V {
         while self.next().is_some() {}
@@ -156,287 +157,261 @@ where
 mod tests {
     use super::*;
 
-    use proptest::prelude::*;
+    use crate::graphs::{
+        csr::CSR,
+        graph::{Endpoints, FiniteVertices, FromEndpoints},
+        worklist::Worklist,
+    };
+    use crate::lattices::{bit_vector::BitVector, set::Set};
 
-    use crate::graphs::csr::CSR;
-    use crate::graphs::graph::FiniteVertices;
-    use crate::graphs::worklist::Worklist;
-    use crate::lattices::bit_vector::BitVector;
-    use crate::lattices::set::Set;
+    use proptest::prelude::*;
 
     #[test]
     fn stack_frontier_behaves_like_stack() {
-        let mut f = StackFrontier::new();
-        assert!(f.is_empty());
+        let mut frontier = StackFrontier::new();
 
-        f.push(1);
-        f.push(2);
-        f.push(3);
+        assert!(frontier.is_empty());
 
-        assert_eq!(f.pop(), Some(3));
-        assert_eq!(f.pop(), Some(2));
-        assert_eq!(f.pop(), Some(1));
-        assert_eq!(f.pop(), None);
-        assert!(f.is_empty());
+        frontier.push(1);
+        frontier.push(2);
+        frontier.push(3);
+
+        assert_eq!(frontier.pop(), Some(3));
+        assert_eq!(frontier.pop(), Some(2));
+        assert_eq!(frontier.pop(), Some(1));
+        assert_eq!(frontier.pop(), None);
+        assert!(frontier.is_empty());
     }
 
     #[test]
     fn queue_frontier_behaves_like_queue() {
-        let mut f = QueueFrontier::new();
-        assert!(f.is_empty());
+        let mut frontier = QueueFrontier::new();
 
-        f.push(1);
-        f.push(2);
-        f.push(3);
+        assert!(frontier.is_empty());
 
-        assert_eq!(f.pop(), Some(1));
-        assert_eq!(f.pop(), Some(2));
-        assert_eq!(f.pop(), Some(3));
-        assert_eq!(f.pop(), None);
-        assert!(f.is_empty());
+        frontier.push(1);
+        frontier.push(2);
+        frontier.push(3);
+
+        assert_eq!(frontier.pop(), Some(1));
+        assert_eq!(frontier.pop(), Some(2));
+        assert_eq!(frontier.pop(), Some(3));
+        assert_eq!(frontier.pop(), None);
+        assert!(frontier.is_empty());
     }
 
     #[test]
     fn dfs_line_graph_visits_all_vertices() {
-        // 0 -> 1 -> 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (1, 2), (2, 3)];
-        let g = CSR::from(edges);
-        assert_eq!(g.vertex_count(), 4);
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(1, 2),
+            Endpoints::new(2, 3),
+        ]);
 
         let mut dfs: SequentialGraphSearch<CSR, Set<usize>, StackFrontier<usize>> =
-            SequentialGraphSearch::dfs(&g, 0);
+            SequentialGraphSearch::dfs(&graph, 0);
 
-        let mut order = Vec::new();
-        for v in dfs.by_ref() {
-            order.push(v);
-        }
+        let order: Vec<_> = dfs.by_ref().collect();
 
-        // On a simple line, DFS order is deterministic: 0,1,2,3
         assert_eq!(order, vec![0, 1, 2, 3]);
-
-        let visited = dfs.into_visited();
-        let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(visited, expected);
+        assert_eq!(dfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
-    fn dfs_branching_graph_visits_all_reachable() {
-        // 0 -> 1, 0 -> 2, 1 -> 3, 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (0, 2), (1, 3), (2, 3)];
-        let g = CSR::from(edges);
+    fn dfs_branching_graph_visits_all_reachable_vertices() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(0, 2),
+            Endpoints::new(1, 3),
+            Endpoints::new(2, 3),
+        ]);
 
         let mut dfs: SequentialGraphSearch<CSR, Set<usize>, StackFrontier<usize>> =
-            SequentialGraphSearch::dfs(&g, 0);
+            SequentialGraphSearch::dfs(&graph, 0);
 
-        let mut seen = Vec::new();
-        for v in dfs.by_ref() {
-            seen.push(v);
-        }
-
-        // We don't constrain exact order here, only that all reachable are seen.
+        let mut seen: Vec<_> = dfs.by_ref().collect();
         seen.sort_unstable();
         seen.dedup();
+
         assert_eq!(seen, vec![0, 1, 2, 3]);
-
-        let visited = dfs.into_visited();
-        let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(visited, expected);
+        assert_eq!(dfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
-    fn dfs_cycle_graph_terminates_and_reaches_all() {
-        // 0 -> 1 -> 2 -> 1 (cycle between 1 and 2)
-        let edges = vec![(0_usize, 1_usize), (1, 2), (2, 1)];
-        let g = CSR::from(edges);
-        assert_eq!(g.vertex_count(), 3);
+    fn dfs_cycle_graph_terminates() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(1, 2),
+            Endpoints::new(2, 1),
+        ]);
 
         let mut dfs: SequentialGraphSearch<CSR, Set<usize>, StackFrontier<usize>> =
-            SequentialGraphSearch::dfs(&g, 0);
+            SequentialGraphSearch::dfs(&graph, 0);
 
-        let mut seen = Vec::new();
-        for v in dfs.by_ref() {
-            seen.push(v);
-        }
-
+        let mut seen: Vec<_> = dfs.by_ref().collect();
         seen.sort_unstable();
         seen.dedup();
-        assert_eq!(seen, vec![0, 1, 2]);
 
-        let visited = dfs.into_visited();
-        let expected: Set<usize> = [0, 1, 2].into_iter().collect();
-        assert_eq!(visited, expected);
+        assert_eq!(seen, vec![0, 1, 2]);
+        assert_eq!(dfs.into_visited(), [0, 1, 2].into_iter().collect());
     }
 
     #[test]
-    fn dfs_worklist_on_line_graph() {
-        // 0 -> 1 -> 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (1, 2), (2, 3)];
-        let g = CSR::from(edges);
+    fn dfs_worklist_returns_reachable_set() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(1, 2),
+            Endpoints::new(2, 3),
+        ]);
 
         let dfs: SequentialGraphSearch<CSR, Set<usize>, StackFrontier<usize>> =
-            SequentialGraphSearch::dfs(&g, 0);
+            SequentialGraphSearch::dfs(&graph, 0);
 
-        let res: Set<usize> = dfs.worklist();
-        let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(res, expected);
+        let reachable: Set<usize> = dfs.worklist();
+
+        assert_eq!(reachable, [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
-    fn bfs_empty_graph_no_initials() {
-        let g = CSR::from(Vec::<(usize, usize)>::new());
-        assert_eq!(g.vertex_count(), 0);
+    fn bfs_empty_graph_without_initials_is_empty() {
+        let graph = CSR::from_endpoints(std::iter::empty::<Endpoints<usize>>());
 
-        let initials: [usize; 0] = [];
         let mut bfs: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
-            SequentialGraphSearch::bfs(&g, initials);
+            SequentialGraphSearch::bfs(&graph, std::iter::empty());
 
         assert!(bfs.next().is_none());
-
-        let visited = bfs.into_visited();
-        assert!(visited.is_empty());
+        assert!(bfs.into_visited().is_empty());
     }
 
     #[test]
-    fn bfs_line_graph_order() {
-        // 0 -> 1 -> 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (1, 2), (2, 3)];
-        let g = CSR::from(edges);
-        assert_eq!(g.vertex_count(), 4);
+    fn bfs_line_graph_visits_vertices_in_layer_order() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(1, 2),
+            Endpoints::new(2, 3),
+        ]);
 
-        let initials = [0_usize];
         let mut bfs: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
-            SequentialGraphSearch::bfs(&g, initials);
+            SequentialGraphSearch::bfs(&graph, [0]);
 
-        let mut order = Vec::new();
-        for v in bfs.by_ref() {
-            order.push(v);
-        }
+        let order: Vec<_> = bfs.by_ref().collect();
 
         assert_eq!(order, vec![0, 1, 2, 3]);
-
-        let visited = bfs.into_visited();
-        let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(visited, expected);
+        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
-    fn bfs_branching_graph_levels() {
-        // 0 -> 1, 0 -> 2, 1 -> 3, 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (0, 2), (1, 3), (2, 3)];
-        let g = CSR::from(edges);
-        assert_eq!(g.vertex_count(), 4);
+    fn bfs_branching_graph_respects_layers() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(0, 2),
+            Endpoints::new(1, 3),
+            Endpoints::new(2, 3),
+        ]);
 
-        let initials = [0_usize];
         let mut bfs: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
-            SequentialGraphSearch::bfs(&g, initials);
+            SequentialGraphSearch::bfs(&graph, [0]);
 
-        let mut order = Vec::new();
-        for v in bfs.by_ref() {
-            order.push(v);
-        }
+        let order: Vec<_> = bfs.by_ref().collect();
 
-        // Layer expectations:
-        //  dist(0) = 0
-        //  dist(1) = dist(2) = 1
-        //  dist(3) = 2
-        let pos = |x| order.iter().position(|&v| v == x).unwrap();
-        assert_eq!(pos(0), 0);
-        let p1 = pos(1);
-        let p2 = pos(2);
-        let p3 = pos(3);
-        assert!(p1 > 0 && p2 > 0);
-        assert!(p3 > p1 && p3 > p2);
+        let position = |vertex| order.iter().position(|&v| v == vertex).unwrap();
 
-        let visited = bfs.into_visited();
-        let expected: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(visited, expected);
+        assert_eq!(position(0), 0);
+        assert!(position(1) > 0);
+        assert!(position(2) > 0);
+        assert!(position(3) > position(1));
+        assert!(position(3) > position(2));
+
+        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
-    fn bfs_disconnected_components() {
-        // Component A: 0 -> 1
-        // Component B: 2 -> 3
-        let edges = vec![(0_usize, 1_usize), (2, 3)];
-        let g = CSR::from(edges);
+    fn bfs_disconnected_graph_depends_on_initials() {
+        let graph = CSR::from_endpoints([Endpoints::new(0, 1), Endpoints::new(2, 3)]);
 
-        // Start in component B only.
-        let initials_b = [2_usize];
-        let mut bfs_b: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
-            SequentialGraphSearch::bfs(&g, initials_b);
-        let mut seen_b = Vec::new();
-        for v in bfs_b.by_ref() {
-            seen_b.push(v);
-        }
-        seen_b.sort_unstable();
-        assert_eq!(seen_b, vec![2, 3]);
+        let mut from_left: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
+            SequentialGraphSearch::bfs(&graph, [0]);
+        let mut seen_left: Vec<_> = from_left.by_ref().collect();
+        seen_left.sort_unstable();
 
-        let visited_b = bfs_b.into_visited();
-        let expected_b: Set<usize> = [2, 3].into_iter().collect();
-        assert_eq!(visited_b, expected_b);
+        assert_eq!(seen_left, vec![0, 1]);
+        assert_eq!(from_left.into_visited(), [0, 1].into_iter().collect());
 
-        // Start in both components.
-        let initials_all = [0_usize, 2_usize];
-        let mut bfs_all: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
-            SequentialGraphSearch::bfs(&g, initials_all);
-        let mut seen_all = Vec::new();
-        for v in bfs_all.by_ref() {
-            seen_all.push(v);
-        }
-        seen_all.sort_unstable();
-        assert_eq!(seen_all, vec![0, 1, 2, 3]);
+        let mut from_both: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
+            SequentialGraphSearch::bfs(&graph, [0, 2]);
+        let mut seen_both: Vec<_> = from_both.by_ref().collect();
+        seen_both.sort_unstable();
 
-        let visited_all = bfs_all.into_visited();
-        let expected_all: Set<usize> = [0, 1, 2, 3].into_iter().collect();
-        assert_eq!(visited_all, expected_all);
+        assert_eq!(seen_both, vec![0, 1, 2, 3]);
+        assert_eq!(from_both.into_visited(), [0, 1, 2, 3].into_iter().collect());
     }
 
-    prop_compose! {
-        fn random_edge_list()
-            (edges in prop::collection::vec((0u8..=15, 0u8..=15), 0..=64))
-            -> Vec<(usize, usize)>
-        {
-            edges
-                .into_iter()
-                .map(|(from, to)| (from as usize, to as usize))
-                .collect()
-        }
+    fn arbitrary_instance() -> impl Strategy<Value = (Vec<(usize, usize)>, Vec<usize>)> {
+        prop::collection::vec((0usize..16, 0usize..16), 0..64).prop_flat_map(|edges| {
+            let vertex_count = edges
+                .iter()
+                .map(|&(from, to)| from.max(to))
+                .max()
+                .map(|m| m + 1)
+                .unwrap_or(0);
+
+            let initials = if vertex_count == 0 {
+                Just(Vec::new()).boxed()
+            } else {
+                prop::collection::vec(0usize..vertex_count, 0..16).boxed()
+            };
+
+            (Just(edges), initials)
+        })
     }
 
     proptest! {
         #[test]
-        fn prop_bfs_bitvector_vs_set(
-            edges in random_edge_list(),
-            initials_raw in prop::collection::vec(0u8..=15, 0..=16),
-        ) {
-            let g = CSR::from(edges);
-            let vcount = g.vertex_count();
-
-            let initials: Vec<usize> = if vcount == 0 {
-                Vec::new()
-            } else {
-                initials_raw.into_iter()
-                    .map(|x| (x as usize) % vcount)
-                    .collect()
-            };
+        fn prop_bfs_bitvector_and_set_visited_agree((edges, initials) in arbitrary_instance()) {
+            let graph = CSR::from_endpoints(
+                edges.iter()
+                    .copied()
+                    .map(|(from, to)| Endpoints::new(from, to)),
+            );
 
             let mut bfs_set: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
-                SequentialGraphSearch::bfs(&g, initials.iter().copied());
+                SequentialGraphSearch::bfs(&graph, initials.iter().copied());
             while bfs_set.next().is_some() {}
-            let set_res = bfs_set.into_visited();
+            let set_visited = bfs_set.into_visited();
 
             let mut bfs_bits: SequentialGraphSearch<CSR, BitVector, QueueFrontier<usize>> =
-                SequentialGraphSearch::bfs(&g, initials.iter().copied());
+                SequentialGraphSearch::bfs(&graph, initials.iter().copied());
             while bfs_bits.next().is_some() {}
-            let bits_res = bfs_bits.into_visited();
+            let bit_visited = bfs_bits.into_visited();
 
             let mut from_bits = Set::default();
-            for v in 0..vcount {
-                if bits_res.is_visited(&v) {
-                    from_bits.visit(v);
+            for vertex in 0..graph.vertex_count() {
+                if bit_visited.is_visited(&vertex) {
+                    from_bits.visit(vertex);
                 }
             }
 
-            prop_assert_eq!(set_res, from_bits);
+            prop_assert_eq!(set_visited, from_bits);
+        }
+
+        #[test]
+        fn prop_bfs_every_initial_is_visited((edges, initials) in arbitrary_instance()) {
+            let graph = CSR::from_endpoints(
+                edges.iter()
+                    .copied()
+                    .map(|(from, to)| Endpoints::new(from, to)),
+            );
+
+            let reachable: Set<usize> =
+                SequentialGraphSearch::<CSR, Set<usize>, QueueFrontier<usize>>::bfs(
+                    &graph,
+                    initials.iter().copied(),
+                )
+                .worklist();
+
+            for &initial in &initials {
+                prop_assert!(reachable.contains(&initial));
+            }
         }
     }
 }

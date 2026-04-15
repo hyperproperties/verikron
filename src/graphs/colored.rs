@@ -1,4 +1,4 @@
-use crate::graphs::graph::{FiniteVertices, Graph, RemoveVertex, VertexType};
+use crate::graphs::graph::{Endpoints, FiniteVertices, Graph, RemoveVertex, VertexType};
 
 /// Vertex color information.
 pub trait VertexColor: VertexType {
@@ -53,4 +53,12 @@ where
     T::Vertices:
         ColoredVertices<Vertex = <T as VertexType>::Vertex, Color = <T as VertexColor>::Color>,
 {
+}
+
+pub trait FromColoredEndpoints: VertexType + VertexColor {
+    fn from_endpoints_and_colors<E, C>(edges: E, colors: C) -> Self
+    where
+        Self: Sized,
+        E: IntoIterator<Item = Endpoints<Self::Vertex>>,
+        C: IntoIterator<Item = Self::Color>;
 }

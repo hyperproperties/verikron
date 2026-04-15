@@ -76,13 +76,13 @@ pub trait FiniteEdges: Edges {
 /// Edge insertion.
 pub trait InsertEdge: EdgeType {
     /// Inserts an edge between the given endpoints.
-    fn insert_edge(&mut self, endpoints: (Self::Vertex, Self::Vertex)) -> Option<Self::Edge>;
+    fn insert_edge(&mut self, from: Self::Vertex, to: Self::Vertex) -> Option<Self::Edge>;
 }
 
 /// Edge removal.
 pub trait RemoveEdge: EdgeType {
-    /// Removes `edge` and returns its endpoints on success.
-    fn remove_edge(&mut self, edge: Self::Edge) -> Option<(Self::Vertex, Self::Vertex)>;
+    /// Returns true if the `edge` was removed.
+    fn remove_edge(&mut self, edge: Self::Edge) -> bool;
 }
 
 /// Finite mutable edge store.
@@ -249,4 +249,30 @@ where
     T::Vertices: FiniteVertices<Vertex = T::Vertex>,
     T::Edges: FiniteEdges<Vertex = T::Vertex>,
 {
+}
+
+/// Endpoints of an edge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Endpoints<V> {
+    /// Source or first endpoint.
+    pub from: V,
+
+    /// Target or second endpoint.
+    pub to: V,
+}
+
+impl<V> Endpoints<V> {
+    /// Creates a new pair of endpoints.
+    #[inline]
+    pub const fn new(from: V, to: V) -> Self {
+        Self { from, to }
+    }
+}
+
+/// Graph constructible from owned edge endpoints.
+pub trait FromEndpoints: Sized + VertexType {
+    /// Creates a graph from owned edge endpoints.
+    fn from_endpoints<I>(edges: I) -> Self
+    where
+        I: IntoIterator<Item = Endpoints<Self::Vertex>>;
 }
