@@ -195,3 +195,64 @@ pub trait DirectedHypergraph: InfiniteDirectedHypergraph {
 /// Mutable directed hyperedge store.
 pub trait DirectedHypergraphMut: Hyperedges + InsertDirectedHyperedge + RemoveHyperedge {}
 impl<T> DirectedHypergraphMut for T where T: Hyperedges + InsertDirectedHyperedge + RemoveHyperedge {}
+
+/// Undirected hyperedge described by its member vertices.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct HyperedgeMembers<V> {
+    /// Vertices contained in the hyperedge.
+    pub members: Vec<V>,
+}
+
+impl<V> HyperedgeMembers<V> {
+    /// Creates a hyperedge from its member vertices.
+    #[inline]
+    pub fn new<I>(members: I) -> Self
+    where
+        I: IntoIterator<Item = V>,
+    {
+        Self {
+            members: members.into_iter().collect(),
+        }
+    }
+}
+
+/// Directed hyperedge described by its tail and head vertices.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DirectedHyperedge<V> {
+    /// Tail vertices.
+    pub tail: Vec<V>,
+
+    /// Head vertices.
+    pub head: Vec<V>,
+}
+
+impl<V> DirectedHyperedge<V> {
+    /// Creates a directed hyperedge from tail and head vertices.
+    #[inline]
+    pub fn new<T, H>(tail: T, head: H) -> Self
+    where
+        T: IntoIterator<Item = V>,
+        H: IntoIterator<Item = V>,
+    {
+        Self {
+            tail: tail.into_iter().collect(),
+            head: head.into_iter().collect(),
+        }
+    }
+}
+
+/// Undirected hypergraph constructible from owned hyperedges.
+pub trait FromHyperedges: Sized + VertexType {
+    /// Creates a hypergraph from owned hyperedges.
+    fn from_hyperedges<I>(hyperedges: I) -> Self
+    where
+        I: IntoIterator<Item = HyperedgeMembers<Self::Vertex>>;
+}
+
+/// Directed hypergraph constructible from owned directed hyperedges.
+pub trait FromDirectedHyperedges: Sized + VertexType {
+    /// Creates a directed hypergraph from owned directed hyperedges.
+    fn from_directed_hyperedges<I>(hyperedges: I) -> Self
+    where
+        I: IntoIterator<Item = DirectedHyperedge<Self::Vertex>>;
+}
