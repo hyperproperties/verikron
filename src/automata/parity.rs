@@ -12,7 +12,7 @@ use crate::{
         backward::Backward,
         forward::Forward,
         graph::{EdgeType, Graph, VertexType},
-        labeled_edges::ReadLabeledEdges,
+        labeled_edges::LabeledEdges,
     },
     lattices::set::Set,
 };
@@ -98,7 +98,7 @@ where
     G: Graph + Forward + Backward,
     <G as VertexType>::Vertex: Eq + Hash + Debug,
     <G as Graph>::Edges: EdgeType<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>,
-    <G as Graph>::Edges: ReadLabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
+    <G as Graph>::Edges: LabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
 {
     #[inline]
     pub fn with_parity(

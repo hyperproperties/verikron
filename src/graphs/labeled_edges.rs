@@ -1,19 +1,14 @@
-use crate::graphs::graph::{FiniteEdges, RemoveEdge};
+use crate::graphs::graph::{EdgeType, Endpoints, RemoveEdge};
 
-/// Common vertex, edge, and label types used by labeled-edge traits.
-pub trait LabeledEdges: FiniteEdges {
-    /// Type carried by each edge.
-    ///
-    /// This is the transition label in automata terminology.
+/// Edge type with labels.
+pub trait LabeledEdgeType: EdgeType {
+    /// Label carried by each edge.
     type Label;
 }
 
-/// A graph that supports read-only access to edge labels.
-pub trait ReadLabeledEdges: FiniteEdges + LabeledEdges {
-    /// Iterator over all labeled edges in the graph.
-    ///
-    /// Each item is a quadruple `(source, edge, label, destination)`.
-    /// The label is yielded by shared reference to avoid forcing `Label: Copy`.
+/// Read access to labeled edges.
+pub trait LabeledEdges: LabeledEdgeType {
+    /// Iterator over labeled edges as `(from, edge, label, to)`.
     type LabeledEdges<'a>: Iterator<
         Item = (Self::Vertex, Self::Edge, &'a Self::Label, Self::Vertex),
     >
@@ -21,58 +16,34 @@ pub trait ReadLabeledEdges: FiniteEdges + LabeledEdges {
         Self: 'a,
         Self::Label: 'a;
 
-    /// Returns an iterator over all labeled edges in the graph.
+    /// Returns all labeled edges.
     fn labeled_edges(&self) -> Self::LabeledEdges<'_>;
 
-    /// Returns the label of an existing edge.
-    ///
-    /// Returns `None` if `edge` does not exist.
+    /// Returns the label of `edge`.
     fn label(&self, edge: Self::Edge) -> Option<&Self::Label>;
 }
 
-/// A graph that supports mutation of existing edge labels.
-pub trait WriteEdgeLabel: LabeledEdges {
-    /// Returns a mutable reference to the label of an existing edge.
-    ///
-    /// Returns `None` if `edge` does not exist.
+/// Write access to existing edge labels.
+pub trait WriteEdgeLabel: LabeledEdgeType {
+    /// Returns a mutable reference to the label of `edge`.
     fn label_mut(&mut self, edge: Self::Edge) -> Option<&mut Self::Label>;
 
-    /// Replaces the label of an existing edge.
-    ///
-    /// Returns the old label on success, or `None` if `edge` does not exist.
+    /// Replaces the label of `edge` and returns the old label.
     fn set_label(&mut self, edge: Self::Edge, label: Self::Label) -> Option<Self::Label>;
 }
 
-/// A graph that supports insertion of labeled edges.
-///
-/// This is usually the most natural insertion operation for automata,
-/// because transitions should not exist in an unlabeled intermediate state.
-pub trait InsertLabeledEdge: LabeledEdges {
-    /// Inserts a new labeled edge.
-    ///
-    /// The `endpoints` parameter is `(source, destination)` for directed graphs.
-    ///
-    /// On success, returns `Some(edge)` identifying the inserted edge.
-    /// If the edge cannot be inserted, returns `None`.
+/// Insertion of labeled edges.
+pub trait InsertLabeledEdge: LabeledEdgeType {
+    /// Inserts a labeled edge and returns its id on success.
     fn insert_labeled_edge(
         &mut self,
-        endpoints: (Self::Vertex, Self::Vertex),
+        endpoints: Endpoints<Self::Vertex>,
         label: Self::Label,
     ) -> Option<Self::Edge>;
 }
 
-/// Convenience alias for a labeled graph that supports both querying and mutation.
-pub trait LabeledEdgesMut:
-    LabeledEdges + FiniteEdges + ReadLabeledEdges + InsertLabeledEdge + RemoveEdge + WriteEdgeLabel
-{
-}
+/// Mutable labeled edge store.
+pub trait LabeledEdgesMut: LabeledEdges + InsertLabeledEdge + WriteEdgeLabel + RemoveEdge {}
 
-impl<T> LabeledEdgesMut for T where
-    T: LabeledEdges
-        + FiniteEdges
-        + ReadLabeledEdges
-        + InsertLabeledEdge
-        + RemoveEdge
-        + WriteEdgeLabel
-{
-}
+impl<T> LabeledEdgesMut for T where T: LabeledEdges + InsertLabeledEdge + WriteEdgeLabel + RemoveEdge
+{}

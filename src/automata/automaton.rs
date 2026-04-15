@@ -8,7 +8,7 @@ use crate::{
         backward::Backward,
         forward::Forward,
         graph::{EdgeType, FiniteEdges, FiniteVertices, Graph, VertexType},
-        labeled_edges::ReadLabeledEdges,
+        labeled_edges::LabeledEdges,
     },
     lattices::set::Set,
 };
@@ -25,7 +25,7 @@ where
     G: Graph + Forward + Backward,
     <G as VertexType>::Vertex: Eq + Hash + Debug,
     <G as Graph>::Edges: EdgeType<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>
-        + ReadLabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
+        + LabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
     A: Acceptor<<G as VertexType>::Vertex>,
 {
     initial: <G as VertexType>::Vertex,
@@ -38,7 +38,7 @@ where
     G: Graph + Forward + Backward,
     <G as VertexType>::Vertex: Eq + Hash + Debug,
     <G as Graph>::Edges: EdgeType<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>
-        + ReadLabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
+        + LabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
     A: Acceptor<<G as VertexType>::Vertex>,
 {
     /// Creates an automaton without checking whether `initial` belongs to the graph.
@@ -128,7 +128,7 @@ where
     G::Vertices: FiniteVertices<Vertex = <G as VertexType>::Vertex>,
     <G as VertexType>::Vertex: Eq + Hash + Debug,
     <G as Graph>::Edges: EdgeType<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>
-        + ReadLabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
+        + LabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
     A: Acceptor<<G as VertexType>::Vertex>,
 {
     /// Creates an automaton and checks that `initial` belongs to the graph.
@@ -154,7 +154,7 @@ where
     G::Edges: FiniteEdges<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>,
     <G as VertexType>::Vertex: Eq + Hash + Debug,
     <G as Graph>::Edges: EdgeType<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>
-        + ReadLabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
+        + LabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
     A: Acceptor<<G as VertexType>::Vertex>,
 {
     /// Returns the set of input symbols appearing on edges.
