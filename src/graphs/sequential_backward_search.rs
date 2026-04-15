@@ -3,7 +3,7 @@ use std::hash::Hash;
 use crate::graphs::{
     backward::Backward,
     frontier::{QueueFrontier, SearchFrontier, StackFrontier},
-    sequential_forward_search::{BFS, DFS, Search},
+    sequential_forward_search::{BFS, DFS},
     visited::Visited,
     worklist::Worklist,
 };
