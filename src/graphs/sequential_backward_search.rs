@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use crate::graphs::{
     backward::Backward,
     frontier::{QueueFrontier, SearchFrontier, StackFrontier},
@@ -5,8 +7,12 @@ use crate::graphs::{
     visited::Visited,
     worklist::Worklist,
 };
-use std::hash::Hash;
 
+/// Sequential backward search over a graph.
+///
+/// The search follows predecessors of visited vertices. The frontier decides
+/// the traversal order, for example BFS with [`QueueFrontier`] or DFS with
+/// [`StackFrontier`].
 pub struct SequentialBackwardSearch<'g, G, V, F>
 where
     G: Backward,
@@ -23,9 +29,35 @@ impl<'g, G, V, F> SequentialBackwardSearch<'g, G, V, F>
 where
     G: Backward,
     G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex> + Default,
+    V: Visited<G::Vertex>,
     F: SearchFrontier<G::Vertex>,
 {
+    /// Builds a search from a frontier and initial vertices.
+    pub fn with_frontier(
+        graph: &'g G,
+        initials: impl IntoIterator<Item = G::Vertex>,
+        mut frontier: F,
+    ) -> Self
+    where
+        V: Default,
+    {
+        let mut visited = V::default();
+
+        for vertex in initials {
+            if visited.visit(vertex) {
+                frontier.push(vertex);
+            }
+        }
+
+        Self {
+            graph,
+            visited,
+            frontier,
+        }
+    }
+
+    /// Returns the visited set.
+    #[inline]
     pub fn into_visited(self) -> V {
         self.visited
     }
@@ -37,19 +69,10 @@ where
     G::Vertex: Eq + Hash + Copy,
     V: Visited<G::Vertex> + Default,
 {
+    /// Creates a depth-first backward search.
+    #[inline]
     pub fn dfs(graph: &'g G, initial: G::Vertex) -> Self {
-        let mut visited = V::default();
-        let mut frontier = StackFrontier::new();
-
-        if visited.visit(initial) {
-            frontier.push(initial);
-        }
-
-        Self {
-            graph,
-            visited,
-            frontier,
-        }
+        Self::with_frontier(graph, [initial], StackFrontier::new())
     }
 }
 
@@ -59,21 +82,10 @@ where
     G::Vertex: Eq + Hash + Copy,
     V: Visited<G::Vertex> + Default,
 {
+    /// Creates a breadth-first backward search.
+    #[inline]
     pub fn bfs(graph: &'g G, initials: impl IntoIterator<Item = G::Vertex>) -> Self {
-        let mut visited = V::default();
-        let mut frontier = QueueFrontier::new();
-
-        for v in initials {
-            if visited.visit(v) {
-                frontier.push(v);
-            }
-        }
-
-        Self {
-            graph,
-            visited,
-            frontier,
-        }
+        Self::with_frontier(graph, initials, QueueFrontier::new())
     }
 }
 
@@ -87,17 +99,15 @@ where
     type Item = G::Vertex;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Pop a vertex from the frontier and push all newly discovered predecessors.
-        while let Some(u) = self.frontier.pop() {
-            // Backward search: follow *incoming* edges and enqueue predecessors.
-            for (pred, _edge, _this) in self.graph.predecessors(u) {
-                if self.visited.visit(pred) {
-                    self.frontier.push(pred);
-                }
+        let vertex = self.frontier.pop()?;
+
+        for (predecessor, _, _) in self.graph.predecessors(vertex) {
+            if self.visited.visit(predecessor) {
+                self.frontier.push(predecessor);
             }
-            return Some(u);
         }
-        None
+
+        Some(vertex)
     }
 }
 
@@ -114,23 +124,7 @@ where
     }
 }
 
-impl<'g, G, V> Search<G::Vertex> for SequentialBackwardSearch<'g, G, V, StackFrontier<G::Vertex>>
-where
-    G: Backward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex>,
-{
-}
-
 impl<'g, G, V> DFS<G::Vertex> for SequentialBackwardSearch<'g, G, V, StackFrontier<G::Vertex>>
-where
-    G: Backward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex>,
-{
-}
-
-impl<'g, G, V> Search<G::Vertex> for SequentialBackwardSearch<'g, G, V, QueueFrontier<G::Vertex>>
 where
     G: Backward,
     G::Vertex: Eq + Hash + Copy,
@@ -150,13 +144,14 @@ where
 mod tests {
     use super::*;
 
+    use std::collections::VecDeque;
+
     use crate::graphs::{
         csr::CSR,
         graph::{Endpoints, FiniteVertices, FromEndpoints},
     };
     use crate::lattices::set::Set;
     use proptest::prelude::*;
-    use std::collections::VecDeque;
 
     fn reference_backward_reachable(graph: &CSR, initials: &[usize]) -> Set<usize> {
         let mut visited = Set::default();
@@ -179,11 +174,16 @@ mod tests {
         visited
     }
 
-    fn arbitrary_instance() -> impl Strategy<Value = (Vec<(usize, usize)>, Vec<usize>)> {
-        prop::collection::vec((0usize..16, 0usize..16), 0..64).prop_flat_map(|edges| {
+    fn arbitrary_instance() -> impl Strategy<Value = (Vec<Endpoints<usize>>, Vec<usize>)> {
+        prop::collection::vec((0usize..16, 0usize..16), 0..64).prop_flat_map(|raw_edges| {
+            let edges: Vec<_> = raw_edges
+                .into_iter()
+                .map(|(from, to)| Endpoints::new(from, to))
+                .collect();
+
             let vertex_count = edges
                 .iter()
-                .map(|&(from, to)| from.max(to))
+                .map(|edge| edge.from.max(edge.to))
                 .max()
                 .map(|m| m + 1)
                 .unwrap_or(0);
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn backward_empty_graph_without_initials_is_empty() {
+    fn empty_graph_without_initials_is_empty() {
         let graph = CSR::from_endpoints(std::iter::empty::<Endpoints<usize>>());
         let mut search = SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(
             &graph,
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn backward_line_graph_reaches_all_predecessors() {
+    fn backward_bfs_on_line_visits_all_predecessors() {
         let graph = CSR::from_endpoints([
             Endpoints::new(0, 1),
             Endpoints::new(1, 2),
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn backward_branching_graph_reaches_all_predecessors() {
+    fn backward_bfs_on_branching_graph_reaches_all_predecessors() {
         let graph = CSR::from_endpoints([
             Endpoints::new(0, 2),
             Endpoints::new(1, 2),
@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn backward_search_with_multiple_initials_reaches_union() {
+    fn multiple_initials_reach_the_union() {
         let graph = CSR::from_endpoints([
             Endpoints::new(0, 1),
             Endpoints::new(2, 3),
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn backward_cycle_graph_terminates() {
+    fn cycles_terminate() {
         let graph = CSR::from_endpoints([
             Endpoints::new(0, 1),
             Endpoints::new(1, 2),
@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn backward_dfs_and_bfs_reach_same_set() {
+    fn backward_dfs_and_bfs_reach_the_same_set() {
         let graph = CSR::from_endpoints([
             Endpoints::new(0, 2),
             Endpoints::new(1, 2),
@@ -298,14 +298,20 @@ mod tests {
         assert_eq!(bfs, [0, 1, 2, 3, 4].into_iter().collect());
     }
 
+    #[test]
+    fn duplicate_initials_are_ignored() {
+        let graph = CSR::from_endpoints([Endpoints::new(0, 1), Endpoints::new(1, 2)]);
+        let visited: Set<usize> =
+            SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(&graph, [2, 2, 2])
+                .worklist();
+
+        assert_eq!(visited, [0, 1, 2].into_iter().collect());
+    }
+
     proptest! {
         #[test]
-        fn prop_backward_worklist_matches_reference_bfs((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(
-                edges.iter()
-                    .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
-            );
+        fn prop_worklist_matches_reference((edges, initials) in arbitrary_instance()) {
+            let graph = CSR::from_endpoints(edges.clone());
 
             let actual: Set<usize> =
                 SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(
@@ -320,12 +326,8 @@ mod tests {
         }
 
         #[test]
-        fn prop_backward_worklist_contains_initials((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(
-                edges.iter()
-                    .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
-            );
+        fn prop_worklist_contains_initials((edges, initials) in arbitrary_instance()) {
+            let graph = CSR::from_endpoints(edges);
 
             let visited: Set<usize> =
                 SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(
@@ -340,12 +342,8 @@ mod tests {
         }
 
         #[test]
-        fn prop_backward_worklist_is_idempotent((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(
-                edges.iter()
-                    .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
-            );
+        fn prop_worklist_is_idempotent((edges, initials) in arbitrary_instance()) {
+            let graph = CSR::from_endpoints(edges);
 
             let first: Set<usize> =
                 SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(
