@@ -1,6 +1,6 @@
 use crate::graphs::{
     colored::{ColoredGraph, ColoredVertices, InsertColoredVertex},
-    graph::{RemoveVertex, VertexType, Vertices},
+    graph::{RemoveVertex, VertexOf, VertexType, Vertices},
 };
 
 /// Side of a bipartite partition.
@@ -121,23 +121,23 @@ impl<T> BipartiteVerticesMut for T where
 /// Bipartite graph interface.
 pub trait BipartiteGraph: ColoredGraph<Color = Side>
 where
-    Self::Vertices: BipartiteVertices<Vertex = <Self as VertexType>::Vertex>,
+    Self::Vertices: BipartiteVertices<Vertex = VertexOf<Self>>,
 {
     /// Returns the side of `vertex`, or `None` if it does not exist.
     #[inline]
-    fn side_of(&self, vertex: <Self as VertexType>::Vertex) -> Option<Side> {
+    fn side_of(&self, vertex: VertexOf<Self>) -> Option<Side> {
         self.vertex_store().vertex_color(vertex)
     }
 
     /// Returns whether `vertex` is on the left side.
     #[inline]
-    fn is_left(&self, vertex: <Self as VertexType>::Vertex) -> bool {
+    fn is_left(&self, vertex: VertexOf<Self>) -> bool {
         self.side_of(vertex) == Some(Side::Left)
     }
 
     /// Returns whether `vertex` is on the right side.
     #[inline]
-    fn is_right(&self, vertex: <Self as VertexType>::Vertex) -> bool {
+    fn is_right(&self, vertex: VertexOf<Self>) -> bool {
         self.side_of(vertex) == Some(Side::Right)
     }
 
@@ -147,8 +147,8 @@ where
     #[inline]
     fn same_side(
         &self,
-        u: <Self as VertexType>::Vertex,
-        v: <Self as VertexType>::Vertex,
+        u: VertexOf<Self>,
+        v: VertexOf<Self>,
     ) -> Option<bool> {
         Some(self.side_of(u)? == self.side_of(v)?)
     }
@@ -159,8 +159,8 @@ where
     #[inline]
     fn opposite_sides(
         &self,
-        u: <Self as VertexType>::Vertex,
-        v: <Self as VertexType>::Vertex,
+        u: VertexOf<Self>,
+        v: VertexOf<Self>,
     ) -> Option<bool> {
         Some(self.side_of(u)? != self.side_of(v)?)
     }
@@ -187,6 +187,6 @@ where
 impl<T> BipartiteGraph for T
 where
     T: ColoredGraph<Color = Side>,
-    T::Vertices: BipartiteVertices<Vertex = <T as VertexType>::Vertex>,
+    T::Vertices: BipartiteVertices<Vertex = VertexOf<T>>,
 {
 }

@@ -226,6 +226,9 @@ pub trait Graph: VertexType {
     fn vertex_store(&self) -> &Self::Vertices;
 }
 
+pub type VertexOf<G> = <G as VertexType>::Vertex;
+pub type EdgeOf<G> = <G as EdgeType>::Edge;
+
 /// Finite graph composed from a finite vertex store and a finite edge store.
 pub trait FiniteGraph: Graph
 where

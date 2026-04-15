@@ -1,4 +1,4 @@
-use crate::graphs::graph::{Endpoints, FiniteVertices, Graph, RemoveVertex, VertexType};
+use crate::graphs::graph::{Endpoints, FiniteVertices, Graph, RemoveVertex, VertexOf, VertexType};
 
 /// Vertex color information.
 pub trait VertexColor: VertexType {
@@ -43,7 +43,7 @@ impl<T> ColoredVerticesMut for T where
 /// Graph whose vertex store is colored.
 pub trait ColoredGraph: Graph + VertexColor
 where
-    Self::Vertices: ColoredVertices<Vertex = <Self as VertexType>::Vertex, Color = <Self as VertexColor>::Color>,
+    Self::Vertices: ColoredVertices<Vertex = VertexOf<Self>, Color = <Self as VertexColor>::Color>,
 {
 }
 
@@ -51,7 +51,7 @@ impl<T> ColoredGraph for T
 where
     T: Graph + VertexColor,
     T::Vertices:
-        ColoredVertices<Vertex = <T as VertexType>::Vertex, Color = <T as VertexColor>::Color>,
+        ColoredVertices<Vertex = VertexOf<T>, Color = <T as VertexColor>::Color>,
 {
 }
 
