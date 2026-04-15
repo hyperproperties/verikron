@@ -9,7 +9,7 @@ pub mod forward;
 pub mod frontier;
 pub mod graph;
 pub mod hyper;
-pub mod labeled_edges;
+pub mod labeled;
 pub mod mcsr;
 pub mod parallel_bfs;
 pub mod sequential_backward_search;

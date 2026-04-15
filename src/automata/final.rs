@@ -1,70 +1,90 @@
-use std::{fmt::Debug, hash::Hash};
+use std::hash::Hash;
 
 use crate::{
     automata::{
-        acceptors::Acceptor,
+        acceptors::{Acceptor, StateSummary},
         automaton::{Automaton, IoLabel},
-        trace::Summary,
     },
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{EdgeType, Graph, VertexType},
-        labeled_edges::LabeledEdges,
+        graph::{Directed, EdgeOf, Graph, VertexOf}, labeled::LabeledEdges,
     },
     lattices::set::Set,
 };
 
+/// Final-state acceptance condition.
+///
+/// A run is accepting iff it is finite and its terminal state is accepting.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Final<S: Eq + Hash> {
     accepting: Set<S>,
 }
 
-impl<S: Eq + Hash> Final<S> {
+impl<S> Final<S>
+where
+    S: Eq + Hash,
+{
+    /// Creates a final-state condition with the given accepting states.
+    #[must_use]
     #[inline]
     pub fn new(accepting: Set<S>) -> Self {
         Self { accepting }
     }
 
+    /// Returns the accepting states.
+    #[must_use]
     #[inline]
     pub fn accepting(&self) -> &Set<S> {
         &self.accepting
     }
 
+    /// Consumes `self` and returns the accepting states.
+    #[must_use]
     #[inline]
     pub fn into_accepting(self) -> Set<S> {
         self.accepting
     }
 }
 
-impl<S: Eq + Hash> From<Set<S>> for Final<S> {
+impl<S> From<Set<S>> for Final<S>
+where
+    S: Eq + Hash,
+{
     #[inline]
     fn from(accepting: Set<S>) -> Self {
         Self::new(accepting)
     }
 }
 
-impl<S: Eq + Hash> Acceptor<S> for Final<S> {
+impl<S> Acceptor for Final<S>
+where
+    S: Eq + Hash,
+{
+    type Summary = StateSummary<S>;
+
     #[inline]
-    fn accepts(&self, summary: &Summary<S>) -> bool {
-        summary
-            .terminal()
-            .is_some_and(|q| self.accepting.contains(q))
+    fn accept(&self, summary: &Self::Summary) -> bool {
+        match summary {
+            StateSummary::Finite { terminal } => self.accepting.contains(terminal),
+            StateSummary::Infinite { .. } => false,
+        }
     }
 }
 
-impl<G> Automaton<G, Final<<G as VertexType>::Vertex>>
+impl<G> Automaton<G, Final<VertexOf<G>>>
 where
-    G: Graph + Forward + Backward,
-    <G as VertexType>::Vertex: Eq + Hash + Debug,
-    <G as Graph>::Edges: EdgeType<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>,
-    <G as Graph>::Edges: LabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
+    G: Graph + Forward + Backward + Directed,
+    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
+    VertexOf<G>: Eq + Hash,
 {
+    /// Creates an automaton with final-state acceptance.
+    #[must_use]
     #[inline]
     pub fn with_final(
-        initial: <G as VertexType>::Vertex,
+        initial: VertexOf<G>,
         graph: G,
-        accepting: Set<<G as VertexType>::Vertex>,
+        accepting: Set<VertexOf<G>>,
     ) -> Self {
         Self::new(initial, graph, Final::new(accepting))
     }

@@ -1,6 +1,6 @@
 use crate::graphs::{
     colored::{ColoredGraph, ColoredVertices, InsertColoredVertex},
-    graph::{RemoveVertex, VertexOf, VertexType, Vertices},
+    graph::{RemoveVertex, VertexOf, Vertices},
 };
 
 /// Side of a bipartite partition.
@@ -145,11 +145,7 @@ where
     ///
     /// Returns `None` if either vertex does not exist.
     #[inline]
-    fn same_side(
-        &self,
-        u: VertexOf<Self>,
-        v: VertexOf<Self>,
-    ) -> Option<bool> {
+    fn same_side(&self, u: VertexOf<Self>, v: VertexOf<Self>) -> Option<bool> {
         Some(self.side_of(u)? == self.side_of(v)?)
     }
 
@@ -157,11 +153,7 @@ where
     ///
     /// Returns `None` if either vertex does not exist.
     #[inline]
-    fn opposite_sides(
-        &self,
-        u: VertexOf<Self>,
-        v: VertexOf<Self>,
-    ) -> Option<bool> {
+    fn opposite_sides(&self, u: VertexOf<Self>, v: VertexOf<Self>) -> Option<bool> {
         Some(self.side_of(u)? != self.side_of(v)?)
     }
 

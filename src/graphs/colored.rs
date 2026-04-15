@@ -50,8 +50,7 @@ where
 impl<T> ColoredGraph for T
 where
     T: Graph + VertexColor,
-    T::Vertices:
-        ColoredVertices<Vertex = VertexOf<T>, Color = <T as VertexColor>::Color>,
+    T::Vertices: ColoredVertices<Vertex = VertexOf<T>, Color = <T as VertexColor>::Color>,
 {
 }
 

@@ -1,100 +1,144 @@
-use std::{fmt::Debug, hash::Hash};
+use std::hash::Hash;
 
 use crate::{
     automata::{
-        acceptors::Acceptor,
+        acceptors::{Acceptor, StateSummary},
         automaton::{Automaton, IoLabel},
-        trace::Summary,
     },
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{EdgeType, Graph, VertexType},
-        labeled_edges::LabeledEdges,
+        graph::{Directed, EdgeOf, Graph, VertexOf}, labeled::LabeledEdges,
     },
     lattices::set::Set,
 };
 
+/// Streett pair `(E, F)`.
+///
+/// A pair is satisfied iff either no state from `trigger` is visited
+/// infinitely often, or some state from `guarantee` is visited infinitely
+/// often.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StreettPair<S: Eq + Hash> {
     trigger: Set<S>,
     guarantee: Set<S>,
 }
 
-impl<S: Eq + Hash> StreettPair<S> {
+impl<S> StreettPair<S>
+where
+    S: Eq + Hash,
+{
+    /// Creates a Streett pair `(trigger, guarantee)`.
+    #[must_use]
     #[inline]
     pub fn new(trigger: Set<S>, guarantee: Set<S>) -> Self {
         Self { trigger, guarantee }
     }
 
+    /// Returns the trigger set.
+    #[must_use]
     #[inline]
     pub fn trigger(&self) -> &Set<S> {
         &self.trigger
     }
 
+    /// Returns the guarantee set.
+    #[must_use]
     #[inline]
     pub fn guarantee(&self) -> &Set<S> {
         &self.guarantee
     }
 
+    /// Consumes `self` and returns `(trigger, guarantee)`.
+    #[must_use]
     #[inline]
     pub fn into_parts(self) -> (Set<S>, Set<S>) {
         (self.trigger, self.guarantee)
     }
+
+    /// Returns whether this pair is satisfied by `states`.
+    #[must_use]
+    #[inline]
+    pub fn accepts(&self, states: &Set<S>) -> bool {
+        self.trigger.is_disjoint(states) || !self.guarantee.is_disjoint(states)
+    }
 }
 
+/// Streett acceptance condition.
+///
+/// A run is accepting iff it is infinite and every Streett pair is satisfied
+/// by the set of states visited infinitely often.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Streett<S: Eq + Hash> {
     pairs: Vec<StreettPair<S>>,
 }
 
-impl<S: Eq + Hash> Streett<S> {
+impl<S> Streett<S>
+where
+    S: Eq + Hash,
+{
+    /// Creates a Streett condition with the given pairs.
+    #[must_use]
     #[inline]
     pub fn new(pairs: Vec<StreettPair<S>>) -> Self {
         Self { pairs }
     }
 
+    /// Returns the Streett pairs.
+    #[must_use]
     #[inline]
     pub fn pairs(&self) -> &[StreettPair<S>] {
         &self.pairs
     }
 
+    /// Consumes `self` and returns the Streett pairs.
+    #[must_use]
     #[inline]
     pub fn into_pairs(self) -> Vec<StreettPair<S>> {
         self.pairs
     }
 }
 
-impl<S: Eq + Hash> From<Vec<StreettPair<S>>> for Streett<S> {
+impl<S> From<Vec<StreettPair<S>>> for Streett<S>
+where
+    S: Eq + Hash,
+{
     #[inline]
     fn from(pairs: Vec<StreettPair<S>>) -> Self {
         Self::new(pairs)
     }
 }
 
-impl<S: Eq + Hash> Acceptor<S> for Streett<S> {
+impl<S> Acceptor for Streett<S>
+where
+    S: Eq + Hash,
+{
+    type Summary = StateSummary<S>;
+
     #[inline]
-    fn accepts(&self, summary: &Summary<S>) -> bool {
-        summary.infinite_states().is_some_and(|states| {
-            self.pairs
-                .iter()
-                .all(|pair| pair.trigger.is_disjoint(states) || !pair.guarantee.is_disjoint(states))
-        })
+    fn accept(&self, summary: &Self::Summary) -> bool {
+        match summary {
+            StateSummary::Finite { .. } => false,
+            StateSummary::Infinite { states } => {
+                self.pairs.iter().all(|pair| pair.accepts(states))
+            }
+        }
     }
 }
 
-impl<G> Automaton<G, Streett<<G as VertexType>::Vertex>>
+impl<G> Automaton<G, Streett<VertexOf<G>>>
 where
-    G: Graph + Forward + Backward,
-    <G as VertexType>::Vertex: Eq + Hash + Debug,
-    <G as Graph>::Edges: EdgeType<Vertex = <G as VertexType>::Vertex, Edge = <G as EdgeType>::Edge>,
-    <G as Graph>::Edges: LabeledEdges<Vertex = <G as VertexType>::Vertex, Label = IoLabel>,
+    G: Graph + Forward + Backward + Directed,
+    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
+    VertexOf<G>: Eq + Hash,
 {
+    /// Creates an automaton with Streett acceptance.
+    #[must_use]
     #[inline]
     pub fn with_streett(
-        initial: <G as VertexType>::Vertex,
+        initial: VertexOf<G>,
         graph: G,
-        pairs: Vec<StreettPair<<G as VertexType>::Vertex>>,
+        pairs: Vec<StreettPair<VertexOf<G>>>,
     ) -> Self {
         Self::new(initial, graph, Streett::new(pairs))
     }
