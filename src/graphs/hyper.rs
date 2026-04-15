@@ -1,36 +1,14 @@
 use crate::graphs::graph::Vertices;
 
-/// Common identifier types used by hypergraph traits.
-///
-/// Hyperedges defines the basic vertex and hyperedge identifier types
-/// shared by the hypergraph interfaces in this module.
-///
-/// Vertices are identified by small copyable values.
-/// Hyperedges are likewise identified by small copyable values.
-///
-/// Concrete storage backends are free to choose the actual identifier types,
-/// but in most implementations these will be compact values such as `usize`.
+/// Finite hypergraph with global access to its hyperedges.
 pub trait Hyperedges {
-    /// Identifier type for vertices.
+    /// Type used to identify vertices.
     type Vertex: Eq + Copy;
 
-    /// Identifier type for hyperedges.
+    /// Type used to identify hyperedges.
     type Hyperedge: Eq + Copy;
-}
 
-/// Read-only access to hyperedge identifiers.
-///
-/// ReadHyperedges provides iteration over all hyperedges in a hypergraph,
-/// without committing to a particular structural interpretation
-/// such as undirected membership or directed tail/head incidence.
-///
-/// Structural queries are provided by higher-level traits such as
-/// `UndirectedHypergraph` and `DirectedHypergraph`.
-///
-/// Iteration uses an associated iterator type, so implementations can avoid
-/// extra allocation and avoid dynamic dispatch.
-pub trait ReadHyperedges: Hyperedges {
-    /// Iterator over all hyperedge identifiers.
+    /// Iterator over all hyperedges.
     type Hyperedges<'a>: Iterator<Item = Self::Hyperedge>
     where
         Self: 'a;
@@ -43,65 +21,65 @@ pub trait ReadHyperedges: Hyperedges {
         self.hyperedges().count()
     }
 }
+/// Hyperedge insertion.
+///
+/// This is the common insertion trait for hypergraphs whose hyperedges
+/// are described by a collection of member vertices.
+pub trait InsertHyperedge: Hyperedges {
+    /// Inserts a hyperedge and returns its identifier on success.
+    fn insert_hyperedge<I>(&mut self, members: I) -> Option<Self::Hyperedge>
+    where
+        I: IntoIterator<Item = Self::Vertex>;
+}
 
-/// High-level abstraction for finite hypergraphs.
+/// Hyperedge removal.
+pub trait RemoveHyperedge: Hyperedges {
+    /// Removes `hyperedge` and returns whether it existed.
+    fn remove_hyperedge(&mut self, hyperedge: Self::Hyperedge) -> bool;
+}
+
+/// Mutable hyperedge store.
+pub trait HyperedgesMut: Hyperedges + InsertHyperedge + RemoveHyperedge {}
+impl<T> HyperedgesMut for T where T: Hyperedges + InsertHyperedge + RemoveHyperedge {}
+
+/// High-level abstraction for a finite hypergraph.
 ///
-/// ReadHypergraph bundles together a vertex store and a hyperedge store
-/// that use a common vertex identifier type.
-///
-/// This mirrors the structure of the ordinary graph traits:
-/// vertices and hyperedges are stored separately, while algorithms and
-/// higher-level views can be written generically over the combined interface.
-///
-/// The trait does not impose whether the hypergraph is directed or undirected.
-/// That distinction is handled by `UndirectedHypergraph` and `DirectedHypergraph`.
-pub trait ReadHypergraph {
-    /// Common vertex identifier type.
+/// A hypergraph is composed from a vertex store and a hyperedge store
+/// that share the same vertex identifier type.
+pub trait Hypergraph {
+    /// Common vertex type.
     type Vertex: Eq + Copy;
 
-    /// Common hyperedge identifier type.
+    /// Common hyperedge type.
     type Hyperedge: Eq + Copy;
 
     /// Vertex storage component.
     type Vertices: Vertices<Vertex = Self::Vertex>;
 
     /// Hyperedge storage component.
-    type Hyperedges: ReadHyperedges<Vertex = Self::Vertex, Hyperedge = Self::Hyperedge>;
+    type Hyperedges: Hyperedges<Vertex = Self::Vertex, Hyperedge = Self::Hyperedge>;
 
-    /// Access to the vertex store.
+    /// Returns the vertex store.
     fn vertex_store(&self) -> &Self::Vertices;
 
-    /// Access to the hyperedge store.
+    /// Returns the hyperedge store.
     fn hyperedge_store(&self) -> &Self::Hyperedges;
 
-    /// Returns the total size of the hypergraph,
-    /// measured as number of vertices plus number of hyperedges.
+    /// Returns a default size measure: vertices plus hyperedges.
     fn size(&self) -> usize {
         self.vertex_store().vertex_count() + self.hyperedge_store().hyperedge_count()
     }
 
-    /// Returns true when the hypergraph has no vertices and no hyperedges.
+    /// Returns true when the hypergraph is empty.
     fn is_empty(&self) -> bool {
         self.size() == 0
     }
 }
 
-/// Core abstraction for finite undirected hypergraphs.
+/// Core abstraction for undirected hypergraphs.
 ///
-/// An undirected hypergraph consists of vertices and hyperedges,
-/// where each hyperedge is incident to zero or more vertices.
-///
-/// Unlike an ordinary undirected graph edge, a hyperedge may connect
-/// any number of vertices rather than exactly two.
-///
-/// The trait focuses on structural access to hyperedges and their incidences.
-/// Algorithms such as traversal, connectedness, clustering,
-/// or combinational analysis are expected to be written as generic helper
-/// functions or extension traits built on top of this interface.
-///
-/// Iteration uses associated iterator types, so implementations can avoid
-/// extra allocation and avoid dynamic dispatch.
-pub trait UndirectedHypergraph: ReadHyperedges {
+/// Each hyperedge is incident to zero or more vertices.
+pub trait UndirectedHypergraph: Hyperedges {
     /// Iterator over the member vertices of a hyperedge.
     type Members<'a>: Iterator<Item = Self::Vertex>
     where
@@ -112,45 +90,32 @@ pub trait UndirectedHypergraph: ReadHyperedges {
     where
         Self: 'a;
 
-    /// Returns all member vertices of the given hyperedge.
-    fn members(&self, e: Self::Hyperedge) -> Self::Members<'_>;
+    /// Returns the member vertices of `hyperedge`.
+    fn members(&self, hyperedge: Self::Hyperedge) -> Self::Members<'_>;
 
-    /// Returns all hyperedges incident to the given vertex.
-    fn incident(&self, v: Self::Vertex) -> Self::Incident<'_>;
+    /// Returns the hyperedges incident to `vertex`.
+    fn incident(&self, vertex: Self::Vertex) -> Self::Incident<'_>;
 
-    /// Returns the number of member vertices of a hyperedge.
-    fn cardinality(&self, e: Self::Hyperedge) -> usize {
-        self.members(e).count()
+    /// Returns the number of members of `hyperedge`.
+    fn cardinality(&self, hyperedge: Self::Hyperedge) -> usize {
+        self.members(hyperedge).count()
     }
 
-    /// Returns the number of incident hyperedges of a vertex.
-    fn degree(&self, v: Self::Vertex) -> usize {
-        self.incident(v).count()
+    /// Returns the number of incident hyperedges of `vertex`.
+    fn degree(&self, vertex: Self::Vertex) -> usize {
+        self.incident(vertex).count()
     }
 
-    /// Returns true when the given hyperedge contains the given vertex.
-    fn contains(&self, e: Self::Hyperedge, v: Self::Vertex) -> bool {
-        self.members(e).any(|u| u == v)
+    /// Returns true when `hyperedge` contains `vertex`.
+    fn contains(&self, hyperedge: Self::Hyperedge, vertex: Self::Vertex) -> bool {
+        self.members(hyperedge).any(|u| u == vertex)
     }
 }
 
-/// Core abstraction for finite directed hypergraphs.
+/// Core abstraction for directed hypergraphs.
 ///
-/// A directed hypergraph consists of vertices and hyperedges,
-/// where each hyperedge has a tail set and a head set.
-///
-/// This generalizes an ordinary directed edge:
-/// instead of connecting one source vertex to one destination vertex,
-/// a directed hyperedge connects a set of tail vertices to a set of head vertices.
-///
-/// The trait focuses on structural access to hyperedges and their incidences.
-/// Algorithms such as propagation, reachability, dependency analysis,
-/// or flow-like procedures are expected to be written as generic helper
-/// functions or extension traits built on top of this interface.
-///
-/// Iteration uses associated iterator types, so implementations can avoid
-/// extra allocation and avoid dynamic dispatch.
-pub trait DirectedHypergraph: ReadHyperedges {
+/// Each hyperedge has a tail set and a head set.
+pub trait DirectedHypergraph: Hyperedges {
     /// Iterator over the tail vertices of a hyperedge.
     type Tail<'a>: Iterator<Item = Self::Vertex>
     where
@@ -171,84 +136,54 @@ pub trait DirectedHypergraph: ReadHyperedges {
     where
         Self: 'a;
 
-    /// Returns the tail vertices of the given hyperedge.
-    fn tail(&self, e: Self::Hyperedge) -> Self::Tail<'_>;
+    /// Returns the tail vertices of `hyperedge`.
+    fn tail(&self, hyperedge: Self::Hyperedge) -> Self::Tail<'_>;
 
-    /// Returns the head vertices of the given hyperedge.
-    fn head(&self, e: Self::Hyperedge) -> Self::Head<'_>;
+    /// Returns the head vertices of `hyperedge`.
+    fn head(&self, hyperedge: Self::Hyperedge) -> Self::Head<'_>;
 
-    /// Returns all hyperedges whose tail contains the given vertex.
-    fn outgoing(&self, v: Self::Vertex) -> Self::Outgoing<'_>;
-
-    /// Returns all hyperedges whose head contains the given vertex.
-    fn ingoing(&self, v: Self::Vertex) -> Self::Ingoing<'_>;
-
-    /// Returns the number of tail vertices of a hyperedge.
-    fn tail_cardinality(&self, e: Self::Hyperedge) -> usize {
-        self.tail(e).count()
+    /// Returns true if the vertex is in the edge's tail.
+    fn in_tail(&self, e: Self::Hyperedge, v: Self::Vertex) -> bool {
+        self.tail(e).any(|u| u == v)
     }
 
-    /// Returns the number of head vertices of a hyperedge.
-    fn head_cardinality(&self, e: Self::Hyperedge) -> usize {
-        self.head(e).count()
+    /// Returns true if the vertex is in the edge's head.
+    fn in_head(&self, e: Self::Hyperedge, v: Self::Vertex) -> bool {
+        self.head(e).any(|u| u == v)
     }
 
-    /// Returns the number of outgoing hyperedges of a vertex,
-    /// meaning hyperedges whose tail contains that vertex.
-    fn outgoing_degree(&self, v: Self::Vertex) -> usize {
-        self.outgoing(v).count()
+    /// Returns all hyperedges whose tail contains `vertex`.
+    fn outgoing(&self, vertex: Self::Vertex) -> Self::Outgoing<'_>;
+
+    /// Returns all hyperedges whose head contains `vertex`.
+    fn ingoing(&self, vertex: Self::Vertex) -> Self::Ingoing<'_>;
+
+    /// Returns the size of the tail of `hyperedge`.
+    fn tail_cardinality(&self, hyperedge: Self::Hyperedge) -> usize {
+        self.tail(hyperedge).count()
     }
 
-    /// Returns the number of ingoing hyperedges of a vertex,
-    /// meaning hyperedges whose head contains that vertex.
-    fn ingoing_degree(&self, v: Self::Vertex) -> usize {
-        self.ingoing(v).count()
+    /// Returns the size of the head of `hyperedge`.
+    fn head_cardinality(&self, hyperedge: Self::Hyperedge) -> usize {
+        self.head(hyperedge).count()
     }
-}
 
-/// Insertion interface for undirected hypergraphs.
-///
-/// The inserted hyperedge is defined by its member vertices.
-///
-/// Implementations may impose additional restrictions,
-/// such as rejecting invalid vertices or duplicate hyperedges.
-pub trait InsertUndirectedHyperedge: Hyperedges {
-    /// Inserts a hyperedge with the given member vertices.
-    ///
-    /// Returns the identifier of the inserted hyperedge on success,
-    /// or `None` if insertion fails.
-    fn insert_hyperedge<I>(&mut self, members: I) -> Option<Self::Hyperedge>
-    where
-        I: IntoIterator<Item = Self::Vertex>;
+    /// Returns the number of outgoing hyperedges of `vertex`.
+    fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
+        self.outgoing(vertex).count()
+    }
+
+    /// Returns the number of ingoing hyperedges of `vertex`.
+    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
+        self.ingoing(vertex).count()
+    }
 }
 
 /// Insertion interface for directed hypergraphs.
-///
-/// The inserted hyperedge is defined by a tail set and a head set.
-///
-/// Implementations may impose additional restrictions,
-/// such as rejecting invalid vertices or duplicate hyperedges.
 pub trait InsertDirectedHyperedge: Hyperedges {
     /// Inserts a directed hyperedge with the given tail and head vertices.
-    ///
-    /// Returns the identifier of the inserted hyperedge on success,
-    /// or `None` if insertion fails.
     fn insert_hyperedge<T, H>(&mut self, tail: T, head: H) -> Option<Self::Hyperedge>
     where
         T: IntoIterator<Item = Self::Vertex>,
         H: IntoIterator<Item = Self::Vertex>;
-}
-
-/// Removal interface for hypergraphs.
-///
-/// Hyperedge removal deletes an existing hyperedge from the structure.
-/// The exact treatment of identifiers after removal is implementation-defined.
-/// Some backends may preserve stable identifiers,
-/// while others may compact storage and invalidate old ones.
-pub trait RemoveHyperedge: Hyperedges {
-    /// Removes the given hyperedge.
-    ///
-    /// Returns true if a hyperedge was removed,
-    /// and false if the identifier did not refer to an existing hyperedge.
-    fn remove_hyperedge(&mut self, e: Self::Hyperedge) -> bool;
 }

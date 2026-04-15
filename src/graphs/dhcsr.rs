@@ -1,70 +1,6 @@
 use std::ops::Range;
 
-use crate::graphs::graph::Vertices;
-
-pub trait Hyperedges {
-    type Vertex: Eq + Copy;
-    type Hyperedge: Eq + Copy;
-}
-
-pub trait ReadHyperedges: Hyperedges {
-    type Hyperedges<'a>: Iterator<Item = Self::Hyperedge>
-    where
-        Self: 'a;
-
-    fn hyperedges(&self) -> Self::Hyperedges<'_>;
-
-    fn hyperedge_count(&self) -> usize {
-        self.hyperedges().count()
-    }
-}
-
-pub trait DirectedHypergraph: ReadHyperedges {
-    type Tail<'a>: Iterator<Item = Self::Vertex>
-    where
-        Self: 'a;
-
-    type Head<'a>: Iterator<Item = Self::Vertex>
-    where
-        Self: 'a;
-
-    type Outgoing<'a>: Iterator<Item = Self::Hyperedge>
-    where
-        Self: 'a;
-
-    type Ingoing<'a>: Iterator<Item = Self::Hyperedge>
-    where
-        Self: 'a;
-
-    fn tail(&self, e: Self::Hyperedge) -> Self::Tail<'_>;
-    fn head(&self, e: Self::Hyperedge) -> Self::Head<'_>;
-    fn outgoing(&self, v: Self::Vertex) -> Self::Outgoing<'_>;
-    fn ingoing(&self, v: Self::Vertex) -> Self::Ingoing<'_>;
-
-    fn tail_cardinality(&self, e: Self::Hyperedge) -> usize {
-        self.tail(e).count()
-    }
-
-    fn head_cardinality(&self, e: Self::Hyperedge) -> usize {
-        self.head(e).count()
-    }
-
-    fn outgoing_degree(&self, v: Self::Vertex) -> usize {
-        self.outgoing(v).count()
-    }
-
-    fn ingoing_degree(&self, v: Self::Vertex) -> usize {
-        self.ingoing(v).count()
-    }
-
-    fn in_tail(&self, e: Self::Hyperedge, v: Self::Vertex) -> bool {
-        self.tail(e).any(|u| u == v)
-    }
-
-    fn in_head(&self, e: Self::Hyperedge, v: Self::Vertex) -> bool {
-        self.head(e).any(|u| u == v)
-    }
-}
+use crate::graphs::{graph::Vertices, hyper::{DirectedHypergraph, Hyperedges}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DHCSR {
@@ -340,9 +276,7 @@ impl From<Vec<(Vec<usize>, Vec<usize>)>> for DHCSR {
 impl Hyperedges for DHCSR {
     type Vertex = usize;
     type Hyperedge = usize;
-}
 
-impl ReadHyperedges for DHCSR {
     type Hyperedges<'a>
         = Range<usize>
     where
