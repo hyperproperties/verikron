@@ -1,4 +1,4 @@
-use crate::graphs::graph::{EdgeType, Endpoints, RemoveEdge};
+use crate::graphs::graph::{EdgeType, Edges, Endpoints, RemoveEdge};
 
 /// Edge type with labels.
 pub trait LabeledEdgeType: EdgeType {
@@ -7,7 +7,7 @@ pub trait LabeledEdgeType: EdgeType {
 }
 
 /// Read access to labeled edges.
-pub trait LabeledEdges: LabeledEdgeType {
+pub trait LabeledEdges: Edges + LabeledEdgeType {
     /// Iterator over labeled edges as `(from, edge, label, to)`.
     type LabeledEdges<'a>: Iterator<
         Item = (Self::Vertex, Self::Edge, &'a Self::Label, Self::Vertex),
