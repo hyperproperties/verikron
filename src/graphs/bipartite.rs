@@ -1,6 +1,6 @@
 use crate::graphs::{
     colored::{ColoredGraph, ColoredVertices, InsertColoredVertex},
-    graph::{FiniteVertices, RemoveVertex, VertexType, Vertices},
+    graph::{RemoveVertex, VertexType, Vertices},
 };
 
 /// Side of a bipartite partition.

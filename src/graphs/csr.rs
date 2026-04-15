@@ -548,7 +548,7 @@ impl<'a> Iterator for CsrEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::graph::{FiniteDirected, FiniteEdges, FiniteVertices, Graph};
+    use crate::graphs::graph::{FiniteDirected, FiniteEdges, FiniteVertices};
 
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng};

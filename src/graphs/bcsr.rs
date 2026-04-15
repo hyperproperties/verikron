@@ -219,7 +219,7 @@ impl RepartitionVertex for BCSR {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::{bipartite::BipartiteGraph, graph::Graph};
+    use crate::graphs::bipartite::BipartiteGraph;
 
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng};
