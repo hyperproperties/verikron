@@ -1,15 +1,22 @@
+use std::hash::Hash;
+
 use rayon::iter::{IntoParallelRefIterator, ParallelExtend, ParallelIterator};
 use rustc_hash::FxHashSet;
 
-use crate::graphs::frontier::IncrementalFrontier;
-use crate::graphs::visited::Visited;
-use crate::graphs::worklist::Worklist;
-use crate::graphs::{forward::Forward, frontier::LayeredFrontier};
-use std::hash::Hash;
+use crate::graphs::{
+    forward::Forward,
+    frontier::{IncrementalFrontier, LayeredFrontier},
+    visited::Visited,
+    worklist::Worklist,
+};
 
-// TODO: Should be a parameter on the search.
-const PARALLEL_THRESHOLD: usize = 1024;
+/// Default minimum layer size for parallel expansion.
+pub const DEFAULT_PARALLEL_THRESHOLD: usize = 1024;
 
+/// Parallel breadth-first search over a forward graph.
+///
+/// The search keeps one BFS layer in memory and expands it either
+/// sequentially or in parallel depending on the configured threshold.
 pub struct ParallelGraphBFS<'g, G, V>
 where
     G: Forward,
@@ -21,6 +28,7 @@ where
     frontier: LayeredFrontier<G::Vertex>,
     buffer: Vec<G::Vertex>,
     index: usize,
+    parallel_threshold: usize,
 }
 
 impl<'g, G, V> ParallelGraphBFS<'g, G, V>
@@ -29,39 +37,77 @@ where
     G::Vertex: Eq + Hash + Copy + Send + Sync,
     V: Visited<G::Vertex> + Default,
 {
+    /// Creates a BFS with the default parallel threshold.
+    #[inline]
     pub fn new(graph: &'g G, initials: impl IntoIterator<Item = G::Vertex>) -> Self {
-        let mut visited = V::default();
-        let mut initial_frontier: Vec<G::Vertex> = Vec::default();
+        Self::with_parallel_threshold(graph, initials, DEFAULT_PARALLEL_THRESHOLD)
+    }
 
-        for value in initials {
-            if visited.visit(value) {
-                initial_frontier.push(value);
+    /// Creates a BFS with a custom parallel threshold.
+    ///
+    /// Layers smaller than `parallel_threshold` are expanded sequentially.
+    /// Larger layers are expanded in parallel.
+    #[inline]
+    pub fn with_parallel_threshold(
+        graph: &'g G,
+        initials: impl IntoIterator<Item = G::Vertex>,
+        parallel_threshold: usize,
+    ) -> Self {
+        let mut visited = V::default();
+        let mut initial_layer = Vec::new();
+
+        for vertex in initials {
+            if visited.visit(vertex) {
+                initial_layer.push(vertex);
             }
         }
 
-        let frontier = LayeredFrontier::new(initial_frontier);
-
-        // debug: no duplicates, all in visited
-        debug_assert!(frontier.layer().iter().all(|v| visited.is_visited(v)));
-        debug_assert!({
-            let mut seen = FxHashSet::default();
-            frontier.layer().iter().all(|v| seen.insert(*v))
-        });
-
-        Self {
+        let search = Self {
             graph,
             visited,
-            frontier,
+            frontier: LayeredFrontier::new(initial_layer),
             buffer: Vec::new(),
             index: 0,
-        }
+            parallel_threshold,
+        };
+
+        debug_assert!(
+            search
+                .frontier
+                .layer()
+                .iter()
+                .all(|v| search.visited.is_visited(v))
+        );
+        debug_assert!(has_no_duplicates(search.frontier.layer()));
+
+        search
     }
 
+    /// Returns the configured parallel threshold.
+    #[inline]
+    pub fn parallel_threshold(&self) -> usize {
+        self.parallel_threshold
+    }
+
+    /// Sets the parallel threshold.
+    #[inline]
+    pub fn set_parallel_threshold(&mut self, parallel_threshold: usize) {
+        self.parallel_threshold = parallel_threshold;
+    }
+
+    /// Returns the visited set.
     #[inline]
     pub fn into_visited(self) -> V {
         self.visited
     }
 
+    /// Returns the current BFS layer.
+    #[inline]
+    pub fn layer(&self) -> &[G::Vertex] {
+        self.frontier.layer()
+    }
+
+    /// Expands one layer sequentially and returns the previous layer.
     #[inline]
     pub fn sequential_step(&mut self) -> Option<Vec<G::Vertex>> {
         self.frontier.step(|current, next| {
@@ -73,19 +119,15 @@ where
                 }
             }
 
-            // debug invariants: next has no duplicates, and is subset of visited
             debug_assert!(next.iter().all(|v| self.visited.is_visited(v)));
-            debug_assert!({
-                let mut seen = FxHashSet::default();
-                next.iter().all(|v| seen.insert(*v))
-            });
+            debug_assert!(has_no_duplicates(next));
         })
     }
 
+    /// Expands one layer in parallel and returns the previous layer.
     #[inline]
     pub fn parallel_step(&mut self) -> Option<Vec<G::Vertex>> {
         self.frontier.step(|current, next| {
-            // Large layer: use rayon to collect successors, then filter.
             self.buffer.clear();
 
             self.buffer.par_extend(
@@ -94,19 +136,25 @@ where
                     .flat_map_iter(|&from| self.graph.successors(from).map(|(_, _, to)| to)),
             );
 
-            for successor in self.buffer.drain(..) {
-                if self.visited.visit(successor) {
-                    next.push(successor);
+            for to in self.buffer.drain(..) {
+                if self.visited.visit(to) {
+                    next.push(to);
                 }
             }
 
-            // debug invariants: next has no duplicates, and is subset of visited
             debug_assert!(next.iter().all(|v| self.visited.is_visited(v)));
-            debug_assert!({
-                let mut seen = FxHashSet::default();
-                next.iter().all(|v| seen.insert(*v))
-            });
+            debug_assert!(has_no_duplicates(next));
         })
+    }
+
+    /// Expands one layer, choosing sequential or parallel execution automatically.
+    #[inline]
+    pub fn step(&mut self) -> Option<Vec<G::Vertex>> {
+        if self.frontier.len() < self.parallel_threshold {
+            self.sequential_step()
+        } else {
+            self.parallel_step()
+        }
     }
 }
 
@@ -114,36 +162,23 @@ impl<'g, G, V> Iterator for ParallelGraphBFS<'g, G, V>
 where
     G: Forward + Sync,
     G::Vertex: Eq + Hash + Copy + Send + Sync,
-    V: Visited<G::Vertex>,
+    V: Visited<G::Vertex> + Default,
 {
     type Item = G::Vertex;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            // No more frontier at all → BFS finished.
             if self.frontier.is_empty() {
                 return None;
             }
 
-            // Current layer we’re streaming from.
-            let layer = self.frontier.layer();
-
-            // Still have vertices left in this layer? Yield the next one.
-            if self.index < layer.len() {
-                let v = layer[self.index];
+            if self.index < self.frontier.len() {
+                let vertex = self.frontier[self.index];
                 self.index += 1;
-                return Some(v);
+                return Some(vertex);
             }
 
-            // Current layer exhausted: advance to the next layer.
-            // This modifies the frontier’s internal layer.
-            if layer.len() < PARALLEL_THRESHOLD {
-                self.sequential_step();
-            } else {
-                self.parallel_step();
-            }
-
-            // Reset index to start streaming from the new layer.
+            self.step()?;
             self.index = 0;
         }
     }
@@ -159,6 +194,15 @@ where
         while self.next().is_some() {}
         self.into_visited()
     }
+}
+
+#[inline]
+fn has_no_duplicates<T>(values: &[T]) -> bool
+where
+    T: Eq + Hash + Copy,
+{
+    let mut seen = FxHashSet::default();
+    values.iter().copied().all(|value| seen.insert(value))
 }
 
 #[cfg(test)]
