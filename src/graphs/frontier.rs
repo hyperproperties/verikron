@@ -1,10 +1,11 @@
 use std::{collections::VecDeque, mem, ops::Index};
 
-/// Layer-by-layer frontier interface.
-pub trait Frontier<T> {
-    /// Advances one layer and returns the previous layer.
+/// Frontier that advances one whole layer at a time.
+pub trait IncrementalFrontier<T> {
+    /// Advances to the next layer and returns the previous one.
     ///
-    /// The callback receives the current layer and fills the next layer.
+    /// The callback receives the current layer and appends the next layer to
+    /// the provided buffer.
     fn step<F>(&mut self, expand: F) -> Option<Vec<T>>
     where
         F: FnMut(&[T], &mut Vec<T>);
@@ -13,83 +14,105 @@ pub trait Frontier<T> {
 /// Layered frontier with separate current and next layers.
 #[derive(Default)]
 pub struct LayeredFrontier<T> {
-    frontier: Vec<T>,
+    current: Vec<T>,
     next: Vec<T>,
 }
 
 impl<T> LayeredFrontier<T> {
     /// Creates a frontier from an initial layer.
-    pub fn new<I: IntoIterator<Item = T>>(initial: I) -> Self {
-        let mut frontier = Vec::new();
-        frontier.extend(initial);
+    pub fn new<I>(initial: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let mut current = Vec::new();
+        current.extend(initial);
+
         Self {
-            frontier,
+            current,
             next: Vec::new(),
         }
     }
 
     /// Returns whether the current layer is empty.
+    #[inline]
     pub fn is_empty(&self) -> bool {
-        self.frontier.is_empty()
+        self.current.is_empty()
     }
 
     /// Returns the current layer.
+    #[inline]
     pub fn layer(&self) -> &[T] {
-        &self.frontier
+        &self.current
     }
 
     /// Returns the size of the current layer.
+    #[inline]
     pub fn len(&self) -> usize {
-        self.frontier.len()
+        self.current.len()
+    }
+
+    /// Clears both the current and next layers.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.current.clear();
+        self.next.clear();
     }
 }
 
 impl<T> Index<usize> for LayeredFrontier<T> {
     type Output = T;
 
+    #[inline]
     fn index(&self, index: usize) -> &Self::Output {
-        &self.frontier[index]
+        &self.current[index]
     }
 }
 
-impl<T> Frontier<T> for LayeredFrontier<T> {
+impl<T> IncrementalFrontier<T> for LayeredFrontier<T> {
     fn step<F>(&mut self, mut expand: F) -> Option<Vec<T>>
     where
         F: FnMut(&[T], &mut Vec<T>),
     {
-        if self.frontier.is_empty() {
+        if self.current.is_empty() {
             return None;
         }
 
-        let current = mem::take(&mut self.frontier);
+        let current = mem::take(&mut self.current);
         self.next.clear();
 
         expand(&current, &mut self.next);
 
-        self.frontier = mem::take(&mut self.next);
+        self.current = mem::take(&mut self.next);
         Some(current)
     }
 }
 
-/// Push/pop frontier interface for graph search.
+/// Push/pop frontier for worklist-based search.
 pub trait SearchFrontier<T> {
-    /// Pushes a value.
-    fn push(&mut self, v: T);
+    /// Pushes a value onto the frontier.
+    fn push(&mut self, value: T);
 
-    /// Pops the next value.
+    /// Pops the next value from the frontier.
     fn pop(&mut self) -> Option<T>;
 
+    /// Returns the number of stored values.
+    fn len(&self) -> usize;
+
     /// Returns whether the frontier is empty.
-    fn is_empty(&self) -> bool;
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
-/// LIFO search frontier.
+/// LIFO frontier.
 pub struct StackFrontier<T>(Vec<T>);
 
-/// FIFO search frontier.
+/// FIFO frontier.
 pub struct QueueFrontier<T>(VecDeque<T>);
 
 impl<T> Default for StackFrontier<T> {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -97,12 +120,14 @@ impl<T> Default for StackFrontier<T> {
 
 impl<T> StackFrontier<T> {
     /// Creates an empty stack frontier.
+    #[inline]
     pub fn new() -> Self {
-        StackFrontier(Vec::new())
+        Self(Vec::new())
     }
 }
 
 impl<T> Default for QueueFrontier<T> {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -110,15 +135,16 @@ impl<T> Default for QueueFrontier<T> {
 
 impl<T> QueueFrontier<T> {
     /// Creates an empty queue frontier.
+    #[inline]
     pub fn new() -> Self {
-        QueueFrontier(VecDeque::new())
+        Self(VecDeque::new())
     }
 }
 
 impl<T> SearchFrontier<T> for StackFrontier<T> {
     #[inline]
-    fn push(&mut self, v: T) {
-        self.0.push(v)
+    fn push(&mut self, value: T) {
+        self.0.push(value);
     }
 
     #[inline]
@@ -127,15 +153,15 @@ impl<T> SearchFrontier<T> for StackFrontier<T> {
     }
 
     #[inline]
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
+    fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
 impl<T> SearchFrontier<T> for QueueFrontier<T> {
     #[inline]
-    fn push(&mut self, v: T) {
-        self.0.push_back(v)
+    fn push(&mut self, value: T) {
+        self.0.push_back(value);
     }
 
     #[inline]
@@ -144,8 +170,8 @@ impl<T> SearchFrontier<T> for QueueFrontier<T> {
     }
 
     #[inline]
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
+    fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -231,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn layered_frontier_clears_previous_next_layer_contents() {
+    fn layered_frontier_clears_previous_next_contents() {
         let mut frontier = LayeredFrontier::new([1, 2]);
 
         let _ = frontier.step(|_, next| {
@@ -246,6 +272,18 @@ mod tests {
     }
 
     #[test]
+    fn layered_frontier_clear_removes_all_state() {
+        let mut frontier = LayeredFrontier::new([1, 2, 3]);
+
+        let _ = frontier.step(|_, next| next.extend([4, 5]));
+        frontier.clear();
+
+        assert!(frontier.is_empty());
+        assert_eq!(frontier.len(), 0);
+        assert_eq!(frontier.layer(), &[]);
+    }
+
+    #[test]
     fn stack_frontier_behaves_like_stack() {
         let mut frontier = StackFrontier::new();
 
@@ -255,6 +293,7 @@ mod tests {
         frontier.push(2);
         frontier.push(3);
 
+        assert_eq!(frontier.len(), 3);
         assert_eq!(frontier.pop(), Some(3));
         assert_eq!(frontier.pop(), Some(2));
         assert_eq!(frontier.pop(), Some(1));
@@ -272,6 +311,7 @@ mod tests {
         frontier.push(2);
         frontier.push(3);
 
+        assert_eq!(frontier.len(), 3);
         assert_eq!(frontier.pop(), Some(1));
         assert_eq!(frontier.pop(), Some(2));
         assert_eq!(frontier.pop(), Some(3));

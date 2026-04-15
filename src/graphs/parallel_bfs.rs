@@ -1,7 +1,7 @@
 use rayon::iter::{IntoParallelRefIterator, ParallelExtend, ParallelIterator};
 use rustc_hash::FxHashSet;
 
-use crate::graphs::frontier::Frontier;
+use crate::graphs::frontier::IncrementalFrontier;
 use crate::graphs::visited::Visited;
 use crate::graphs::worklist::Worklist;
 use crate::graphs::{forward::Forward, frontier::LayeredFrontier};
