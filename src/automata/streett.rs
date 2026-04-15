@@ -8,7 +8,8 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf}, labeled::LabeledEdges,
+        graph::{Directed, EdgeOf, Graph, VertexOf},
+        labeled::LabeledEdges,
     },
     lattices::set::Set,
 };
@@ -119,9 +120,7 @@ where
     fn accept(&self, summary: &Self::Summary) -> bool {
         match summary {
             StateSummary::Finite { .. } => false,
-            StateSummary::Infinite { states } => {
-                self.pairs.iter().all(|pair| pair.accepts(states))
-            }
+            StateSummary::Infinite { states } => self.pairs.iter().all(|pair| pair.accepts(states)),
         }
     }
 }

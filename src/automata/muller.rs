@@ -8,7 +8,8 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf}, labeled::LabeledEdges,
+        graph::{Directed, EdgeOf, Graph, VertexOf},
+        labeled::LabeledEdges,
     },
     lattices::set::Set,
 };
@@ -68,7 +69,9 @@ where
     fn accept(&self, summary: &Self::Summary) -> bool {
         match summary {
             StateSummary::Finite { .. } => false,
-            StateSummary::Infinite { states } => self.families.iter().any(|family| family == states),
+            StateSummary::Infinite { states } => {
+                self.families.iter().any(|family| family == states)
+            }
         }
     }
 }
@@ -82,11 +85,7 @@ where
     /// Creates an automaton with Muller acceptance.
     #[must_use]
     #[inline]
-    pub fn with_muller(
-        initial: VertexOf<G>,
-        graph: G,
-        families: Vec<Set<VertexOf<G>>>,
-    ) -> Self {
+    pub fn with_muller(initial: VertexOf<G>, graph: G, families: Vec<Set<VertexOf<G>>>) -> Self {
         Self::new(initial, graph, Muller::new(families))
     }
 }

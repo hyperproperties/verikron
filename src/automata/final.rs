@@ -8,7 +8,8 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf}, labeled::LabeledEdges,
+        graph::{Directed, EdgeOf, Graph, VertexOf},
+        labeled::LabeledEdges,
     },
     lattices::set::Set,
 };
@@ -81,11 +82,7 @@ where
     /// Creates an automaton with final-state acceptance.
     #[must_use]
     #[inline]
-    pub fn with_final(
-        initial: VertexOf<G>,
-        graph: G,
-        accepting: Set<VertexOf<G>>,
-    ) -> Self {
+    pub fn with_final(initial: VertexOf<G>, graph: G, accepting: Set<VertexOf<G>>) -> Self {
         Self::new(initial, graph, Final::new(accepting))
     }
 }

@@ -8,7 +8,8 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf}, labeled::LabeledEdges,
+        graph::{Directed, EdgeOf, Graph, VertexOf},
+        labeled::LabeledEdges,
     },
     lattices::set::Set,
 };

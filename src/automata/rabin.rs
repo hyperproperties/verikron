@@ -8,7 +8,8 @@ use crate::{
     graphs::{
         backward::Backward,
         forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf}, labeled::LabeledEdges,
+        graph::{Directed, EdgeOf, Graph, VertexOf},
+        labeled::LabeledEdges,
     },
     lattices::set::Set,
 };
@@ -135,11 +136,7 @@ where
     /// Creates an automaton with Rabin acceptance.
     #[must_use]
     #[inline]
-    pub fn with_rabin(
-        initial: VertexOf<G>,
-        graph: G,
-        pairs: Vec<RabinPair<VertexOf<G>>>,
-    ) -> Self {
+    pub fn with_rabin(initial: VertexOf<G>, graph: G, pairs: Vec<RabinPair<VertexOf<G>>>) -> Self {
         Self::new(initial, graph, Rabin::new(pairs))
     }
 }
