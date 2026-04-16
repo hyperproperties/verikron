@@ -1,70 +1,86 @@
+use std::mem;
+
 use crate::graphs::{
-    graph::{EdgeType, Edges, InsertEdge, RemoveEdge, VertexType},
+    graph::{EdgeType, Edges, FiniteEdges, InsertEdge, RemoveEdge, VertexType},
     labeled::{InsertLabeledEdge, LabeledEdgeType, LabeledEdges, WriteEdgeLabel},
 };
 
 /// Edge store with labels indexed directly by `usize` edge ids.
 ///
 /// The label for edge `e` is stored in `labels[e]`, so label lookup is a fast
-/// vector access rather than a map lookup.
+/// vector access.
 ///
-/// This is intended for edge stores whose edge ids are dense `usize` indices,
-/// and whose removal behavior stays consistent with `Vec::remove`.
+/// This wrapper is intended for edge stores whose edge ids are dense `usize`
+/// indices and whose structural updates reindex edges consistently with
+/// `Vec::insert` and `Vec::remove`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexedLabeledEdges<E, L> {
     edges: E,
-    labels: Vec<Option<L>>,
+    labels: Vec<L>,
 }
 
 impl<E, L> IndexedLabeledEdges<E, L>
 where
-    E: EdgeType<Edge = usize>,
+    E: FiniteEdges<Edge = usize>,
 {
-    /// Wraps `edges` with no labels.
+    /// Wraps an empty edge store.
+    ///
+    /// Panics if `edges` is not empty.
     #[must_use]
     #[inline]
     pub fn new(edges: E) -> Self {
+        assert_eq!(
+            edges.edge_count(),
+            0,
+            "IndexedLabeledEdges::new requires an empty edge store",
+        );
+
         Self {
             edges,
             labels: Vec::new(),
         }
     }
 
-    /// Wraps `edges` with an existing label vector.
+    /// Wraps `edges` with one label per edge.
     ///
-    /// `labels[e]` is the label of edge `e`. Missing slots or `None` mean that
-    /// the edge is unlabeled.
+    /// `labels[e]` is the label of edge `e`.
+    ///
+    /// Panics if `labels.len() != edges.edge_count()`.
     #[must_use]
     #[inline]
-    pub fn with_labels(edges: E, labels: Vec<Option<L>>) -> Self {
+    pub fn with_labels(edges: E, labels: Vec<L>) -> Self {
+        assert_eq!(
+            labels.len(),
+            edges.edge_count(),
+            "IndexedLabeledEdges requires exactly one label per edge",
+        );
+
         Self { edges, labels }
     }
+}
 
+impl<E, L> IndexedLabeledEdges<E, L>
+where
+    E: EdgeType<Edge = usize>,
+{
     /// Returns the wrapped edge store.
     #[must_use]
     #[inline]
-    pub fn edges(&self) -> &E {
+    pub fn edge_store(&self) -> &E {
         &self.edges
     }
 
-    /// Returns the wrapped edge store mutably.
+    /// Returns the labels in edge-id order.
     #[must_use]
     #[inline]
-    pub fn edges_mut(&mut self) -> &mut E {
-        &mut self.edges
-    }
-
-    /// Returns the label slots.
-    #[must_use]
-    #[inline]
-    pub fn labels(&self) -> &[Option<L>] {
+    pub fn labels(&self) -> &[L] {
         &self.labels
     }
 
-    /// Returns the label slots mutably.
+    /// Returns the labels mutably in edge-id order.
     #[must_use]
     #[inline]
-    pub fn labels_mut(&mut self) -> &mut [Option<L>] {
+    pub fn labels_mut(&mut self) -> &mut [L] {
         &mut self.labels
     }
 
@@ -80,55 +96,17 @@ where
     /// Consumes `self` and returns `(edges, labels)`.
     #[must_use]
     #[inline]
-    pub fn into_parts(self) -> (E, Vec<Option<L>>) {
+    pub fn into_parts(self) -> (E, Vec<L>) {
         (self.edges, self.labels)
     }
 
-    /// Returns whether `edge` has a label.
-    #[must_use]
-    #[inline]
-    pub fn is_labeled(&self, edge: usize) -> bool {
-        self.labels.get(edge).is_some_and(Option::is_some)
-    }
-
-    /// Returns the number of currently labeled edges.
+    /// Returns the number of labels.
+    ///
+    /// This equals the number of edges when the wrapper invariant holds.
     #[must_use]
     #[inline]
     pub fn label_count(&self) -> usize {
-        self.labels.iter().filter(|label| label.is_some()).count()
-    }
-
-    /// Removes the label of `edge` and returns it if present.
-    #[inline]
-    pub fn clear_label(&mut self, edge: usize) -> Option<L> {
-        self.labels.get_mut(edge).and_then(Option::take)
-    }
-
-    #[inline]
-    fn ensure_slot(&mut self, edge: usize) {
-        if edge >= self.labels.len() {
-            self.labels.resize_with(edge + 1, || None);
-        }
-    }
-}
-
-impl<E, L> Default for IndexedLabeledEdges<E, L>
-where
-    E: Default + EdgeType<Edge = usize>,
-{
-    #[inline]
-    fn default() -> Self {
-        Self::new(E::default())
-    }
-}
-
-impl<E, L> From<E> for IndexedLabeledEdges<E, L>
-where
-    E: EdgeType<Edge = usize>,
-{
-    #[inline]
-    fn from(edges: E) -> Self {
-        Self::new(edges)
+        self.labels.len()
     }
 }
 
@@ -169,11 +147,11 @@ where
     type Label = L;
 }
 
-/// Iterator over the labeled subset of an indexed edge store.
+/// Iterator over all labeled edges in an indexed edge store.
 #[derive(Clone, Debug)]
 pub struct IndexedLabeledEdgeIter<'a, I, L> {
     edges: I,
-    labels: &'a [Option<L>],
+    labels: &'a [L],
 }
 
 impl<'a, I, V, L> Iterator for IndexedLabeledEdgeIter<'a, I, L>
@@ -183,13 +161,12 @@ where
     type Item = (V, usize, &'a L, V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let (from, edge, to) = self.edges.next()?;
-            let Some(label) = self.labels.get(edge).and_then(Option::as_ref) else {
-                continue;
-            };
-            return Some((from, edge, label, to));
-        }
+        let (from, edge, to) = self.edges.next()?;
+        let label = self
+            .labels
+            .get(edge)
+            .expect("IndexedLabeledEdges invariant violated: missing label for edge");
+        Some((from, edge, label, to))
     }
 }
 
@@ -213,7 +190,7 @@ where
 
     #[inline]
     fn label(&self, edge: Self::Edge) -> Option<&Self::Label> {
-        self.labels.get(edge).and_then(Option::as_ref)
+        self.labels.get(edge)
     }
 }
 
@@ -223,13 +200,14 @@ where
 {
     #[inline]
     fn label_mut(&mut self, edge: Self::Edge) -> Option<&mut Self::Label> {
-        self.labels.get_mut(edge).and_then(Option::as_mut)
+        self.labels.get_mut(edge)
     }
 
     #[inline]
     fn set_label(&mut self, edge: Self::Edge, label: Self::Label) -> Option<Self::Label> {
-        self.ensure_slot(edge);
-        self.labels[edge].replace(label)
+        self.labels
+            .get_mut(edge)
+            .map(|slot| mem::replace(slot, label))
     }
 }
 
@@ -245,8 +223,13 @@ where
         to: Self::Vertex,
     ) -> Option<Self::Edge> {
         let edge = self.edges.insert_edge(from, to)?;
-        self.ensure_slot(edge);
-        self.labels[edge] = Some(label);
+
+        assert!(
+            edge <= self.labels.len(),
+            "IndexedLabeledEdges requires inserted edges to stay within 0..=edge_count",
+        );
+
+        self.labels.insert(edge, label);
         Some(edge)
     }
 }
@@ -261,10 +244,7 @@ where
             return false;
         }
 
-        if edge < self.labels.len() {
-            self.labels.remove(edge);
-        }
-
+        self.labels.remove(edge);
         true
     }
 }
@@ -275,74 +255,69 @@ mod tests {
     use proptest::prelude::*;
 
     use crate::graphs::{
-        graph::{InsertEdge, InsertVertex},
+        graph::{Edges, InsertVertex},
         mcsr::MCSR,
     };
 
-    fn sample_store() -> IndexedLabeledEdges<MCSR, char> {
+    fn empty_store(vertex_count: usize) -> IndexedLabeledEdges<MCSR, char> {
         let mut edges = MCSR::new();
-
-        for _ in 0..4 {
+        for _ in 0..vertex_count {
             edges.insert_vertex().unwrap();
         }
-
-        edges.insert_edge(0, 1).unwrap();
-        edges.insert_edge(1, 2).unwrap();
-        edges.insert_edge(2, 3).unwrap();
-
         IndexedLabeledEdges::new(edges)
     }
 
-    #[test]
-    fn set_label_grows_slots_and_replaces_old_value() {
-        let mut store = sample_store();
+    fn sample_store() -> IndexedLabeledEdges<MCSR, char> {
+        let mut store = empty_store(4);
+        store.insert_labeled_edge(0, 'a', 1).unwrap();
+        store.insert_labeled_edge(1, 'b', 2).unwrap();
+        store.insert_labeled_edge(2, 'c', 3).unwrap();
+        store
+    }
 
-        assert_eq!(store.set_label(2, 'c'), None);
-        assert_eq!(store.labels(), &[None, None, Some('c')]);
+    #[test]
+    fn label_lookup_and_iteration_follow_edge_indices() {
+        let store = sample_store();
+
+        assert_eq!(store.labels(), &['a', 'b', 'c']);
+        assert_eq!(store.label(0), Some(&'a'));
+        assert_eq!(store.label(1), Some(&'b'));
         assert_eq!(store.label(2), Some(&'c'));
-
-        assert_eq!(store.set_label(2, 'z'), Some('c'));
-        assert_eq!(store.label(2), Some(&'z'));
-    }
-
-    #[test]
-    fn label_mut_and_clear_label_work() {
-        let mut store = sample_store();
-        store.set_label(1, 'b');
-
-        *store.label_mut(1).unwrap() = 'x';
-        assert_eq!(store.label(1), Some(&'x'));
-
-        assert_eq!(store.clear_label(1), Some('x'));
-        assert_eq!(store.label(1), None);
-        assert!(!store.is_labeled(1));
-    }
-
-    #[test]
-    fn labeled_edges_skip_unlabeled_edges_without_stopping() {
-        let mut store = sample_store();
-        store.set_label(2, 'c');
+        assert_eq!(store.label(3), None);
 
         let labeled = store
             .labeled_edges()
             .map(|(from, edge, label, to)| (from, edge, *label, to))
             .collect::<Vec<_>>();
 
-        assert_eq!(labeled, vec![(2, 2, 'c', 3)]);
+        assert_eq!(
+            labeled,
+            vec![(0, 0, 'a', 1), (1, 1, 'b', 2), (2, 2, 'c', 3)]
+        );
     }
 
     #[test]
-    fn insert_labeled_edge_inserts_both_edge_and_label() {
-        let mut store = IndexedLabeledEdges::<MCSR, char>::new(MCSR::new());
+    fn set_label_and_label_mut_update_existing_labels() {
+        let mut store = sample_store();
 
-        for _ in 0..2 {
-            store.edges_mut().insert_vertex().unwrap();
-        }
+        assert_eq!(store.set_label(1, 'x'), Some('b'));
+        assert_eq!(store.label(1), Some(&'x'));
+
+        *store.label_mut(2).unwrap() = 'z';
+        assert_eq!(store.label(2), Some(&'z'));
+
+        assert_eq!(store.set_label(9, 'q'), None);
+        assert!(store.label_mut(9).is_none());
+    }
+
+    #[test]
+    fn insert_labeled_edge_appends_edge_and_label() {
+        let mut store = empty_store(2);
 
         let edge = store.insert_labeled_edge(0, 'x', 1).unwrap();
 
         assert_eq!(edge, 0);
-        assert_eq!(store.label(0), Some(&'x'));
+        assert_eq!(store.labels(), &['x']);
 
         let labeled = store
             .labeled_edges()
@@ -353,82 +328,92 @@ mod tests {
     }
 
     #[test]
-    fn remove_edge_keeps_labels_aligned_with_shifted_indices() {
+    fn remove_edge_removes_the_matching_label_slot() {
         let mut store = sample_store();
-        store.set_label(0, 'a');
-        store.set_label(1, 'b');
-        store.set_label(2, 'c');
 
         assert!(store.remove_edge(1));
 
-        assert_eq!(store.labels(), &[Some('a'), Some('c')]);
+        assert_eq!(store.labels(), &['a', 'c']);
         assert_eq!(store.label(0), Some(&'a'));
         assert_eq!(store.label(1), Some(&'c'));
+        assert_eq!(store.label(2), None);
+    }
 
-        let labeled = store
-            .labeled_edges()
-            .map(|(from, edge, label, to)| (from, edge, *label, to))
-            .collect::<Vec<_>>();
+    #[test]
+    #[should_panic(expected = "IndexedLabeledEdges::new requires an empty edge store")]
+    fn new_panics_for_nonempty_edge_store() {
+        let mut edges = MCSR::new();
+        edges.insert_vertex().unwrap();
+        edges.insert_vertex().unwrap();
+        edges.insert_edge(0, 1).unwrap();
 
-        assert_eq!(labeled, vec![(0, 0, 'a', 1), (2, 1, 'c', 3)]);
+        let _ = IndexedLabeledEdges::<_, char>::new(edges);
+    }
+
+    #[test]
+    #[should_panic(expected = "IndexedLabeledEdges requires exactly one label per edge")]
+    fn with_labels_panics_for_wrong_label_count() {
+        let mut edges = MCSR::new();
+        for _ in 0..2 {
+            edges.insert_vertex().unwrap();
+        }
+        edges.insert_edge(0, 1).unwrap();
+
+        let _ = IndexedLabeledEdges::with_labels(edges, Vec::<char>::new());
     }
 
     fn arb_store() -> impl Strategy<Value = IndexedLabeledEdges<MCSR, u8>> {
-        prop::collection::vec((0u8..5, 0u8..5, prop::option::of(0u8..10)), 0..12).prop_map(
-            |entries| {
-                let vertex_count = entries
-                    .iter()
-                    .flat_map(|(from, to, _)| [*from as usize, *to as usize])
-                    .max()
-                    .map_or(0, |m| m + 1);
+        prop::collection::vec((0usize..5, 0usize..5, 0u8..10), 0..12).prop_map(|entries| {
+            let vertex_count = entries
+                .iter()
+                .flat_map(|(from, to, _)| [*from, *to])
+                .max()
+                .map_or(0, |m| m + 1);
 
-                let mut edges = MCSR::new();
-                for _ in 0..vertex_count {
-                    edges.insert_vertex().unwrap();
-                }
+            let mut edges = MCSR::new();
+            for _ in 0..vertex_count {
+                edges.insert_vertex().unwrap();
+            }
 
-                let mut labels = Vec::with_capacity(entries.len());
-                for (from, to, label) in entries {
-                    edges.insert_edge(from as usize, to as usize).unwrap();
-                    labels.push(label);
-                }
+            let mut store = IndexedLabeledEdges::new(edges);
+            for (from, to, label) in entries {
+                store.insert_labeled_edge(from, label, to).unwrap();
+            }
 
-                IndexedLabeledEdges::with_labels(edges, labels)
-            },
-        )
+            store
+        })
     }
 
     proptest! {
         #[test]
-        fn prop_label_lookup_matches_label_slots(store in arb_store()) {
-            for edge in 0..store.labels().len() {
-                prop_assert_eq!(store.label(edge).copied(), store.labels()[edge]);
-                prop_assert_eq!(store.is_labeled(edge), store.labels()[edge].is_some());
+        fn prop_label_lookup_matches_label_vector(store in arb_store()) {
+            for edge in 0..store.label_count() {
+                prop_assert_eq!(store.label(edge).copied(), Some(store.labels()[edge]));
             }
+
+            prop_assert_eq!(store.label(store.label_count()).copied(), None);
         }
 
-    #[test]
-    fn prop_labeled_edges_match_filtering_labels(store in arb_store()) {
-        let got = store
-            .labeled_edges()
-            .map(|(from, edge, label, to)| (from, edge, *label, to))
-            .collect::<Vec<_>>();
+        #[test]
+        fn prop_labeled_edges_match_edges_plus_labels(store in arb_store()) {
+            let got = store
+                .labeled_edges()
+                .map(|(from, edge, label, to)| (from, edge, *label, to))
+                .collect::<Vec<_>>();
 
-        let expected = Edges::edges(&store)
-            .filter_map(|(from, edge, to)| {
-                store.labels()[edge].map(|label| (from, edge, label, to))
-            })
-            .collect::<Vec<_>>();
+            let expected = Edges::edges(&store)
+                .map(|(from, edge, to)| (from, edge, store.labels()[edge], to))
+                .collect::<Vec<_>>();
 
-        prop_assert_eq!(got, expected);
-    }
+            prop_assert_eq!(got, expected);
+        }
 
         #[test]
-        fn prop_remove_edge_removes_matching_label_slot(
+        fn prop_remove_edge_removes_the_same_label_slot(
             mut store in arb_store(),
             edge in 0usize..12,
         ) {
-            let edge_count = store.labels().len();
+            let edge_count = store.label_count();
 
             if edge >= edge_count {
                 prop_assert!(!store.remove_edge(edge));
