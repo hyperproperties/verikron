@@ -9,6 +9,7 @@ pub mod forward;
 pub mod frontier;
 pub mod graph;
 pub mod hyper;
+pub mod ile;
 pub mod labeled;
 pub mod mcsr;
 pub mod parallel_bfs;

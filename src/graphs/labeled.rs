@@ -1,4 +1,4 @@
-use crate::graphs::graph::{EdgeType, Edges, Endpoints, RemoveEdge};
+use crate::graphs::graph::{EdgeType, Edges, RemoveEdge};
 
 /// Edge type with labels.
 pub trait LabeledEdgeType: EdgeType {
@@ -37,8 +37,9 @@ pub trait InsertLabeledEdge: LabeledEdgeType {
     /// Inserts a labeled edge and returns its id on success.
     fn insert_labeled_edge(
         &mut self,
-        endpoints: Endpoints<Self::Vertex>,
+        from: Self::Vertex,
         label: Self::Label,
+        to: Self::Vertex,
     ) -> Option<Self::Edge>;
 }
 
