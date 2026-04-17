@@ -3,6 +3,7 @@ use std::hash::Hash;
 use crate::graphs::{
     forward::Forward,
     frontier::{QueueFrontier, SearchFrontier, StackFrontier},
+    structure::VertexOf,
     visited::Visited,
     worklist::Worklist,
 };
@@ -22,12 +23,13 @@ pub trait BFS<T>: Search<T> {}
 ///
 /// The traversal order is determined by the frontier:
 /// queue-based frontiers yield BFS, stack-based frontiers yield DFS.
+#[derive(Debug, Clone)]
 pub struct SequentialGraphSearch<'g, G, V, F>
 where
     G: Forward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex>,
-    F: SearchFrontier<G::Vertex>,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>>,
+    F: SearchFrontier<VertexOf<G>>,
 {
     graph: &'g G,
     visited: V,
@@ -37,26 +39,20 @@ where
 impl<'g, G, V, F> SequentialGraphSearch<'g, G, V, F>
 where
     G: Forward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex>,
-    F: SearchFrontier<G::Vertex>,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>>,
+    F: SearchFrontier<VertexOf<G>>,
 {
-    /// Creates a search from a frontier and initial vertices.
-    pub fn with_frontier(
+    /// Creates a search from a frontier, an explicit visited structure,
+    /// and initial vertices.
+    #[must_use]
+    pub fn with_frontier_and_visited(
         graph: &'g G,
-        initials: impl IntoIterator<Item = G::Vertex>,
+        initials: impl IntoIterator<Item = VertexOf<G>>,
+        mut visited: V,
         mut frontier: F,
-    ) -> Self
-    where
-        V: Default,
-    {
-        let mut visited = V::default();
-
-        for vertex in initials {
-            if visited.visit(vertex) {
-                frontier.push(vertex);
-            }
-        }
+    ) -> Self {
+        seed_frontier(&mut visited, &mut frontier, initials);
 
         Self {
             graph,
@@ -65,35 +61,71 @@ where
         }
     }
 
-    /// Returns the visited set.
+    /// Returns the underlying graph.
+    #[must_use]
+    #[inline]
+    pub fn graph(&self) -> &'g G {
+        self.graph
+    }
+
+    /// Returns whether the search frontier is empty.
+    #[must_use]
+    #[inline]
+    pub fn is_finished(&self) -> bool {
+        self.frontier.is_empty()
+    }
+
+    /// Consumes the search and returns the visited structure.
+    #[must_use]
     #[inline]
     pub fn into_visited(self) -> V {
         self.visited
     }
 }
 
-impl<'g, G, V> SequentialGraphSearch<'g, G, V, StackFrontier<G::Vertex>>
+impl<'g, G, V, F> SequentialGraphSearch<'g, G, V, F>
 where
     G: Forward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex> + Default,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>> + Default,
+    F: SearchFrontier<VertexOf<G>>,
 {
-    /// Creates a depth-first search.
+    /// Creates a search from a frontier and initial vertices.
+    #[must_use]
     #[inline]
-    pub fn dfs(graph: &'g G, initial: G::Vertex) -> Self {
-        Self::with_frontier(graph, [initial], StackFrontier::new())
+    pub fn with_frontier(
+        graph: &'g G,
+        initials: impl IntoIterator<Item = VertexOf<G>>,
+        frontier: F,
+    ) -> Self {
+        Self::with_frontier_and_visited(graph, initials, V::default(), frontier)
     }
 }
 
-impl<'g, G, V> SequentialGraphSearch<'g, G, V, QueueFrontier<G::Vertex>>
+impl<'g, G, V> SequentialGraphSearch<'g, G, V, StackFrontier<VertexOf<G>>>
 where
     G: Forward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex> + Default,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>> + Default,
+{
+    /// Creates a depth-first search.
+    #[must_use]
+    #[inline]
+    pub fn dfs(graph: &'g G, initials: impl IntoIterator<Item = VertexOf<G>>) -> Self {
+        Self::with_frontier(graph, initials, StackFrontier::new())
+    }
+}
+
+impl<'g, G, V> SequentialGraphSearch<'g, G, V, QueueFrontier<VertexOf<G>>>
+where
+    G: Forward,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>> + Default,
 {
     /// Creates a breadth-first search.
+    #[must_use]
     #[inline]
-    pub fn bfs(graph: &'g G, initials: impl IntoIterator<Item = G::Vertex>) -> Self {
+    pub fn bfs(graph: &'g G, initials: impl IntoIterator<Item = VertexOf<G>>) -> Self {
         Self::with_frontier(graph, initials, QueueFrontier::new())
     }
 }
@@ -101,11 +133,11 @@ where
 impl<'g, G, V, F> Iterator for SequentialGraphSearch<'g, G, V, F>
 where
     G: Forward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex>,
-    F: SearchFrontier<G::Vertex>,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>>,
+    F: SearchFrontier<VertexOf<G>>,
 {
-    type Item = G::Vertex;
+    type Item = VertexOf<G>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let vertex = self.frontier.pop()?;
@@ -120,12 +152,12 @@ where
     }
 }
 
-impl<'g, G, V, F> Worklist<G::Vertex, V> for SequentialGraphSearch<'g, G, V, F>
+impl<'g, G, V, F> Worklist<VertexOf<G>, V> for SequentialGraphSearch<'g, G, V, F>
 where
     G: Forward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex> + Default,
-    F: SearchFrontier<G::Vertex>,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>>,
+    F: SearchFrontier<VertexOf<G>>,
 {
     fn worklist(mut self) -> V {
         while self.next().is_some() {}
@@ -133,20 +165,34 @@ where
     }
 }
 
-impl<'g, G, V> DFS<G::Vertex> for SequentialGraphSearch<'g, G, V, StackFrontier<G::Vertex>>
+impl<'g, G, V> DFS<VertexOf<G>> for SequentialGraphSearch<'g, G, V, StackFrontier<VertexOf<G>>>
 where
     G: Forward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex>,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>>,
 {
 }
 
-impl<'g, G, V> BFS<G::Vertex> for SequentialGraphSearch<'g, G, V, QueueFrontier<G::Vertex>>
+impl<'g, G, V> BFS<VertexOf<G>> for SequentialGraphSearch<'g, G, V, QueueFrontier<VertexOf<G>>>
 where
     G: Forward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex>,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>>,
 {
+}
+
+#[inline]
+fn seed_frontier<T, V, F>(visited: &mut V, frontier: &mut F, initials: impl IntoIterator<Item = T>)
+where
+    T: Copy,
+    V: Visited<T>,
+    F: SearchFrontier<T>,
+{
+    for vertex in initials {
+        if visited.visit(vertex) {
+            frontier.push(vertex);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -155,7 +201,8 @@ mod tests {
 
     use crate::graphs::{
         csr::CSR,
-        graph::{Endpoints, FiniteVertices, FromEndpoints},
+        graph::{Endpoints, FromEndpoints},
+        structure::FiniteVertices,
         worklist::Worklist,
     };
     use crate::lattices::{bit_vector::BitVector, set::Set};
@@ -245,7 +292,7 @@ mod tests {
         ]);
 
         let mut dfs: SequentialGraphSearch<CSR, Set<usize>, StackFrontier<usize>> =
-            SequentialGraphSearch::dfs(&graph, 0);
+            SequentialGraphSearch::dfs(&graph, [0]);
 
         let order: Vec<_> = dfs.by_ref().collect();
 
@@ -262,7 +309,7 @@ mod tests {
         ]);
 
         let mut dfs: SequentialGraphSearch<CSR, Set<usize>, StackFrontier<usize>> =
-            SequentialGraphSearch::dfs(&graph, 0);
+            SequentialGraphSearch::dfs(&graph, [0]);
 
         let mut seen: Vec<_> = dfs.by_ref().collect();
         seen.sort_unstable();
@@ -355,7 +402,7 @@ mod tests {
                 .worklist();
 
         let dfs: Set<usize> =
-            SequentialGraphSearch::<CSR, Set<usize>, StackFrontier<usize>>::dfs(&graph, 0)
+            SequentialGraphSearch::<CSR, Set<usize>, StackFrontier<usize>>::dfs(&graph, [0])
                 .worklist();
 
         assert_eq!(bfs, dfs);

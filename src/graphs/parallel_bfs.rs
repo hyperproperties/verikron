@@ -1,11 +1,11 @@
 use std::hash::Hash;
 
 use rayon::iter::{IntoParallelRefIterator, ParallelExtend, ParallelIterator};
-use rustc_hash::FxHashSet;
 
 use crate::graphs::{
     forward::Forward,
     frontier::{IncrementalFrontier, LayeredFrontier},
+    structure::VertexOf,
     visited::Visited,
     worklist::Worklist,
 };
@@ -15,75 +15,82 @@ pub const DEFAULT_PARALLEL_THRESHOLD: usize = 1024;
 
 /// Parallel breadth-first search over a forward graph.
 ///
-/// The search keeps one BFS layer in memory and expands it either
+/// The search keeps exactly one BFS layer in memory and expands it either
 /// sequentially or in parallel depending on the configured threshold.
+///
+/// Initial vertices are deduplicated through the visited structure.
+/// The caller is responsible for supplying valid initial vertices for `graph`.
 pub struct ParallelGraphBFS<'g, G, V>
 where
     G: Forward,
-    G::Vertex: Eq + Hash + Copy,
-    V: Visited<G::Vertex>,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>>,
 {
     graph: &'g G,
     visited: V,
-    frontier: LayeredFrontier<G::Vertex>,
-    buffer: Vec<G::Vertex>,
+    frontier: LayeredFrontier<VertexOf<G>>,
+    scratch: Vec<VertexOf<G>>,
     index: usize,
     parallel_threshold: usize,
 }
 
 impl<'g, G, V> ParallelGraphBFS<'g, G, V>
 where
-    G: Forward + Sync,
-    G::Vertex: Eq + Hash + Copy + Send + Sync,
-    V: Visited<G::Vertex> + Default,
+    G: Forward,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>>,
 {
-    /// Creates a BFS with the default parallel threshold.
+    /// Creates a BFS with a custom visited structure and the default
+    /// parallel threshold.
+    #[must_use]
     #[inline]
-    pub fn new(graph: &'g G, initials: impl IntoIterator<Item = G::Vertex>) -> Self {
-        Self::with_parallel_threshold(graph, initials, DEFAULT_PARALLEL_THRESHOLD)
+    pub fn with_visited(
+        graph: &'g G,
+        initials: impl IntoIterator<Item = VertexOf<G>>,
+        visited: V,
+    ) -> Self {
+        Self::with_visited_and_parallel_threshold(
+            graph,
+            initials,
+            visited,
+            DEFAULT_PARALLEL_THRESHOLD,
+        )
     }
 
-    /// Creates a BFS with a custom parallel threshold.
+    /// Creates a BFS with a custom visited structure and a custom
+    /// parallel threshold.
     ///
     /// Layers smaller than `parallel_threshold` are expanded sequentially.
-    /// Larger layers are expanded in parallel.
-    #[inline]
-    pub fn with_parallel_threshold(
+    /// Layers at least that large are expanded in parallel.
+    ///
+    /// A threshold of `0` means that every non-empty layer is expanded in
+    /// parallel.
+    #[must_use]
+    pub fn with_visited_and_parallel_threshold(
         graph: &'g G,
-        initials: impl IntoIterator<Item = G::Vertex>,
+        initials: impl IntoIterator<Item = VertexOf<G>>,
+        mut visited: V,
         parallel_threshold: usize,
     ) -> Self {
-        let mut visited = V::default();
         let mut initial_layer = Vec::new();
-
         for vertex in initials {
             if visited.visit(vertex) {
                 initial_layer.push(vertex);
             }
         }
 
-        let search = Self {
+        Self {
             graph,
             visited,
             frontier: LayeredFrontier::new(initial_layer),
-            buffer: Vec::new(),
+            scratch: Vec::new(),
             index: 0,
             parallel_threshold,
-        };
-
-        debug_assert!(
-            search
-                .frontier
-                .layer()
-                .iter()
-                .all(|v| search.visited.is_visited(v))
-        );
-        debug_assert!(has_no_duplicates(search.frontier.layer()));
-
-        search
+        }
     }
 
     /// Returns the configured parallel threshold.
+    #[must_use]
     #[inline]
     pub fn parallel_threshold(&self) -> usize {
         self.parallel_threshold
@@ -95,21 +102,23 @@ where
         self.parallel_threshold = parallel_threshold;
     }
 
-    /// Returns the visited set.
+    /// Returns the current BFS layer.
+    #[must_use]
     #[inline]
-    pub fn into_visited(self) -> V {
-        self.visited
+    pub fn layer(&self) -> &[VertexOf<G>] {
+        self.frontier.layer()
     }
 
-    /// Returns the current BFS layer.
+    /// Returns whether the search has no more vertices to expand.
+    #[must_use]
     #[inline]
-    pub fn layer(&self) -> &[G::Vertex] {
-        self.frontier.layer()
+    pub fn is_finished(&self) -> bool {
+        self.frontier.is_empty()
     }
 
     /// Expands one layer sequentially and returns the previous layer.
     #[inline]
-    pub fn sequential_step(&mut self) -> Option<Vec<G::Vertex>> {
+    pub fn sequential_step(&mut self) -> Option<Vec<VertexOf<G>>> {
         self.frontier.step(|current, next| {
             for &from in current {
                 for (_, _, to) in self.graph.successors(from) {
@@ -119,37 +128,70 @@ where
                 }
             }
 
-            debug_assert!(next.iter().all(|v| self.visited.is_visited(v)));
-            debug_assert!(has_no_duplicates(next));
+            debug_assert!(next.iter().all(|vertex| self.visited.is_visited(vertex)));
         })
     }
+}
 
+impl<'g, G, V> ParallelGraphBFS<'g, G, V>
+where
+    G: Forward,
+    VertexOf<G>: Eq + Hash + Copy,
+    V: Visited<VertexOf<G>> + Default,
+{
+    /// Creates a BFS with the default visited structure and the default
+    /// parallel threshold.
+    #[must_use]
+    #[inline]
+    pub fn new(graph: &'g G, initials: impl IntoIterator<Item = VertexOf<G>>) -> Self {
+        Self::with_parallel_threshold(graph, initials, DEFAULT_PARALLEL_THRESHOLD)
+    }
+
+    /// Creates a BFS with the default visited structure and a custom
+    /// parallel threshold.
+    #[must_use]
+    #[inline]
+    pub fn with_parallel_threshold(
+        graph: &'g G,
+        initials: impl IntoIterator<Item = VertexOf<G>>,
+        parallel_threshold: usize,
+    ) -> Self {
+        Self::with_visited_and_parallel_threshold(graph, initials, V::default(), parallel_threshold)
+    }
+}
+
+impl<'g, G, V> ParallelGraphBFS<'g, G, V>
+where
+    G: Forward + Sync,
+    VertexOf<G>: Eq + Hash + Copy + Send + Sync,
+    V: Visited<VertexOf<G>>,
+{
     /// Expands one layer in parallel and returns the previous layer.
     #[inline]
-    pub fn parallel_step(&mut self) -> Option<Vec<G::Vertex>> {
+    pub fn parallel_step(&mut self) -> Option<Vec<VertexOf<G>>> {
         self.frontier.step(|current, next| {
-            self.buffer.clear();
+            self.scratch.clear();
 
-            self.buffer.par_extend(
+            self.scratch.par_extend(
                 current
                     .par_iter()
                     .flat_map_iter(|&from| self.graph.successors(from).map(|(_, _, to)| to)),
             );
 
-            for to in self.buffer.drain(..) {
+            for to in self.scratch.drain(..) {
                 if self.visited.visit(to) {
                     next.push(to);
                 }
             }
 
-            debug_assert!(next.iter().all(|v| self.visited.is_visited(v)));
-            debug_assert!(has_no_duplicates(next));
+            debug_assert!(next.iter().all(|vertex| self.visited.is_visited(vertex)));
         })
     }
 
-    /// Expands one layer, choosing sequential or parallel execution automatically.
+    /// Expands one layer, choosing sequential or parallel execution
+    /// automatically.
     #[inline]
-    pub fn step(&mut self) -> Option<Vec<G::Vertex>> {
+    pub fn step(&mut self) -> Option<Vec<VertexOf<G>>> {
         if self.frontier.len() < self.parallel_threshold {
             self.sequential_step()
         } else {
@@ -161,10 +203,10 @@ where
 impl<'g, G, V> Iterator for ParallelGraphBFS<'g, G, V>
 where
     G: Forward + Sync,
-    G::Vertex: Eq + Hash + Copy + Send + Sync,
-    V: Visited<G::Vertex> + Default,
+    VertexOf<G>: Eq + Hash + Copy + Send + Sync,
+    V: Visited<VertexOf<G>>,
 {
-    type Item = G::Vertex;
+    type Item = VertexOf<G>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -184,25 +226,16 @@ where
     }
 }
 
-impl<'g, G, V> Worklist<G::Vertex, V> for ParallelGraphBFS<'g, G, V>
+impl<'g, G, V> Worklist<VertexOf<G>, V> for ParallelGraphBFS<'g, G, V>
 where
     G: Forward + Sync,
-    G::Vertex: Eq + Hash + Copy + Send + Sync,
-    V: Visited<G::Vertex> + Default,
+    VertexOf<G>: Eq + Hash + Copy + Send + Sync,
+    V: Visited<VertexOf<G>>,
 {
     fn worklist(mut self) -> V {
         while self.next().is_some() {}
-        self.into_visited()
+        self.visited
     }
-}
-
-#[inline]
-fn has_no_duplicates<T>(values: &[T]) -> bool
-where
-    T: Eq + Hash + Copy,
-{
-    let mut seen = FxHashSet::default();
-    values.iter().copied().all(|value| seen.insert(value))
 }
 
 #[cfg(test)]
@@ -211,7 +244,8 @@ mod tests {
 
     use crate::graphs::{
         csr::CSR,
-        graph::{Endpoints, FiniteVertices, FromEndpoints},
+        graph::{Endpoints, FromEndpoints},
+        structure::FiniteVertices,
         worklist::Worklist,
     };
     use crate::lattices::{bit_vector::BitVector, set::Set};
@@ -266,7 +300,7 @@ mod tests {
             ParallelGraphBFS::new(&graph, std::iter::empty());
 
         assert!(bfs.next().is_none());
-        assert!(bfs.into_visited().is_empty());
+        assert!(bfs.visited.is_empty());
     }
 
     #[test]
@@ -281,7 +315,7 @@ mod tests {
         let order: Vec<_> = bfs.by_ref().collect();
 
         assert_eq!(order, vec![0, 1, 2, 3]);
-        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
+        assert_eq!(bfs.visited, [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
@@ -298,7 +332,7 @@ mod tests {
         seen.sort_unstable();
 
         assert_eq!(seen, vec![0, 1, 2, 3]);
-        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
+        assert_eq!(bfs.visited, [0, 1, 2, 3].into_iter().collect());
     }
 
     #[test]
@@ -315,7 +349,7 @@ mod tests {
         seen.dedup();
 
         assert_eq!(seen, vec![0, 1, 2]);
-        assert_eq!(bfs.into_visited(), [0, 1, 2].into_iter().collect());
+        assert_eq!(bfs.visited, [0, 1, 2].into_iter().collect());
     }
 
     #[test]
@@ -378,7 +412,7 @@ mod tests {
             }
         }
 
-        assert_eq!(sequential.into_visited(), parallel.into_visited());
+        assert_eq!(sequential.visited, parallel.visited);
     }
 
     proptest! {

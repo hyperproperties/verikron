@@ -1,16 +1,7 @@
 use std::hash::Hash;
 
 use crate::{
-    automata::{
-        acceptors::{Acceptor, StateSummary},
-        automaton::{Automaton, IoLabel},
-    },
-    graphs::{
-        backward::Backward,
-        forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf},
-        labeled::LabeledEdges,
-    },
+    automata::acceptors::{Acceptor, StateSummary},
     lattices::set::Set,
 };
 
@@ -50,13 +41,6 @@ where
     #[inline]
     pub fn required(&self) -> &Set<S> {
         &self.required
-    }
-
-    /// Consumes `self` and returns `(forbidden, required)`.
-    #[must_use]
-    #[inline]
-    pub fn into_parts(self) -> (Set<S>, Set<S>) {
-        (self.forbidden, self.required)
     }
 
     /// Returns whether this pair is satisfied by `states`.
@@ -124,19 +108,5 @@ where
             StateSummary::Finite { .. } => false,
             StateSummary::Infinite { states } => self.pairs.iter().any(|pair| pair.accepts(states)),
         }
-    }
-}
-
-impl<G> Automaton<G, Rabin<VertexOf<G>>>
-where
-    G: Graph + Forward + Backward + Directed,
-    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
-    VertexOf<G>: Eq + Hash,
-{
-    /// Creates an automaton with Rabin acceptance.
-    #[must_use]
-    #[inline]
-    pub fn with_rabin(initial: VertexOf<G>, graph: G, pairs: Vec<RabinPair<VertexOf<G>>>) -> Self {
-        Self::new(initial, graph, Rabin::new(pairs))
     }
 }

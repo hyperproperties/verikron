@@ -1,16 +1,7 @@
 use std::hash::Hash;
 
 use crate::{
-    automata::{
-        acceptors::{Acceptor, StateSummary},
-        automaton::{Automaton, IoLabel},
-    },
-    graphs::{
-        backward::Backward,
-        forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf},
-        labeled::LabeledEdges,
-    },
+    automata::acceptors::{Acceptor, StateSummary},
     lattices::set::Set,
 };
 
@@ -40,13 +31,6 @@ where
     pub fn families(&self) -> &[Set<S>] {
         &self.families
     }
-
-    /// Consumes `self` and returns the accepting families.
-    #[must_use]
-    #[inline]
-    pub fn into_families(self) -> Vec<Set<S>> {
-        self.families
-    }
 }
 
 impl<S> From<Vec<Set<S>>> for Muller<S>
@@ -73,19 +57,5 @@ where
                 self.families.iter().any(|family| family == states)
             }
         }
-    }
-}
-
-impl<G> Automaton<G, Muller<VertexOf<G>>>
-where
-    G: Graph + Forward + Backward + Directed,
-    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
-    VertexOf<G>: Eq + Hash,
-{
-    /// Creates an automaton with Muller acceptance.
-    #[must_use]
-    #[inline]
-    pub fn with_muller(initial: VertexOf<G>, graph: G, families: Vec<Set<VertexOf<G>>>) -> Self {
-        Self::new(initial, graph, Muller::new(families))
     }
 }

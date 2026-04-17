@@ -1,16 +1,7 @@
 use std::hash::Hash;
 
 use crate::{
-    automata::{
-        acceptors::{Acceptor, StateSummary},
-        automaton::{Automaton, IoLabel},
-    },
-    graphs::{
-        backward::Backward,
-        forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf},
-        labeled::LabeledEdges,
-    },
+    automata::acceptors::{Acceptor, StateSummary},
     lattices::set::Set,
 };
 
@@ -40,13 +31,6 @@ where
     pub fn rejecting(&self) -> &Set<S> {
         &self.rejecting
     }
-
-    /// Consumes `self` and returns the rejecting states.
-    #[must_use]
-    #[inline]
-    pub fn into_rejecting(self) -> Set<S> {
-        self.rejecting
-    }
 }
 
 impl<S> From<Set<S>> for CoBuchi<S>
@@ -71,19 +55,5 @@ where
             StateSummary::Finite { .. } => false,
             StateSummary::Infinite { states } => self.rejecting.is_disjoint(states),
         }
-    }
-}
-
-impl<G> Automaton<G, CoBuchi<VertexOf<G>>>
-where
-    G: Graph + Forward + Backward + Directed,
-    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
-    VertexOf<G>: Eq + Hash,
-{
-    /// Creates an automaton with co-Büchi acceptance.
-    #[must_use]
-    #[inline]
-    pub fn with_co_buchi(initial: VertexOf<G>, graph: G, rejecting: Set<VertexOf<G>>) -> Self {
-        Self::new(initial, graph, CoBuchi::new(rejecting))
     }
 }

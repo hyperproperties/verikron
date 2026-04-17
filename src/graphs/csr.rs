@@ -1,16 +1,21 @@
-use crate::{
-    graphs::graph::{Directed, EdgeType, Edges, FromEndpoints, VertexType, Vertices},
-    mem::boxed_slices::grow_boxed_slice,
-};
 use std::ops::Range;
 
-use crate::graphs::graph::{FiniteDirected, FiniteEdges, FiniteVertices, Graph, InsertVertex};
+use crate::{
+    graphs::{
+        graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph},
+        structure::{
+            EdgeType, Edges, FiniteEdges, FiniteVertices, InsertVertex, Structure, VertexType,
+            Vertices,
+        },
+    },
+    mem::boxed_slices::grow_boxed_slice,
+};
 
 /// Compressed sparse row representation of a directed multigraph.
 ///
 /// Vertices are `0..vertex_count()`. For each vertex `u`, its outgoing edges
 /// occupy the range `offsets[u]..offsets[u + 1]` in `indices`.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CSR {
     /// Row offsets into `indices`.
     offsets: Box<[usize]>,
@@ -22,18 +27,37 @@ pub struct CSR {
 impl Default for CSR {
     /// Returns the empty graph.
     fn default() -> Self {
-        let csr = Self {
+        Self {
             offsets: Box::from([0]),
             indices: Box::new([]),
-        };
+        }
+    }
+}
 
-        debug_assert_eq!(csr.vertex_count(), 0);
-        debug_assert_eq!(csr.edge_count(), 0);
-        debug_assert_eq!(csr.offsets.len(), 1);
-        debug_assert_eq!(csr.offsets[0], 0);
-        debug_assert!(csr.indices.is_empty());
+impl CSR {
+    /// Returns the outgoing edge range of `vertex`, or `None` if it is invalid.
+    #[must_use]
+    #[inline]
+    pub fn neighbor_range(&self, vertex: usize) -> Option<(usize, usize)> {
+        let start = *self.offsets.get(vertex)?;
+        let end = *self.offsets.get(vertex + 1)?;
 
-        csr
+        debug_assert!(start <= end);
+        debug_assert!(end <= self.indices.len());
+
+        Some((start, end))
+    }
+
+    #[must_use]
+    #[inline]
+    fn source_of_edge(&self, edge: usize) -> usize {
+        debug_assert!(edge < self.edge_count());
+
+        let position = self.offsets.partition_point(|&offset| offset <= edge);
+        debug_assert!(position > 0);
+        debug_assert!(position <= self.vertex_count());
+
+        position - 1
     }
 }
 
@@ -44,79 +68,139 @@ impl FromEndpoints for CSR {
     /// An empty input yields the empty graph.
     fn from_endpoints<I>(edges: I) -> Self
     where
-        I: IntoIterator<Item = super::graph::Endpoints<Self::Vertex>>,
+        I: IntoIterator<Item = Endpoints<Self::Vertex>>,
     {
-        let mut edges: Vec<_> = edges.into_iter().map(|edge| (edge.from, edge.to)).collect();
+        let mut edges: Vec<_> = edges.into_iter().map(|e| (e.from, e.to)).collect();
 
         if edges.is_empty() {
             return Self::default();
         }
 
-        edges.sort_unstable_by_key(|&(source, _)| source);
+        edges.sort_unstable_by_key(|&(from, _)| from);
 
         let vertex_count = edges.iter().map(|&(from, to)| from.max(to)).max().unwrap() + 1;
         let edge_count = edges.len();
 
         let mut offsets = vec![0usize; vertex_count + 1];
-
-        for &(from, to) in &edges {
-            debug_assert!(
-                from < vertex_count && to < vertex_count,
-                "CSR::from_endpoints: endpoint ({from}, {to}) out of range for vertex_count {vertex_count}"
-            );
+        for &(from, _) in &edges {
             offsets[from + 1] += 1;
         }
-
         for i in 1..=vertex_count {
             offsets[i] += offsets[i - 1];
         }
 
+        let indices = edges.into_iter().map(|(_, to)| to).collect::<Vec<_>>();
+
+        debug_assert_eq!(offsets.len(), vertex_count + 1);
         debug_assert_eq!(offsets[0], 0);
         debug_assert_eq!(offsets[vertex_count], edge_count);
-        debug_assert_eq!(offsets.len(), vertex_count + 1);
-        debug_assert!(
-            offsets.windows(2).all(|w| w[0] <= w[1]),
-            "CSR::from_endpoints: offsets are not non-decreasing: {offsets:?}"
-        );
-
-        let indices: Vec<usize> = edges.into_iter().map(|(_, to)| to).collect();
-
+        debug_assert!(offsets.windows(2).all(|w| w[0] <= w[1]));
         debug_assert_eq!(indices.len(), edge_count);
 
-        let csr = CSR {
+        Self {
             offsets: offsets.into_boxed_slice(),
             indices: indices.into_boxed_slice(),
-        };
-
-        debug_assert_eq!(csr.vertex_count(), vertex_count);
-        debug_assert_eq!(csr.edge_count(), edge_count);
-        debug_assert_eq!(csr.offsets[0], 0);
-        debug_assert_eq!(csr.offsets[csr.vertex_count()], csr.indices.len());
-
-        csr
+        }
     }
 }
 
-impl CSR {
-    /// Returns the outgoing edge range of `vertex`, or `None` if it is invalid.
+impl VertexType for CSR {
+    type Vertex = usize;
+}
+
+impl EdgeType for CSR {
+    type Edge = usize;
+}
+
+impl Vertices for CSR {
+    type Vertices<'a>
+        = Range<usize>
+    where
+        Self: 'a;
+
+    /// Returns all vertices.
     #[inline]
-    pub fn neighbor_range(&self, vertex: usize) -> Option<(usize, usize)> {
-        let start = *self.offsets.get(vertex)?;
-        let end = *self.offsets.get(vertex + 1)?;
-
-        debug_assert!(
-            start <= end,
-            "CSR::neighbor_range: start ({start}) > end ({end}) for vertex {vertex}"
-        );
-        debug_assert!(
-            end <= self.indices.len(),
-            "CSR::neighbor_range: end ({end}) > indices.len() ({})",
-            self.indices.len()
-        );
-
-        Some((start, end))
+    fn vertices(&self) -> Self::Vertices<'_> {
+        0..self.vertex_count()
     }
 }
+
+impl FiniteVertices for CSR {
+    /// Returns the number of vertices.
+    #[inline]
+    fn vertex_count(&self) -> usize {
+        self.offsets.len() - 1
+    }
+
+    /// Returns whether `vertex` exists.
+    #[inline]
+    fn contains(&self, vertex: &Self::Vertex) -> bool {
+        *vertex < self.vertex_count()
+    }
+}
+
+impl Edges for CSR {
+    type Edges<'a>
+        = Range<usize>
+    where
+        Self: 'a;
+
+    /// Returns all edge identifiers.
+    #[inline]
+    fn edges(&self) -> Self::Edges<'_> {
+        0..self.edge_count()
+    }
+}
+
+impl FiniteEdges for CSR {
+    /// Returns the number of edges.
+    #[inline]
+    fn edge_count(&self) -> usize {
+        self.indices.len()
+    }
+
+    /// Returns whether `edge` exists.
+    #[inline]
+    fn contains_edge(&self, edge: &Self::Edge) -> bool {
+        *edge < self.edge_count()
+    }
+}
+
+impl InsertVertex for CSR {
+    /// Inserts a new isolated vertex.
+    #[inline]
+    fn insert_vertex(&mut self) -> Option<Self::Vertex> {
+        let vertex = self.vertex_count();
+        let last_offset = self.edge_count();
+
+        if !grow_boxed_slice(&mut self.offsets, 1, |tail| {
+            tail[0] = last_offset;
+        }) {
+            return None;
+        }
+
+        Some(vertex)
+    }
+}
+
+impl Structure for CSR {
+    type Vertices = Self;
+    type Edges = Self;
+
+    /// Returns the edge store.
+    #[inline]
+    fn edge_store(&self) -> &Self::Edges {
+        self
+    }
+
+    /// Returns the vertex store.
+    #[inline]
+    fn vertex_store(&self) -> &Self::Vertices {
+        self
+    }
+}
+
+impl Graph for CSR {}
 
 impl Directed for CSR {
     type Outgoing<'a>
@@ -135,137 +219,51 @@ impl Directed for CSR {
         Self: 'a;
 
     /// Returns the source of `edge`.
+    #[inline]
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
-        debug_assert!(
-            edge < self.edge_count(),
-            "CSR::source: edge index {} out of bounds {}",
-            edge,
-            self.edge_count()
-        );
-        debug_assert!(
-            !self.offsets.is_empty(),
-            "CSR::source: offsets must not be empty"
-        );
-        debug_assert_eq!(self.offsets[0], 0, "CSR::source: first offset must be 0");
-        debug_assert_eq!(
-            *self.offsets.last().unwrap(),
-            self.edge_count(),
-            "CSR::source: last offset must equal edge_count"
-        );
-
-        let position = self.offsets.partition_point(|&offset| offset <= edge);
-
-        debug_assert!(
-            position > 0,
-            "CSR::source: no offset <= edge {} found in {:?}",
-            edge,
-            self.offsets
-        );
-        debug_assert!(
-            position <= self.vertex_count(),
-            "CSR::source: partition_point result {} exceeds vertex_count {}",
-            position,
-            self.vertex_count()
-        );
-
-        let source = position - 1;
-
-        debug_assert!(
-            source < self.vertex_count(),
-            "CSR::source: computed source {} out of range {}",
-            source,
-            self.vertex_count()
-        );
-
-        source
+        self.source_of_edge(edge)
     }
 
-    /// Returns the target of `edge`.
-    fn target(&self, edge: Self::Edge) -> Self::Vertex {
-        debug_assert!(
-            edge < self.edge_count(),
-            "CSR::target: edge index {} out of bounds {}",
-            edge,
-            self.edge_count()
-        );
-
-        let to = self.indices[edge];
-
-        debug_assert!(
-            to < self.vertex_count(),
-            "CSR::target: destination {} out of range {}",
-            to,
-            self.vertex_count()
-        );
-
-        to
+    /// Returns the destination of `edge`.
+    #[inline]
+    fn destination(&self, edge: Self::Edge) -> Self::Vertex {
+        self.indices[edge]
     }
 
     /// Returns all outgoing edges from `source`.
+    #[inline]
     fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
-        debug_assert!(
-            source < self.vertex_count(),
-            "CSR::outgoing: source {} out of range {}",
-            source,
-            self.vertex_count()
-        );
         match self.neighbor_range(source) {
-            Some((start, end)) => {
-                debug_assert!(start <= end);
-                debug_assert!(end <= self.edge_count());
-                Self::Outgoing::new(self, start, end, None)
-            }
-            None => Self::Outgoing::empty(self),
+            Some((start, end)) => CsrEdges::new(self, start, end, None),
+            None => CsrEdges::empty(self),
         }
     }
 
     /// Returns all incoming edges to `destination`.
     ///
     /// This scans the full edge set.
+    #[inline]
     fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
-        debug_assert!(
-            destination < self.vertex_count(),
-            "CSR::ingoing: destination {} out of range {}",
-            destination,
-            self.vertex_count()
-        );
-        Self::Ingoing::new(self, 0, self.edge_count(), Some(destination))
+        if !self.contains(&destination) {
+            return CsrEdges::empty(self);
+        }
+        CsrEdges::new(self, 0, self.edge_count(), Some(destination))
     }
 
     /// Returns all edges from `from` to `to`.
+    #[inline]
     fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        debug_assert!(
-            from < self.vertex_count(),
-            "CSR::connections: from {} out of range {}",
-            from,
-            self.vertex_count()
-        );
-        debug_assert!(
-            to < self.vertex_count(),
-            "CSR::connections: to {} out of range {}",
-            to,
-            self.vertex_count()
-        );
         match self.neighbor_range(from) {
-            Some((start, end)) => {
-                debug_assert!(start <= end);
-                debug_assert!(end <= self.edge_count());
-                Self::Connections::new(self, start, end, Some(to))
-            }
-            None => Self::Connections::empty(self),
+            Some((start, end)) if self.contains(&to) => CsrEdges::new(self, start, end, Some(to)),
+            _ => CsrEdges::empty(self),
         }
     }
 }
 
 impl FiniteDirected for CSR {
     /// Returns the outgoing degree of `vertex`.
+    #[inline]
     fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
-        debug_assert!(
-            vertex < self.vertex_count(),
-            "CSR::outgoing_degree: vertex {} out of range {}",
-            vertex,
-            self.vertex_count()
-        );
         match self.neighbor_range(vertex) {
             Some((start, end)) => end - start,
             None => 0,
@@ -273,142 +271,35 @@ impl FiniteDirected for CSR {
     }
 
     /// Returns the incoming degree of `vertex`.
+    #[inline]
     fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
-        debug_assert!(
-            vertex < self.vertex_count(),
-            "CSR::ingoing_degree: vertex {} out of range {}",
-            vertex,
-            self.vertex_count()
-        );
+        if !self.contains(&vertex) {
+            return 0;
+        }
+
         self.indices
             .iter()
-            .filter(|&destination| *destination == vertex)
+            .filter(|&&destination| destination == vertex)
             .count()
     }
 
     /// Returns the number of loops at `vertex`.
+    #[inline]
     fn loop_degree(&self, vertex: Self::Vertex) -> usize {
-        debug_assert!(
-            vertex < self.vertex_count(),
-            "CSR::loop_degree: vertex {} out of range {}",
-            vertex,
-            self.vertex_count()
-        );
         match self.neighbor_range(vertex) {
-            Some((start, end)) => {
-                debug_assert!(start <= end);
-                debug_assert!(end <= self.edge_count());
-
-                self.indices[start..end]
-                    .iter()
-                    .filter(|&&destination| destination == vertex)
-                    .count()
-            }
+            Some((start, end)) => self.indices[start..end]
+                .iter()
+                .filter(|&&destination| destination == vertex)
+                .count(),
             None => 0,
         }
     }
 }
 
-impl EdgeType for CSR {
-    type Edge = usize;
-}
-
-impl Edges for CSR {
-    type Edges<'a>
-        = CsrEdges<'a>
-    where
-        Self: 'a;
-
-    /// Returns all edges.
-    fn edges(&self) -> Self::Edges<'_> {
-        debug_assert_eq!(
-            *self.offsets.first().unwrap_or(&0),
-            0,
-            "CSR::edges: first offset must be 0"
-        );
-        debug_assert_eq!(
-            *self.offsets.last().unwrap_or(&0),
-            self.edge_count(),
-            "CSR::edges: last offset must equal edge_count"
-        );
-        Self::Edges::new(self, 0, self.edge_count(), None)
-    }
-}
-
-impl FiniteEdges for CSR {
-    /// Returns the number of edges.
-    fn edge_count(&self) -> usize {
-        self.indices.len()
-    }
-}
-
-impl VertexType for CSR {
-    type Vertex = usize;
-}
-
-impl Vertices for CSR {
-    type Vertices<'a>
-        = Range<usize>
-    where
-        Self: 'a;
-
-    /// Returns all vertices.
-    fn vertices(&self) -> Self::Vertices<'_> {
-        0..self.vertex_count()
-    }
-}
-
-impl FiniteVertices for CSR {
-    /// Returns the number of vertices.
-    fn vertex_count(&self) -> usize {
-        let count = self.offsets.len().saturating_sub(1);
-        debug_assert!(
-            self.offsets.len() == count + 1,
-            "CSR::vertex_count: offsets.len() = {}, expected {}",
-            self.offsets.len(),
-            count + 1
-        );
-        count
-    }
-}
-
-impl InsertVertex for CSR {
-    /// Inserts a new isolated vertex.
-    fn insert_vertex(&mut self) -> Option<Self::Vertex> {
-        let old_vertex = self.vertex_count();
-        let last_offset = self.indices.len();
-
-        debug_assert_eq!(last_offset, *self.offsets.last().unwrap());
-
-        if !grow_boxed_slice(&mut self.offsets, 1, |tail| {
-            debug_assert_eq!(tail.len(), 1);
-            tail[0] = last_offset;
-        }) {
-            return None;
-        }
-
-        Some(old_vertex)
-    }
-}
-
-impl Graph for CSR {
-    type Vertices = Self;
-    type Edges = Self;
-
-    /// Returns the edge store.
-    fn edge_store(&self) -> &Self::Edges {
-        self
-    }
-
-    /// Returns the vertex store.
-    fn vertex_store(&self) -> &Self::Vertices {
-        self
-    }
-}
-
-/// Iterator over CSR edges.
+/// Iterator over selected CSR edges.
 ///
 /// Yields `(source, edge, destination)`.
+#[derive(Clone, Debug)]
 pub struct CsrEdges<'a> {
     csr: &'a CSR,
     /// Current edge index.
@@ -421,22 +312,11 @@ pub struct CsrEdges<'a> {
 
 impl<'a> CsrEdges<'a> {
     /// Creates a CSR edge iterator over `index..end`.
+    #[must_use]
     pub fn new(csr: &'a CSR, index: usize, end: usize, destination: Option<usize>) -> Self {
-        debug_assert!(
-            end <= csr.edge_count(),
-            "CsrEdges::new: end {} > edge_count {}",
-            end,
-            csr.edge_count()
-        );
-        debug_assert!(index <= end, "CsrEdges::new: index {} > end {}", index, end);
-        if let Some(destination) = destination {
-            debug_assert!(
-                destination < csr.vertex_count(),
-                "CsrEdges::new: destination filter {} out of range {}",
-                destination,
-                csr.vertex_count()
-            );
-        }
+        debug_assert!(index <= end);
+        debug_assert!(end <= csr.edge_count());
+        debug_assert!(destination.is_none_or(|v| v < csr.vertex_count()));
 
         Self {
             csr,
@@ -447,6 +327,8 @@ impl<'a> CsrEdges<'a> {
     }
 
     /// Returns the empty iterator.
+    #[must_use]
+    #[inline]
     pub fn empty(csr: &'a CSR) -> Self {
         Self::new(csr, 0, 0, None)
     }
@@ -460,34 +342,12 @@ impl<'a> Iterator for CsrEdges<'a> {
             let edge = self.index;
             self.index += 1;
 
-            debug_assert!(
-                edge < self.csr.edge_count(),
-                "CsrEdges::next: edge {} out of bounds {}",
-                edge,
-                self.csr.edge_count()
-            );
-
             let destination = self.csr.indices[edge];
-            debug_assert!(
-                destination < self.csr.vertex_count(),
-                "CsrEdges::next: destination {} out of range {}",
-                destination,
-                self.csr.vertex_count()
-            );
-
             if self.destination.is_some_and(|filter| destination != filter) {
                 continue;
             }
 
-            let source = self.csr.source(edge);
-
-            debug_assert!(
-                source < self.csr.vertex_count(),
-                "CsrEdges::next: source {} out of range {}",
-                source,
-                self.csr.vertex_count()
-            );
-
+            let source = self.csr.source_of_edge(edge);
             return Some((source, edge, destination));
         }
 
@@ -498,23 +358,23 @@ impl<'a> Iterator for CsrEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::graph::{Endpoints, FromEndpoints};
+    use crate::graphs::graph::FromEndpoints;
 
     use proptest::prelude::*;
     use std::collections::HashMap;
 
     fn assert_csr_invariants(graph: &CSR) {
         assert_eq!(graph.offsets.len(), graph.vertex_count() + 1);
+        assert_eq!(*graph.offsets.first().unwrap(), 0);
+        assert_eq!(*graph.offsets.last().unwrap(), graph.indices.len());
 
         for window in graph.offsets.windows(2) {
-            assert!(
-                window[0] <= window[1],
-                "offsets not non-decreasing: {:?}",
-                graph.offsets
-            );
+            assert!(window[0] <= window[1], "offsets not non-decreasing");
         }
 
-        assert_eq!(*graph.offsets.last().unwrap(), graph.indices.len());
+        for &to in &graph.indices {
+            assert!(to < graph.vertex_count());
+        }
     }
 
     fn assert_edges_match(graph: &CSR, expected: &[(usize, usize)]) {
@@ -524,7 +384,9 @@ mod tests {
         }
 
         let mut actual_counts = HashMap::new();
-        for (from, _, to) in graph.edges() {
+        for edge in graph.edges() {
+            let from = graph.source(edge);
+            let to = graph.destination(edge);
             *actual_counts.entry((from, to)).or_insert(0usize) += 1;
         }
 
@@ -560,10 +422,8 @@ mod tests {
 
         assert_eq!(graph.vertex_count(), 0);
         assert_eq!(graph.edge_count(), 0);
-
         assert_eq!(graph.vertices().count(), 0);
         assert_eq!(graph.edges().count(), 0);
-
         assert_eq!(graph.offsets.as_ref(), &[0]);
         assert!(graph.indices.is_empty());
 
@@ -574,11 +434,7 @@ mod tests {
     fn from_endpoints_empty_matches_default() {
         let graph = CSR::from_endpoints(std::iter::empty::<Endpoints<usize>>());
 
-        assert_eq!(graph.vertex_count(), 0);
-        assert_eq!(graph.edge_count(), 0);
-        assert_eq!(graph.offsets.as_ref(), &[0]);
-        assert!(graph.indices.is_empty());
-
+        assert_eq!(graph, CSR::default());
         assert_csr_invariants(&graph);
     }
 
@@ -595,7 +451,7 @@ mod tests {
         assert_eq!(graph.neighbor_range(1), None);
 
         assert_eq!(graph.source(0), 0);
-        assert_eq!(graph.target(0), 0);
+        assert_eq!(graph.destination(0), 0);
 
         assert_eq!(graph.outgoing(0).collect::<Vec<_>>(), vec![(0, 0, 0)]);
         assert_eq!(graph.ingoing(0).collect::<Vec<_>>(), vec![(0, 0, 0)]);
@@ -624,9 +480,7 @@ mod tests {
         assert_eq!(graph.neighbor_range(2), Some((2, 3)));
         assert_eq!(graph.neighbor_range(3), None);
 
-        let edges: Vec<_> = graph.edges().collect();
-        assert_eq!(edges.len(), 3);
-
+        assert_eq!(graph.edges().collect::<Vec<_>>(), vec![0, 1, 2]);
         assert_edges_match(&graph, &[(0, 1), (1, 0), (2, 1)]);
         assert_csr_invariants(&graph);
     }

@@ -1,8 +1,11 @@
 use std::ops::Range;
 
-use crate::graphs::graph::{
-    Directed, EdgeType, Edges, Endpoints, FiniteDirected, FiniteEdges, FiniteVertices,
-    FromEndpoints, Graph, InsertEdge, InsertVertex, RemoveEdge, RemoveVertex, VertexType, Vertices,
+use crate::graphs::{
+    graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph},
+    structure::{
+        EdgeType, Edges, FiniteEdges, FiniteVertices, InsertEdge, InsertVertex, RemoveEdge,
+        RemoveVertex, Structure, VertexType, Vertices,
+    },
 };
 
 /// Mutable CSR-style directed multigraph.
@@ -12,7 +15,7 @@ use crate::graphs::graph::{
 ///
 /// This representation favors fast queries. Mutation updates the CSR layout
 /// eagerly, so edge ids are not stable across insertions and removals.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MCSR {
     /// CSR row offsets of length `vertex_count() + 1`.
     offsets: Vec<usize>,
@@ -27,8 +30,16 @@ pub struct MCSR {
     sources: Vec<usize>,
 }
 
+impl Default for MCSR {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MCSR {
     /// Creates an empty graph.
+    #[must_use]
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -38,6 +49,8 @@ impl MCSR {
         }
     }
 
+    /// Returns the outgoing-edge range of `vertex`, or `None` if it is invalid.
+    #[must_use]
     #[inline]
     fn row_range(&self, vertex: usize) -> Option<(usize, usize)> {
         if vertex >= self.vertex_count() {
@@ -75,7 +88,7 @@ impl FromEndpoints for MCSR {
 
         edges.sort_unstable_by_key(|edge| edge.from);
 
-        let mut offsets = vec![0; vertex_count + 1];
+        let mut offsets = vec![0usize; vertex_count + 1];
         let mut indices = Vec::with_capacity(edges.len());
         let mut sources = Vec::with_capacity(edges.len());
 
@@ -101,6 +114,10 @@ impl VertexType for MCSR {
     type Vertex = usize;
 }
 
+impl EdgeType for MCSR {
+    type Edge = usize;
+}
+
 impl Vertices for MCSR {
     type Vertices<'a>
         = Range<usize>
@@ -120,6 +137,12 @@ impl FiniteVertices for MCSR {
     fn vertex_count(&self) -> usize {
         self.offsets.len() - 1
     }
+
+    /// Returns whether `vertex` exists.
+    #[inline]
+    fn contains(&self, vertex: &Self::Vertex) -> bool {
+        *vertex < self.vertex_count()
+    }
 }
 
 impl InsertVertex for MCSR {
@@ -127,9 +150,8 @@ impl InsertVertex for MCSR {
     #[inline]
     fn insert_vertex(&mut self) -> Option<Self::Vertex> {
         let vertex = self.vertex_count();
-        let last = *self.offsets.last().unwrap();
+        let last = self.edge_count();
         self.offsets.push(last);
-
         Some(vertex)
     }
 }
@@ -139,7 +161,7 @@ impl RemoveVertex for MCSR {
     ///
     /// Remaining vertex ids greater than `vertex` are shifted down by one.
     fn remove_vertex(&mut self, vertex: Self::Vertex) -> bool {
-        if vertex >= self.vertex_count() {
+        if !self.contains(&vertex) {
             return false;
         }
 
@@ -147,12 +169,7 @@ impl RemoveVertex for MCSR {
         let old_edge_count = self.edge_count();
 
         if old_vertex_count == 1 {
-            self.offsets.clear();
-            self.offsets.push(0);
-            self.indices.clear();
-            self.sources.clear();
-
-            debug_assert_eq!(self.vertex_count(), 0);
+            *self = Self::new();
             return true;
         }
 
@@ -189,20 +206,16 @@ impl RemoveVertex for MCSR {
     }
 }
 
-impl EdgeType for MCSR {
-    type Edge = usize;
-}
-
 impl Edges for MCSR {
     type Edges<'a>
-        = MCSREdges<'a>
+        = Range<usize>
     where
         Self: 'a;
 
-    /// Returns all edges.
+    /// Returns all edge ids.
     #[inline]
     fn edges(&self) -> Self::Edges<'_> {
-        MCSREdges::all(self)
+        0..self.edge_count()
     }
 }
 
@@ -212,6 +225,11 @@ impl FiniteEdges for MCSR {
     fn edge_count(&self) -> usize {
         self.indices.len()
     }
+
+    #[inline]
+    fn contains_edge(&self, edge: &Self::Edge) -> bool {
+        *edge < self.edge_count()
+    }
 }
 
 impl InsertEdge for MCSR {
@@ -219,12 +237,11 @@ impl InsertEdge for MCSR {
     ///
     /// The edge is appended to the outgoing row of `from`.
     fn insert_edge(&mut self, from: Self::Vertex, to: Self::Vertex) -> Option<Self::Edge> {
-        if from >= self.vertex_count() || to >= self.vertex_count() {
+        if !(self.contains(&from) && self.contains(&to)) {
             return None;
         }
 
         let edge = self.offsets[from + 1];
-
         debug_assert!(edge <= self.indices.len());
 
         self.indices.insert(edge, to);
@@ -233,9 +250,6 @@ impl InsertEdge for MCSR {
         for offset in &mut self.offsets[from + 1..] {
             *offset += 1;
         }
-
-        debug_assert_eq!(self.sources[edge], from);
-        debug_assert_eq!(self.indices[edge], to);
 
         Some(edge)
     }
@@ -261,6 +275,25 @@ impl RemoveEdge for MCSR {
     }
 }
 
+impl Structure for MCSR {
+    type Vertices = Self;
+    type Edges = Self;
+
+    /// Returns the vertex store.
+    #[inline]
+    fn vertex_store(&self) -> &Self::Vertices {
+        self
+    }
+
+    /// Returns the edge store.
+    #[inline]
+    fn edge_store(&self) -> &Self::Edges {
+        self
+    }
+}
+
+impl Graph for MCSR {}
+
 impl Directed for MCSR {
     type Outgoing<'a>
         = MCSREdges<'a>
@@ -280,52 +313,32 @@ impl Directed for MCSR {
     /// Returns the source of `edge`.
     #[inline]
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
-        debug_assert!(edge < self.edge_count(), "MCSR::source: edge out of bounds");
-        let source = self.sources[edge];
-        debug_assert!(source < self.vertex_count());
-        source
+        debug_assert!(edge < self.edge_count());
+        self.sources[edge]
     }
 
-    /// Returns the target of `edge`.
+    /// Returns the destination of `edge`.
     #[inline]
-    fn target(&self, edge: Self::Edge) -> Self::Vertex {
-        debug_assert!(edge < self.edge_count(), "MCSR::target: edge out of bounds");
-        let target = self.indices[edge];
-        debug_assert!(target < self.vertex_count());
-        target
+    fn destination(&self, edge: Self::Edge) -> Self::Vertex {
+        debug_assert!(edge < self.edge_count());
+        self.indices[edge]
     }
 
     /// Returns all outgoing edges from `source`.
     #[inline]
     fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
-        debug_assert!(
-            source < self.vertex_count(),
-            "MCSR::outgoing: vertex out of bounds"
-        );
         MCSREdges::outgoing(self, source)
     }
 
     /// Returns all incoming edges to `destination`.
     #[inline]
     fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
-        debug_assert!(
-            destination < self.vertex_count(),
-            "MCSR::ingoing: vertex out of bounds"
-        );
         MCSREdges::ingoing(self, destination)
     }
 
     /// Returns all edges from `from` to `to`.
     #[inline]
     fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        debug_assert!(
-            from < self.vertex_count(),
-            "MCSR::connections: source out of bounds"
-        );
-        debug_assert!(
-            to < self.vertex_count(),
-            "MCSR::connections: target out of bounds"
-        );
         MCSREdges::connections(self, from, to)
     }
 }
@@ -334,22 +347,18 @@ impl FiniteDirected for MCSR {
     /// Returns the number of outgoing edges from `vertex`.
     #[inline]
     fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
-        debug_assert!(
-            vertex < self.vertex_count(),
-            "MCSR::outgoing_degree: vertex out of bounds"
-        );
-
-        let (start, end) = self.row_range(vertex).unwrap();
-        end - start
+        match self.row_range(vertex) {
+            Some((start, end)) => end - start,
+            None => 0,
+        }
     }
 
     /// Returns the number of incoming edges to `vertex`.
     #[inline]
     fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
-        debug_assert!(
-            vertex < self.vertex_count(),
-            "MCSR::ingoing_degree: vertex out of bounds"
-        );
+        if !self.contains(&vertex) {
+            return 0;
+        }
 
         self.indices
             .iter()
@@ -360,47 +369,25 @@ impl FiniteDirected for MCSR {
     /// Returns the number of loop edges at `vertex`.
     #[inline]
     fn loop_degree(&self, vertex: Self::Vertex) -> usize {
-        debug_assert!(
-            vertex < self.vertex_count(),
-            "MCSR::loop_degree: vertex out of bounds"
-        );
-
-        let (start, end) = self.row_range(vertex).unwrap();
-        self.indices[start..end]
-            .iter()
-            .filter(|&&target| target == vertex)
-            .count()
-    }
-}
-
-impl Graph for MCSR {
-    type Vertices = Self;
-    type Edges = Self;
-
-    /// Returns the edge store.
-    #[inline]
-    fn edge_store(&self) -> &Self::Edges {
-        self
-    }
-
-    /// Returns the vertex store.
-    #[inline]
-    fn vertex_store(&self) -> &Self::Vertices {
-        self
+        match self.row_range(vertex) {
+            Some((start, end)) => self.indices[start..end]
+                .iter()
+                .filter(|&&target| target == vertex)
+                .count(),
+            None => 0,
+        }
     }
 }
 
 /// Iterator over selected edges of an [`MCSR`].
+#[derive(Debug, Clone)]
 pub struct MCSREdges<'a> {
     graph: &'a MCSR,
     kind: MCSREdgesKind,
 }
 
+#[derive(Debug, Clone)]
 enum MCSREdgesKind {
-    All {
-        edge: usize,
-        end: usize,
-    },
     Outgoing {
         source: usize,
         edge: usize,
@@ -417,31 +404,30 @@ enum MCSREdgesKind {
         edge: usize,
         end: usize,
     },
+    Empty,
 }
 
 impl<'a> MCSREdges<'a> {
-    #[inline]
-    fn all(graph: &'a MCSR) -> Self {
-        Self {
-            graph,
-            kind: MCSREdgesKind::All {
-                edge: 0,
-                end: graph.edge_count(),
-            },
-        }
-    }
-
+    #[must_use]
     #[inline]
     fn outgoing(graph: &'a MCSR, source: usize) -> Self {
-        let (edge, end) = graph.row_range(source).unwrap();
+        let Some((edge, end)) = graph.row_range(source) else {
+            return Self::empty(graph);
+        };
+
         Self {
             graph,
             kind: MCSREdgesKind::Outgoing { source, edge, end },
         }
     }
 
+    #[must_use]
     #[inline]
     fn ingoing(graph: &'a MCSR, destination: usize) -> Self {
+        if !graph.contains(&destination) {
+            return Self::empty(graph);
+        }
+
         Self {
             graph,
             kind: MCSREdgesKind::Ingoing {
@@ -452,9 +438,17 @@ impl<'a> MCSREdges<'a> {
         }
     }
 
+    #[must_use]
     #[inline]
     fn connections(graph: &'a MCSR, source: usize, destination: usize) -> Self {
-        let (edge, end) = graph.row_range(source).unwrap();
+        if !graph.contains(&destination) {
+            return Self::empty(graph);
+        }
+
+        let Some((edge, end)) = graph.row_range(source) else {
+            return Self::empty(graph);
+        };
+
         Self {
             graph,
             kind: MCSREdgesKind::Connections {
@@ -465,6 +459,15 @@ impl<'a> MCSREdges<'a> {
             },
         }
     }
+
+    #[must_use]
+    #[inline]
+    fn empty(graph: &'a MCSR) -> Self {
+        Self {
+            graph,
+            kind: MCSREdgesKind::Empty,
+        }
+    }
 }
 
 impl<'a> Iterator for MCSREdges<'a> {
@@ -472,20 +475,6 @@ impl<'a> Iterator for MCSREdges<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.kind {
-            MCSREdgesKind::All { edge, end } => {
-                if *edge >= *end {
-                    return None;
-                }
-
-                let current = *edge;
-                *edge += 1;
-                Some((
-                    self.graph.sources[current],
-                    current,
-                    self.graph.indices[current],
-                ))
-            }
-
             MCSREdgesKind::Outgoing { source, edge, end } => {
                 if *edge >= *end {
                     return None;
@@ -528,6 +517,8 @@ impl<'a> Iterator for MCSREdges<'a> {
                 }
                 None
             }
+
+            MCSREdgesKind::Empty => None,
         }
     }
 }
@@ -538,7 +529,8 @@ mod tests {
 
     use crate::graphs::{
         csr::CSR,
-        graph::{Endpoints, FromEndpoints},
+        graph::{Directed, FiniteDirected, FromEndpoints},
+        structure::{Edges, FiniteEdges, FiniteVertices},
     };
 
     use proptest::prelude::*;
@@ -546,21 +538,27 @@ mod tests {
 
     fn edge_triples<G>(graph: &G) -> Vec<(usize, usize, usize)>
     where
-        G: Edges<Vertex = usize, Edge = usize>,
+        G: Edges<Vertex = usize, Edge = usize> + Directed<Vertex = usize, Edge = usize>,
     {
-        graph.edges().collect()
+        graph
+            .edges()
+            .map(|edge| (graph.source(edge), edge, graph.destination(edge)))
+            .collect()
     }
 
     fn edge_pairs<G>(graph: &G) -> Vec<(usize, usize)>
     where
-        G: Edges<Vertex = usize, Edge = usize>,
+        G: Edges<Vertex = usize, Edge = usize> + Directed<Vertex = usize, Edge = usize>,
     {
-        graph.edges().map(|(from, _, to)| (from, to)).collect()
+        graph
+            .edges()
+            .map(|edge| (graph.source(edge), graph.destination(edge)))
+            .collect()
     }
 
     fn sorted_edge_pairs<G>(graph: &G) -> Vec<(usize, usize)>
     where
-        G: Edges<Vertex = usize, Edge = usize>,
+        G: Edges<Vertex = usize, Edge = usize> + Directed<Vertex = usize, Edge = usize>,
     {
         let mut edges = edge_pairs(graph);
         edges.sort_unstable();
@@ -810,9 +808,9 @@ mod tests {
             Endpoints::new(2, 2),
         ]);
 
-        for (from, edge, to) in graph.edges() {
-            assert_eq!(graph.source(edge), from);
-            assert_eq!(graph.target(edge), to);
+        for edge in graph.edges() {
+            let from = graph.source(edge);
+            let to = graph.destination(edge);
             assert!(graph.has_edge(from, edge, to));
         }
     }

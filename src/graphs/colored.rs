@@ -1,4 +1,7 @@
-use crate::graphs::graph::{Endpoints, FiniteVertices, Graph, RemoveVertex, VertexOf, VertexType};
+use crate::graphs::{
+    graph::{Endpoints, Graph},
+    structure::{FiniteVertices, RemoveVertex, Structure, VertexOf, VertexType},
+};
 
 /// Vertex color information.
 pub trait VertexColor: VertexType {
@@ -6,7 +9,7 @@ pub trait VertexColor: VertexType {
     type Color;
 }
 
-/// Finite graph with global access to vertex colors.
+/// Finite vertex store with global access to vertex colors.
 pub trait ColoredVertices: FiniteVertices + VertexColor {
     /// Returns the color of `vertex`, or `None` if it does not exist.
     fn vertex_color(&self, vertex: Self::Vertex) -> Option<Self::Color>;
@@ -40,24 +43,80 @@ impl<T> ColoredVerticesMut for T where
 {
 }
 
+/// Structure whose vertex store is colored.
+///
+/// This is the common colored abstraction shared by graphs, hypergraphs,
+/// and similar structures.
+pub trait ColoredStructure: Structure + VertexColor
+where
+    Self::Vertices: ColoredVertices<Vertex = VertexOf<Self>, Color = Self::Color>,
+{
+    /// Returns the color of `vertex`, or `None` if it does not exist.
+    #[must_use]
+    #[inline]
+    fn vertex_color(&self, vertex: VertexOf<Self>) -> Option<Self::Color> {
+        self.vertex_store().vertex_color(vertex)
+    }
+
+    /// Returns whether `vertex` has color `color`.
+    ///
+    /// Returns `false` if `vertex` does not exist.
+    #[must_use]
+    #[inline]
+    fn has_color(&self, vertex: VertexOf<Self>, color: Self::Color) -> bool
+    where
+        Self::Color: Eq,
+    {
+        self.vertex_color(vertex) == Some(color)
+    }
+}
+
+impl<T> ColoredStructure for T
+where
+    T: Structure + VertexColor,
+    T::Vertices: ColoredVertices<Vertex = VertexOf<T>, Color = T::Color>,
+{
+}
+
 /// Graph whose vertex store is colored.
 pub trait ColoredGraph: Graph + VertexColor
 where
-    Self::Vertices: ColoredVertices<Vertex = VertexOf<Self>, Color = <Self as VertexColor>::Color>,
+    Self::Vertices: ColoredVertices<Vertex = VertexOf<Self>, Color = Self::Color>,
 {
+    /// Returns the color of `vertex`, or `None` if it does not exist.
+    #[must_use]
+    #[inline]
+    fn vertex_color(&self, vertex: VertexOf<Self>) -> Option<Self::Color> {
+        self.vertex_store().vertex_color(vertex)
+    }
+
+    /// Returns whether `vertex` has color `color`.
+    ///
+    /// Returns `false` if `vertex` does not exist.
+    #[must_use]
+    #[inline]
+    fn has_color(&self, vertex: VertexOf<Self>, color: Self::Color) -> bool
+    where
+        Self::Color: Eq,
+    {
+        self.vertex_color(vertex) == Some(color)
+    }
 }
 
 impl<T> ColoredGraph for T
 where
     T: Graph + VertexColor,
-    T::Vertices: ColoredVertices<Vertex = VertexOf<T>, Color = <T as VertexColor>::Color>,
+    T::Vertices: ColoredVertices<Vertex = VertexOf<T>, Color = T::Color>,
 {
 }
 
-pub trait FromColoredEndpoints: VertexType + VertexColor {
+/// Graph constructible from edge endpoints together with one color per vertex.
+pub trait FromColoredEndpoints: VertexType + VertexColor + Sized {
+    /// Builds a graph from owned edge endpoints and vertex colors.
+    ///
+    /// The color iterator supplies one color per vertex id.
     fn from_endpoints_and_colors<E, C>(edges: E, colors: C) -> Self
     where
-        Self: Sized,
         E: IntoIterator<Item = Endpoints<Self::Vertex>>,
         C: IntoIterator<Item = Self::Color>;
 }

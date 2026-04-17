@@ -1,3 +1,4 @@
+pub mod attributed;
 pub mod backward;
 pub mod bipartite;
 pub mod bit_bipartite;
@@ -9,11 +10,11 @@ pub mod forward;
 pub mod frontier;
 pub mod graph;
 pub mod hyper;
-pub mod ile;
-pub mod labeled;
 pub mod mcsr;
 pub mod parallel_bfs;
+pub mod properties;
 pub mod sequential_backward_search;
 pub mod sequential_forward_search;
+pub mod structure;
 pub mod visited;
 pub mod worklist;

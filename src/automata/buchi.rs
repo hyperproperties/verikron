@@ -1,16 +1,7 @@
 use std::hash::Hash;
 
 use crate::{
-    automata::{
-        acceptors::{Acceptor, StateSummary},
-        automaton::{Automaton, IoLabel},
-    },
-    graphs::{
-        backward::Backward,
-        forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf},
-        labeled::LabeledEdges,
-    },
+    automata::acceptors::{Acceptor, StateSummary},
     lattices::set::Set,
 };
 
@@ -40,13 +31,6 @@ where
     pub fn accepting(&self) -> &Set<S> {
         &self.accepting
     }
-
-    /// Consumes `self` and returns the accepting states.
-    #[must_use]
-    #[inline]
-    pub fn into_accepting(self) -> Set<S> {
-        self.accepting
-    }
 }
 
 impl<S> From<Set<S>> for Buchi<S>
@@ -71,19 +55,5 @@ where
             StateSummary::Finite { .. } => false,
             StateSummary::Infinite { states } => !self.accepting.is_disjoint(states),
         }
-    }
-}
-
-impl<G> Automaton<G, Buchi<VertexOf<G>>>
-where
-    G: Graph + Forward + Backward + Directed,
-    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
-    VertexOf<G>: Eq + Hash,
-{
-    /// Creates an automaton with Büchi acceptance.
-    #[must_use]
-    #[inline]
-    pub fn with_buchi(initial: VertexOf<G>, graph: G, accepting: Set<VertexOf<G>>) -> Self {
-        Self::new(initial, graph, Buchi::new(accepting))
     }
 }

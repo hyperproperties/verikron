@@ -3,16 +3,7 @@ use std::hash::Hash;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    automata::{
-        acceptors::{Acceptor, StateSummary},
-        automaton::{Automaton, IoLabel},
-    },
-    graphs::{
-        backward::Backward,
-        forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf},
-        labeled::LabeledEdges,
-    },
+    automata::acceptors::{Acceptor, StateSummary},
     lattices::set::Set,
 };
 
@@ -90,13 +81,6 @@ where
         self.convention
     }
 
-    /// Consumes `self` and returns the priority map and convention.
-    #[must_use]
-    #[inline]
-    pub fn into_parts(self) -> (FxHashMap<S, usize>, ParityConvention) {
-        (self.priorities, self.convention)
-    }
-
     /// Returns the extremal priority of `states` under this convention.
     ///
     /// Returns `None` if `states` is empty or if some state has no priority.
@@ -107,13 +91,12 @@ where
             .map(|state| self.priorities.get(state).copied());
 
         let first = priorities.next()??;
-        let extremal = if self.convention.uses_min() {
+
+        if self.convention.uses_min() {
             priorities.try_fold(first, |best, priority| Some(best.min(priority?)))
         } else {
             priorities.try_fold(first, |best, priority| Some(best.max(priority?)))
-        };
-
-        extremal
+        }
     }
 }
 
@@ -131,24 +114,5 @@ where
                 .extremal_priority(states)
                 .is_some_and(|priority| self.convention.accepts_priority(priority)),
         }
-    }
-}
-
-impl<G> Automaton<G, Parity<VertexOf<G>>>
-where
-    G: Graph + Forward + Backward + Directed,
-    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
-    VertexOf<G>: Eq + Hash,
-{
-    /// Creates an automaton with parity acceptance.
-    #[must_use]
-    #[inline]
-    pub fn with_parity(
-        initial: VertexOf<G>,
-        graph: G,
-        priorities: FxHashMap<VertexOf<G>, usize>,
-        convention: ParityConvention,
-    ) -> Self {
-        Self::new(initial, graph, Parity::new(priorities, convention))
     }
 }

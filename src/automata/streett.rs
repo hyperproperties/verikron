@@ -1,16 +1,7 @@
 use std::hash::Hash;
 
 use crate::{
-    automata::{
-        acceptors::{Acceptor, StateSummary},
-        automaton::{Automaton, IoLabel},
-    },
-    graphs::{
-        backward::Backward,
-        forward::Forward,
-        graph::{Directed, EdgeOf, Graph, VertexOf},
-        labeled::LabeledEdges,
-    },
+    automata::acceptors::{Acceptor, StateSummary},
     lattices::set::Set,
 };
 
@@ -50,13 +41,6 @@ where
         &self.guarantee
     }
 
-    /// Consumes `self` and returns `(trigger, guarantee)`.
-    #[must_use]
-    #[inline]
-    pub fn into_parts(self) -> (Set<S>, Set<S>) {
-        (self.trigger, self.guarantee)
-    }
-
     /// Returns whether this pair is satisfied by `states`.
     #[must_use]
     #[inline]
@@ -91,13 +75,6 @@ where
     pub fn pairs(&self) -> &[StreettPair<S>] {
         &self.pairs
     }
-
-    /// Consumes `self` and returns the Streett pairs.
-    #[must_use]
-    #[inline]
-    pub fn into_pairs(self) -> Vec<StreettPair<S>> {
-        self.pairs
-    }
 }
 
 impl<S> From<Vec<StreettPair<S>>> for Streett<S>
@@ -122,23 +99,5 @@ where
             StateSummary::Finite { .. } => false,
             StateSummary::Infinite { states } => self.pairs.iter().all(|pair| pair.accepts(states)),
         }
-    }
-}
-
-impl<G> Automaton<G, Streett<VertexOf<G>>>
-where
-    G: Graph + Forward + Backward + Directed,
-    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
-    VertexOf<G>: Eq + Hash,
-{
-    /// Creates an automaton with Streett acceptance.
-    #[must_use]
-    #[inline]
-    pub fn with_streett(
-        initial: VertexOf<G>,
-        graph: G,
-        pairs: Vec<StreettPair<VertexOf<G>>>,
-    ) -> Self {
-        Self::new(initial, graph, Streett::new(pairs))
     }
 }

@@ -1,21 +1,26 @@
 use std::ops::Range;
 
 use crate::graphs::{
-    graph::{FiniteVertices, VertexType, Vertices},
-    hyper::{
-        DirectedHyperedge, DirectedHypergraph, FromDirectedHyperedges, HyperedgeType, Hyperedges,
-        InfiniteDirectedHypergraph,
+    graph::Graph,
+    hyper::{DirectedHyperedge, DirectedHypergraph, FromDirectedHyperedges},
+    structure::{
+        EdgeType, Edges, FiniteEdges, FiniteVertices, Structure, VertexOf, VertexType, Vertices,
     },
 };
 
 /// Directed hypergraph in CSR-style form.
 ///
-/// Hyperedges are stored twice: once by hyperedge (`tail`/`head` members) and
-/// once by vertex (`outgoing`/`ingoing` incident hyperedges).
+/// Each hyperedge is stored twice:
+/// - once by edge, as its tail and head members,
+/// - once by vertex, as outgoing and ingoing incident edges.
+///
+/// All identifiers are dense `usize` values:
+/// - vertices are `0..vertex_count()`
+/// - hyperedges are `0..edge_count()`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DHCSR {
     vertex_count: usize,
-    hyperedge_count: usize,
+    edge_count: usize,
 
     /// Concatenated offset tables:
     /// `[tail_offsets | head_offsets | out_offsets | in_offsets]`.
@@ -31,10 +36,11 @@ pub struct DHCSR {
 }
 
 impl Default for DHCSR {
+    #[inline]
     fn default() -> Self {
         Self {
             vertex_count: 0,
-            hyperedge_count: 0,
+            edge_count: 0,
             offsets: vec![0, 0, 0, 0].into_boxed_slice(),
             indices: Box::new([]),
             head_members_start: 0,
@@ -45,7 +51,8 @@ impl Default for DHCSR {
 }
 
 impl DHCSR {
-    /// Creates a graph from directed hyperedges.
+    /// Creates a directed hypergraph from owned directed hyperedges.
+    #[must_use]
     #[inline]
     pub fn new<I>(hyperedges: I) -> Self
     where
@@ -54,51 +61,127 @@ impl DHCSR {
         Self::from_directed_hyperedges(hyperedges)
     }
 
+    /// Returns the number of hyperedges.
+    #[must_use]
     #[inline]
-    fn tail_offsets(&self) -> &[usize] {
-        &self.offsets[..self.hyperedge_count + 1]
+    pub fn hyperedge_count(&self) -> usize {
+        self.edge_count
     }
 
     #[inline]
+    fn debug_assert_invariants(&self) {
+        let edge_offsets_len = self.edge_count + 1;
+        let vertex_offsets_len = self.vertex_count + 1;
+
+        debug_assert_eq!(
+            self.offsets.len(),
+            2 * edge_offsets_len + 2 * vertex_offsets_len,
+        );
+
+        debug_assert_eq!(self.tail_offsets().len(), edge_offsets_len);
+        debug_assert_eq!(self.head_offsets().len(), edge_offsets_len);
+        debug_assert_eq!(self.out_offsets().len(), vertex_offsets_len);
+        debug_assert_eq!(self.in_offsets().len(), vertex_offsets_len);
+
+        debug_assert_eq!(self.tail_offsets()[0], 0);
+        debug_assert_eq!(self.head_offsets()[0], 0);
+        debug_assert_eq!(self.out_offsets()[0], 0);
+        debug_assert_eq!(self.in_offsets()[0], 0);
+
+        debug_assert!(self.tail_offsets().windows(2).all(|w| w[0] <= w[1]));
+        debug_assert!(self.head_offsets().windows(2).all(|w| w[0] <= w[1]));
+        debug_assert!(self.out_offsets().windows(2).all(|w| w[0] <= w[1]));
+        debug_assert!(self.in_offsets().windows(2).all(|w| w[0] <= w[1]));
+
+        debug_assert_eq!(
+            *self.tail_offsets().last().unwrap(),
+            self.head_members_start,
+        );
+        debug_assert_eq!(
+            *self.head_offsets().last().unwrap(),
+            self.out_hyperedges_start - self.head_members_start,
+        );
+        debug_assert_eq!(
+            *self.out_offsets().last().unwrap(),
+            self.in_hyperedges_start - self.out_hyperedges_start,
+        );
+        debug_assert_eq!(
+            *self.in_offsets().last().unwrap(),
+            self.indices.len() - self.in_hyperedges_start,
+        );
+
+        debug_assert!(
+            self.tail_members().iter().all(|&v| v < self.vertex_count),
+            "tail member out of range",
+        );
+        debug_assert!(
+            self.head_members().iter().all(|&v| v < self.vertex_count),
+            "head member out of range",
+        );
+        debug_assert!(
+            self.out_hyperedges().iter().all(|&e| e < self.edge_count),
+            "outgoing incident hyperedge out of range",
+        );
+        debug_assert!(
+            self.in_hyperedges().iter().all(|&e| e < self.edge_count),
+            "ingoing incident hyperedge out of range",
+        );
+    }
+
+    #[must_use]
+    #[inline]
+    fn tail_offsets(&self) -> &[usize] {
+        &self.offsets[..self.edge_count + 1]
+    }
+
+    #[must_use]
+    #[inline]
     fn head_offsets(&self) -> &[usize] {
-        let start = self.hyperedge_count + 1;
-        let end = start + self.hyperedge_count + 1;
+        let start = self.edge_count + 1;
+        let end = start + self.edge_count + 1;
         &self.offsets[start..end]
     }
 
+    #[must_use]
     #[inline]
     fn out_offsets(&self) -> &[usize] {
-        let start = 2 * (self.hyperedge_count + 1);
+        let start = 2 * (self.edge_count + 1);
         let end = start + self.vertex_count + 1;
         &self.offsets[start..end]
     }
 
+    #[must_use]
     #[inline]
     fn in_offsets(&self) -> &[usize] {
-        let start = 2 * (self.hyperedge_count + 1) + (self.vertex_count + 1);
+        let start = 2 * (self.edge_count + 1) + (self.vertex_count + 1);
         &self.offsets[start..]
     }
 
+    #[must_use]
     #[inline]
     fn tail_members(&self) -> &[usize] {
         &self.indices[..self.head_members_start]
     }
 
+    #[must_use]
     #[inline]
     fn head_members(&self) -> &[usize] {
         &self.indices[self.head_members_start..self.out_hyperedges_start]
     }
 
+    #[must_use]
     #[inline]
     fn out_hyperedges(&self) -> &[usize] {
         &self.indices[self.out_hyperedges_start..self.in_hyperedges_start]
     }
 
+    #[must_use]
     #[inline]
     fn in_hyperedges(&self) -> &[usize] {
         &self.indices[self.in_hyperedges_start..]
     }
 
+    #[must_use]
     #[inline]
     fn row_range(offsets: &[usize], row: usize) -> (usize, usize) {
         let start = offsets[row];
@@ -107,60 +190,64 @@ impl DHCSR {
         (start, end)
     }
 
-    /// Returns the tail member range of hyperedge `e`.
+    /// Returns the tail-member range of hyperedge `edge`.
+    #[must_use]
     #[inline]
-    pub fn tail_range(&self, e: usize) -> Option<(usize, usize)> {
-        if e >= self.hyperedge_count {
+    pub fn tail_range(&self, edge: usize) -> Option<(usize, usize)> {
+        if edge >= self.edge_count {
             return None;
         }
 
-        let range = Self::row_range(self.tail_offsets(), e);
+        let range = Self::row_range(self.tail_offsets(), edge);
         debug_assert!(range.1 <= self.tail_members().len());
         Some(range)
     }
 
-    /// Returns the head member range of hyperedge `e`.
+    /// Returns the head-member range of hyperedge `edge`.
+    #[must_use]
     #[inline]
-    pub fn head_range(&self, e: usize) -> Option<(usize, usize)> {
-        if e >= self.hyperedge_count {
+    pub fn head_range(&self, edge: usize) -> Option<(usize, usize)> {
+        if edge >= self.edge_count {
             return None;
         }
 
-        let range = Self::row_range(self.head_offsets(), e);
+        let range = Self::row_range(self.head_offsets(), edge);
         debug_assert!(range.1 <= self.head_members().len());
         Some(range)
     }
 
-    /// Returns the outgoing incident range of vertex `v`.
+    /// Returns the outgoing-incident range of vertex `vertex`.
+    #[must_use]
     #[inline]
-    pub fn outgoing_range(&self, v: usize) -> Option<(usize, usize)> {
-        if v >= self.vertex_count {
+    pub fn outgoing_range(&self, vertex: usize) -> Option<(usize, usize)> {
+        if vertex >= self.vertex_count {
             return None;
         }
 
-        let range = Self::row_range(self.out_offsets(), v);
+        let range = Self::row_range(self.out_offsets(), vertex);
         debug_assert!(range.1 <= self.out_hyperedges().len());
         Some(range)
     }
 
-    /// Returns the ingoing incident range of vertex `v`.
+    /// Returns the ingoing-incident range of vertex `vertex`.
+    #[must_use]
     #[inline]
-    pub fn ingoing_range(&self, v: usize) -> Option<(usize, usize)> {
-        if v >= self.vertex_count {
+    pub fn ingoing_range(&self, vertex: usize) -> Option<(usize, usize)> {
+        if vertex >= self.vertex_count {
             return None;
         }
 
-        let range = Self::row_range(self.in_offsets(), v);
+        let range = Self::row_range(self.in_offsets(), vertex);
         debug_assert!(range.1 <= self.in_hyperedges().len());
         Some(range)
     }
 }
 
 impl FromDirectedHyperedges for DHCSR {
-    /// Builds a graph from owned directed hyperedges.
+    #[inline]
     fn from_directed_hyperedges<I>(hyperedges: I) -> Self
     where
-        I: IntoIterator<Item = DirectedHyperedge<Self::Vertex>>,
+        I: IntoIterator<Item = DirectedHyperedge<VertexOf<Self>>>,
     {
         let hyperedges: Vec<_> = hyperedges.into_iter().collect();
 
@@ -168,16 +255,16 @@ impl FromDirectedHyperedges for DHCSR {
             return Self::default();
         }
 
-        let hyperedge_count = hyperedges.len();
+        let edge_count = hyperedges.len();
         let vertex_count = hyperedges
             .iter()
             .flat_map(|edge| edge.tail.iter().chain(edge.head.iter()))
             .copied()
             .max()
-            .map_or(0, |v| v + 1);
+            .map_or(0, |vertex| vertex + 1);
 
-        let mut tail_offsets = Vec::with_capacity(hyperedge_count + 1);
-        let mut head_offsets = Vec::with_capacity(hyperedge_count + 1);
+        let mut tail_offsets = Vec::with_capacity(edge_count + 1);
+        let mut head_offsets = Vec::with_capacity(edge_count + 1);
         let mut tail_members = Vec::new();
         let mut head_members = Vec::new();
 
@@ -185,9 +272,6 @@ impl FromDirectedHyperedges for DHCSR {
         head_offsets.push(0);
 
         for edge in &hyperedges {
-            debug_assert!(edge.tail.iter().all(|&v| v < vertex_count));
-            debug_assert!(edge.head.iter().all(|&v| v < vertex_count));
-
             tail_members.extend_from_slice(&edge.tail);
             head_members.extend_from_slice(&edge.head);
 
@@ -199,17 +283,17 @@ impl FromDirectedHyperedges for DHCSR {
         let mut in_offsets = vec![0usize; vertex_count + 1];
 
         for edge in &hyperedges {
-            for &v in &edge.tail {
-                out_offsets[v + 1] += 1;
+            for &vertex in &edge.tail {
+                out_offsets[vertex + 1] += 1;
             }
-            for &v in &edge.head {
-                in_offsets[v + 1] += 1;
+            for &vertex in &edge.head {
+                in_offsets[vertex + 1] += 1;
             }
         }
 
-        for v in 1..=vertex_count {
-            out_offsets[v] += out_offsets[v - 1];
-            in_offsets[v] += in_offsets[v - 1];
+        for vertex in 1..=vertex_count {
+            out_offsets[vertex] += out_offsets[vertex - 1];
+            in_offsets[vertex] += in_offsets[vertex - 1];
         }
 
         let mut out_hyperedges = vec![0usize; tail_members.len()];
@@ -218,21 +302,17 @@ impl FromDirectedHyperedges for DHCSR {
         let mut out_cursor = out_offsets[..vertex_count].to_vec();
         let mut in_cursor = in_offsets[..vertex_count].to_vec();
 
-        for (e, edge) in hyperedges.iter().enumerate() {
-            debug_assert!(e < hyperedge_count);
-
-            for &v in &edge.tail {
-                let pos = out_cursor[v];
-                debug_assert!(pos < out_hyperedges.len());
-                out_hyperedges[pos] = e;
-                out_cursor[v] += 1;
+        for (edge, hyperedge) in hyperedges.iter().enumerate() {
+            for &vertex in &hyperedge.tail {
+                let pos = out_cursor[vertex];
+                out_hyperedges[pos] = edge;
+                out_cursor[vertex] += 1;
             }
 
-            for &v in &edge.head {
-                let pos = in_cursor[v];
-                debug_assert!(pos < in_hyperedges.len());
-                in_hyperedges[pos] = e;
-                in_cursor[v] += 1;
+            for &vertex in &hyperedge.head {
+                let pos = in_cursor[vertex];
+                in_hyperedges[pos] = edge;
+                in_cursor[vertex] += 1;
             }
         }
 
@@ -240,7 +320,7 @@ impl FromDirectedHyperedges for DHCSR {
         let out_hyperedges_start = head_members_start + head_members.len();
         let in_hyperedges_start = out_hyperedges_start + out_hyperedges.len();
 
-        let mut offsets = Vec::with_capacity(2 * (hyperedge_count + 1) + 2 * (vertex_count + 1));
+        let mut offsets = Vec::with_capacity(2 * (edge_count + 1) + 2 * (vertex_count + 1));
         offsets.extend_from_slice(&tail_offsets);
         offsets.extend_from_slice(&head_offsets);
         offsets.extend_from_slice(&out_offsets);
@@ -254,9 +334,9 @@ impl FromDirectedHyperedges for DHCSR {
         indices.extend_from_slice(&out_hyperedges);
         indices.extend_from_slice(&in_hyperedges);
 
-        let graph = Self {
+        let hypergraph = Self {
             vertex_count,
-            hyperedge_count,
+            edge_count,
             offsets: offsets.into_boxed_slice(),
             indices: indices.into_boxed_slice(),
             head_members_start,
@@ -264,7 +344,8 @@ impl FromDirectedHyperedges for DHCSR {
             in_hyperedges_start,
         };
 
-        graph
+        hypergraph.debug_assert_invariants();
+        hypergraph
     }
 }
 
@@ -272,23 +353,8 @@ impl VertexType for DHCSR {
     type Vertex = usize;
 }
 
-impl HyperedgeType for DHCSR {
-    type Hyperedge = usize;
-}
-
-impl Hyperedges for DHCSR {
-    type Hyperedges<'a>
-        = Range<usize>
-    where
-        Self: 'a;
-
-    fn hyperedges(&self) -> Self::Hyperedges<'_> {
-        0..self.hyperedge_count
-    }
-
-    fn hyperedge_count(&self) -> usize {
-        self.hyperedge_count
-    }
+impl EdgeType for DHCSR {
+    type Edge = usize;
 }
 
 impl Vertices for DHCSR {
@@ -297,18 +363,66 @@ impl Vertices for DHCSR {
     where
         Self: 'a;
 
+    #[inline]
     fn vertices(&self) -> Self::Vertices<'_> {
         0..self.vertex_count
     }
 }
 
 impl FiniteVertices for DHCSR {
+    #[inline]
     fn vertex_count(&self) -> usize {
         self.vertex_count
     }
+
+    #[inline]
+    fn contains(&self, vertex: &Self::Vertex) -> bool {
+        *vertex < self.vertex_count
+    }
 }
 
-impl InfiniteDirectedHypergraph for DHCSR {
+impl Edges for DHCSR {
+    type Edges<'a>
+        = Range<usize>
+    where
+        Self: 'a;
+
+    #[inline]
+    fn edges(&self) -> Self::Edges<'_> {
+        0..self.edge_count
+    }
+}
+
+impl FiniteEdges for DHCSR {
+    #[inline]
+    fn edge_count(&self) -> usize {
+        self.edge_count
+    }
+
+    #[inline]
+    fn contains_edge(&self, edge: &Self::Edge) -> bool {
+        *edge < self.edge_count
+    }
+}
+
+impl Structure for DHCSR {
+    type Vertices = Self;
+    type Edges = Self;
+
+    #[inline]
+    fn vertex_store(&self) -> &Self::Vertices {
+        self
+    }
+
+    #[inline]
+    fn edge_store(&self) -> &Self::Edges {
+        self
+    }
+}
+
+impl Graph for DHCSR {}
+
+impl DirectedHypergraph for DHCSR {
     type Tail<'a>
         = std::iter::Copied<std::slice::Iter<'a, usize>>
     where
@@ -329,31 +443,35 @@ impl InfiniteDirectedHypergraph for DHCSR {
     where
         Self: 'a;
 
-    fn tail(&self, e: Self::Hyperedge) -> Self::Tail<'_> {
-        let (start, end) = self.tail_range(e).expect("hyperedge out of bounds");
+    #[inline]
+    fn tail(&self, edge: Self::Edge) -> Self::Tail<'_> {
+        let (start, end) = self.tail_range(edge).expect("hyperedge out of bounds");
         self.tail_members()[start..end].iter().copied()
     }
 
-    fn head(&self, e: Self::Hyperedge) -> Self::Head<'_> {
-        let (start, end) = self.head_range(e).expect("hyperedge out of bounds");
+    #[inline]
+    fn head(&self, edge: Self::Edge) -> Self::Head<'_> {
+        let (start, end) = self.head_range(edge).expect("hyperedge out of bounds");
         self.head_members()[start..end].iter().copied()
     }
 
-    fn outgoing(&self, v: Self::Vertex) -> Self::Outgoing<'_> {
-        let (start, end) = self.outgoing_range(v).expect("vertex out of bounds");
+    #[inline]
+    fn outgoing(&self, vertex: Self::Vertex) -> Self::Outgoing<'_> {
+        let (start, end) = self.outgoing_range(vertex).expect("vertex out of bounds");
         self.out_hyperedges()[start..end].iter().copied()
     }
 
-    fn ingoing(&self, v: Self::Vertex) -> Self::Ingoing<'_> {
-        let (start, end) = self.ingoing_range(v).expect("vertex out of bounds");
+    #[inline]
+    fn ingoing(&self, vertex: Self::Vertex) -> Self::Ingoing<'_> {
+        let (start, end) = self.ingoing_range(vertex).expect("vertex out of bounds");
         self.in_hyperedges()[start..end].iter().copied()
     }
 }
 
-impl DirectedHypergraph for DHCSR {}
-
 #[cfg(test)]
 mod tests {
+    use crate::graphs::hyper::FiniteDirectedHypergraph;
+
     use super::*;
     use proptest::prelude::*;
     use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -364,16 +482,16 @@ mod tests {
             .flat_map(|edge| edge.tail.iter().chain(edge.head.iter()))
             .copied()
             .max()
-            .map_or(0, |v| v + 1)
+            .map_or(0, |vertex| vertex + 1)
     }
 
     fn reference_outgoing(hyperedges: &[DirectedHyperedge<usize>], vertex: usize) -> Vec<usize> {
         let mut outgoing = Vec::new();
 
-        for (e, edge) in hyperedges.iter().enumerate() {
-            for &u in &edge.tail {
-                if u == vertex {
-                    outgoing.push(e);
+        for (edge, hyperedge) in hyperedges.iter().enumerate() {
+            for &member in &hyperedge.tail {
+                if member == vertex {
+                    outgoing.push(edge);
                 }
             }
         }
@@ -384,10 +502,10 @@ mod tests {
     fn reference_ingoing(hyperedges: &[DirectedHyperedge<usize>], vertex: usize) -> Vec<usize> {
         let mut ingoing = Vec::new();
 
-        for (e, edge) in hyperedges.iter().enumerate() {
-            for &u in &edge.head {
-                if u == vertex {
-                    ingoing.push(e);
+        for (edge, hyperedge) in hyperedges.iter().enumerate() {
+            for &member in &hyperedge.head {
+                if member == vertex {
+                    ingoing.push(edge);
                 }
             }
         }
@@ -395,70 +513,73 @@ mod tests {
         ingoing
     }
 
-    fn assert_matches_input(graph: &DHCSR, hyperedges: &[DirectedHyperedge<usize>]) {
+    fn assert_matches_input(hypergraph: &DHCSR, hyperedges: &[DirectedHyperedge<usize>]) {
         let vertex_count = reference_vertex_count(hyperedges);
 
-        assert_eq!(graph.vertex_count(), vertex_count);
-        assert_eq!(graph.hyperedge_count(), hyperedges.len());
+        assert_eq!(hypergraph.vertex_count(), vertex_count);
+        assert_eq!(hypergraph.edge_count(), hyperedges.len());
         assert_eq!(
-            graph.vertices().collect::<Vec<_>>(),
-            (0..vertex_count).collect::<Vec<_>>()
+            hypergraph.vertices().collect::<Vec<_>>(),
+            (0..vertex_count).collect::<Vec<_>>(),
         );
         assert_eq!(
-            graph.hyperedges().collect::<Vec<_>>(),
-            (0..hyperedges.len()).collect::<Vec<_>>()
+            hypergraph.edges().collect::<Vec<_>>(),
+            (0..hyperedges.len()).collect::<Vec<_>>(),
         );
 
-        for (e, edge) in hyperedges.iter().enumerate() {
-            assert_eq!(graph.tail(e).collect::<Vec<_>>(), edge.tail);
-            assert_eq!(graph.head(e).collect::<Vec<_>>(), edge.head);
-            assert_eq!(graph.tail_cardinality(e), edge.tail.len());
-            assert_eq!(graph.head_cardinality(e), edge.head.len());
+        for (edge, hyperedge) in hyperedges.iter().enumerate() {
+            assert_eq!(hypergraph.tail(edge).collect::<Vec<_>>(), hyperedge.tail);
+            assert_eq!(hypergraph.head(edge).collect::<Vec<_>>(), hyperedge.head);
+            assert_eq!(hypergraph.tail_cardinality(edge), hyperedge.tail.len());
+            assert_eq!(hypergraph.head_cardinality(edge), hyperedge.head.len());
 
-            for v in 0..vertex_count {
-                assert_eq!(graph.in_tail(e, v), edge.tail.contains(&v));
-                assert_eq!(graph.in_head(e, v), edge.head.contains(&v));
+            for vertex in 0..vertex_count {
+                assert_eq!(
+                    hypergraph.in_tail(edge, vertex),
+                    hyperedge.tail.contains(&vertex),
+                );
+                assert_eq!(
+                    hypergraph.in_head(edge, vertex),
+                    hyperedge.head.contains(&vertex),
+                );
             }
         }
 
-        for v in 0..vertex_count {
-            let outgoing = reference_outgoing(hyperedges, v);
-            let ingoing = reference_ingoing(hyperedges, v);
+        for vertex in 0..vertex_count {
+            let outgoing = reference_outgoing(hyperedges, vertex);
+            let ingoing = reference_ingoing(hyperedges, vertex);
 
-            assert_eq!(graph.outgoing(v).collect::<Vec<_>>(), outgoing);
-            assert_eq!(graph.ingoing(v).collect::<Vec<_>>(), ingoing);
-            assert_eq!(
-                graph.outgoing_degree(v),
-                reference_outgoing(hyperedges, v).len()
-            );
-            assert_eq!(
-                graph.ingoing_degree(v),
-                reference_ingoing(hyperedges, v).len()
-            );
+            assert_eq!(hypergraph.outgoing(vertex).collect::<Vec<_>>(), outgoing);
+            assert_eq!(hypergraph.ingoing(vertex).collect::<Vec<_>>(), ingoing);
+            assert_eq!(hypergraph.outgoing_degree(vertex), outgoing.len());
+            assert_eq!(hypergraph.ingoing_degree(vertex), ingoing.len());
         }
     }
 
     #[test]
     fn default_is_empty() {
-        let graph = DHCSR::default();
+        let hypergraph = DHCSR::default();
 
-        assert_eq!(graph.vertex_count(), 0);
-        assert_eq!(graph.hyperedge_count(), 0);
-        assert_eq!(graph.vertices().collect::<Vec<_>>(), Vec::<usize>::new());
-        assert_eq!(graph.hyperedges().collect::<Vec<_>>(), Vec::<usize>::new());
+        assert_eq!(hypergraph.vertex_count(), 0);
+        assert_eq!(hypergraph.edge_count(), 0);
+        assert_eq!(
+            hypergraph.vertices().collect::<Vec<_>>(),
+            Vec::<usize>::new()
+        );
+        assert_eq!(hypergraph.edges().collect::<Vec<_>>(), Vec::<usize>::new());
 
-        assert_eq!(graph.tail_range(0), None);
-        assert_eq!(graph.head_range(0), None);
-        assert_eq!(graph.outgoing_range(0), None);
-        assert_eq!(graph.ingoing_range(0), None);
+        assert_eq!(hypergraph.tail_range(0), None);
+        assert_eq!(hypergraph.head_range(0), None);
+        assert_eq!(hypergraph.outgoing_range(0), None);
+        assert_eq!(hypergraph.ingoing_range(0), None);
     }
 
     #[test]
     fn single_hyperedge_is_stored_correctly() {
         let input = vec![DirectedHyperedge::new([0, 2], [1, 3])];
-        let graph = DHCSR::from_directed_hyperedges(input.clone());
+        let hypergraph = DHCSR::from_directed_hyperedges(input.clone());
 
-        assert_matches_input(&graph, &input);
+        assert_matches_input(&hypergraph, &input);
     }
 
     #[test]
@@ -467,32 +588,47 @@ mod tests {
             DirectedHyperedge::new([0, 0, 1], [2, 2]),
             DirectedHyperedge::new([1], [1, 1, 1]),
         ];
-        let graph = DHCSR::from_directed_hyperedges(input.clone());
+        let hypergraph = DHCSR::from_directed_hyperedges(input.clone());
 
-        assert_eq!(graph.tail(0).collect::<Vec<_>>(), vec![0, 0, 1]);
-        assert_eq!(graph.head(0).collect::<Vec<_>>(), vec![2, 2]);
-        assert_eq!(graph.tail(1).collect::<Vec<_>>(), vec![1]);
-        assert_eq!(graph.head(1).collect::<Vec<_>>(), vec![1, 1, 1]);
+        assert_eq!(hypergraph.tail(0).collect::<Vec<_>>(), vec![0, 0, 1]);
+        assert_eq!(hypergraph.head(0).collect::<Vec<_>>(), vec![2, 2]);
+        assert_eq!(hypergraph.tail(1).collect::<Vec<_>>(), vec![1]);
+        assert_eq!(hypergraph.head(1).collect::<Vec<_>>(), vec![1, 1, 1]);
 
-        assert_eq!(graph.outgoing(0).collect::<Vec<_>>(), vec![0, 0]);
-        assert_eq!(graph.ingoing(2).collect::<Vec<_>>(), vec![0, 0]);
-        assert_eq!(graph.ingoing(1).collect::<Vec<_>>(), vec![1, 1, 1]);
+        assert_eq!(hypergraph.outgoing(0).collect::<Vec<_>>(), vec![0, 0]);
+        assert_eq!(hypergraph.ingoing(2).collect::<Vec<_>>(), vec![0, 0]);
+        assert_eq!(hypergraph.ingoing(1).collect::<Vec<_>>(), vec![1, 1, 1]);
 
-        assert_matches_input(&graph, &input);
+        assert_matches_input(&hypergraph, &input);
     }
 
     #[test]
     fn sparse_vertex_ids_induce_full_prefix_vertex_set() {
         let input = vec![DirectedHyperedge::new([2], [5])];
-        let graph = DHCSR::from_directed_hyperedges(input);
+        let hypergraph = DHCSR::from_directed_hyperedges(input);
 
-        assert_eq!(graph.vertex_count(), 6);
-        assert_eq!(graph.vertices().collect::<Vec<_>>(), vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(hypergraph.vertex_count(), 6);
+        assert_eq!(
+            hypergraph.vertices().collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4, 5],
+        );
 
-        assert_eq!(graph.outgoing(0).collect::<Vec<_>>(), Vec::<usize>::new());
-        assert_eq!(graph.ingoing(0).collect::<Vec<_>>(), Vec::<usize>::new());
-        assert_eq!(graph.outgoing(3).collect::<Vec<_>>(), Vec::<usize>::new());
-        assert_eq!(graph.ingoing(4).collect::<Vec<_>>(), Vec::<usize>::new());
+        assert_eq!(
+            hypergraph.outgoing(0).collect::<Vec<_>>(),
+            Vec::<usize>::new()
+        );
+        assert_eq!(
+            hypergraph.ingoing(0).collect::<Vec<_>>(),
+            Vec::<usize>::new()
+        );
+        assert_eq!(
+            hypergraph.outgoing(3).collect::<Vec<_>>(),
+            Vec::<usize>::new()
+        );
+        assert_eq!(
+            hypergraph.ingoing(4).collect::<Vec<_>>(),
+            Vec::<usize>::new()
+        );
     }
 
     #[test]
@@ -504,33 +640,54 @@ mod tests {
             DirectedHyperedge::new([], [0, 2]),
             DirectedHyperedge::new([3], []),
         ];
-        let graph = DHCSR::from_directed_hyperedges(input.clone());
+        let hypergraph = DHCSR::from_directed_hyperedges(input.clone());
 
-        assert_matches_input(&graph, &input);
+        assert_matches_input(&hypergraph, &input);
+    }
+
+    #[test]
+    fn empty_hyperedges_without_vertices_are_supported() {
+        let input = vec![
+            DirectedHyperedge::new([], []),
+            DirectedHyperedge::new([], []),
+            DirectedHyperedge::new([], []),
+        ];
+        let hypergraph = DHCSR::from_directed_hyperedges(input.clone());
+
+        assert_eq!(hypergraph.vertex_count(), 0);
+        assert_eq!(hypergraph.edge_count(), 3);
+        assert_eq!(hypergraph.edges().collect::<Vec<_>>(), vec![0, 1, 2]);
+
+        for edge in 0..hypergraph.edge_count() {
+            assert_eq!(hypergraph.tail(edge).count(), 0);
+            assert_eq!(hypergraph.head(edge).count(), 0);
+        }
+
+        assert_matches_input(&hypergraph, &input);
     }
 
     #[test]
     fn range_methods_match_materialized_iterators() {
-        let graph = DHCSR::from_directed_hyperedges([
+        let hypergraph = DHCSR::from_directed_hyperedges([
             DirectedHyperedge::new([0, 1], [2]),
             DirectedHyperedge::new([2], [1, 3]),
             DirectedHyperedge::new([1], [1]),
         ]);
 
-        for e in 0..graph.hyperedge_count() {
-            let (tail_start, tail_end) = graph.tail_range(e).unwrap();
-            let (head_start, head_end) = graph.head_range(e).unwrap();
+        for edge in 0..hypergraph.edge_count() {
+            let (tail_start, tail_end) = hypergraph.tail_range(edge).unwrap();
+            let (head_start, head_end) = hypergraph.head_range(edge).unwrap();
 
-            assert_eq!(graph.tail(e).count(), tail_end - tail_start);
-            assert_eq!(graph.head(e).count(), head_end - head_start);
+            assert_eq!(hypergraph.tail(edge).count(), tail_end - tail_start);
+            assert_eq!(hypergraph.head(edge).count(), head_end - head_start);
         }
 
-        for v in 0..graph.vertex_count() {
-            let (out_start, out_end) = graph.outgoing_range(v).unwrap();
-            let (in_start, in_end) = graph.ingoing_range(v).unwrap();
+        for vertex in 0..hypergraph.vertex_count() {
+            let (out_start, out_end) = hypergraph.outgoing_range(vertex).unwrap();
+            let (in_start, in_end) = hypergraph.ingoing_range(vertex).unwrap();
 
-            assert_eq!(graph.outgoing(v).count(), out_end - out_start);
-            assert_eq!(graph.ingoing(v).count(), in_end - in_start);
+            assert_eq!(hypergraph.outgoing(vertex).count(), out_end - out_start);
+            assert_eq!(hypergraph.ingoing(vertex).count(), in_end - in_start);
         }
     }
 
@@ -540,11 +697,11 @@ mod tests {
 
         for _ in 0..500 {
             let vertex_bound = rng.random_range(0..=20);
-            let hyperedge_count = rng.random_range(0..=40);
+            let edge_count = rng.random_range(0..=40);
 
-            let mut input = Vec::with_capacity(hyperedge_count);
+            let mut input = Vec::with_capacity(edge_count);
 
-            for _ in 0..hyperedge_count {
+            for _ in 0..edge_count {
                 let tail_len = rng.random_range(0..=8);
                 let head_len = rng.random_range(0..=8);
 
@@ -572,9 +729,9 @@ mod tests {
             }
 
             let input = if vertex_bound == 0 { Vec::new() } else { input };
-            let graph = DHCSR::from_directed_hyperedges(input.clone());
+            let hypergraph = DHCSR::from_directed_hyperedges(input.clone());
 
-            assert_matches_input(&graph, &input);
+            assert_matches_input(&hypergraph, &input);
         }
     }
 
@@ -587,11 +744,12 @@ mod tests {
     }
 
     fn arb_hypergraph() -> impl Strategy<Value = Vec<DirectedHyperedge<usize>>> {
-        (0usize..20, 0usize..40).prop_flat_map(|(vertex_bound, hyperedge_count)| {
+        (0usize..20, 0usize..40).prop_flat_map(|(vertex_bound, edge_count)| {
             if vertex_bound == 0 {
-                Just(Vec::new()).boxed()
+                prop::collection::vec(Just(DirectedHyperedge::new(vec![], vec![])), edge_count)
+                    .boxed()
             } else {
-                prop::collection::vec(arb_hyperedge(vertex_bound), hyperedge_count).boxed()
+                prop::collection::vec(arb_hyperedge(vertex_bound), edge_count).boxed()
             }
         })
     }
@@ -599,57 +757,57 @@ mod tests {
     proptest! {
         #[test]
         fn prop_matches_reference(input in arb_hypergraph()) {
-            let graph = DHCSR::from_directed_hyperedges(input.clone());
-            assert_matches_input(&graph, &input);
+            let hypergraph = DHCSR::from_directed_hyperedges(input.clone());
+            assert_matches_input(&hypergraph, &input);
         }
 
         #[test]
         fn prop_ranges_are_consistent(input in arb_hypergraph()) {
-            let graph = DHCSR::from_directed_hyperedges(input);
+            let hypergraph = DHCSR::from_directed_hyperedges(input);
 
-            for e in 0..graph.hyperedge_count() {
-                let (tail_start, tail_end) = graph.tail_range(e).unwrap();
-                let (head_start, head_end) = graph.head_range(e).unwrap();
+            for edge in 0..hypergraph.edge_count() {
+                let (tail_start, tail_end) = hypergraph.tail_range(edge).unwrap();
+                let (head_start, head_end) = hypergraph.head_range(edge).unwrap();
 
                 prop_assert!(tail_start <= tail_end);
                 prop_assert!(head_start <= head_end);
-                prop_assert_eq!(tail_end - tail_start, graph.tail(e).count());
-                prop_assert_eq!(head_end - head_start, graph.head(e).count());
+                prop_assert_eq!(tail_end - tail_start, hypergraph.tail(edge).count());
+                prop_assert_eq!(head_end - head_start, hypergraph.head(edge).count());
             }
 
-            for v in 0..graph.vertex_count() {
-                let (out_start, out_end) = graph.outgoing_range(v).unwrap();
-                let (in_start, in_end) = graph.ingoing_range(v).unwrap();
+            for vertex in 0..hypergraph.vertex_count() {
+                let (out_start, out_end) = hypergraph.outgoing_range(vertex).unwrap();
+                let (in_start, in_end) = hypergraph.ingoing_range(vertex).unwrap();
 
                 prop_assert!(out_start <= out_end);
                 prop_assert!(in_start <= in_end);
-                prop_assert_eq!(out_end - out_start, graph.outgoing(v).count());
-                prop_assert_eq!(in_end - in_start, graph.ingoing(v).count());
+                prop_assert_eq!(out_end - out_start, hypergraph.outgoing(vertex).count());
+                prop_assert_eq!(in_end - in_start, hypergraph.ingoing(vertex).count());
             }
         }
 
         #[test]
         fn prop_out_of_bounds_ranges_return_none(input in arb_hypergraph()) {
-            let graph = DHCSR::from_directed_hyperedges(input);
+            let hypergraph = DHCSR::from_directed_hyperedges(input);
 
-            prop_assert_eq!(graph.tail_range(graph.hyperedge_count()), None);
-            prop_assert_eq!(graph.head_range(graph.hyperedge_count()), None);
-            prop_assert_eq!(graph.outgoing_range(graph.vertex_count()), None);
-            prop_assert_eq!(graph.ingoing_range(graph.vertex_count()), None);
+            prop_assert_eq!(hypergraph.tail_range(hypergraph.edge_count()), None);
+            prop_assert_eq!(hypergraph.head_range(hypergraph.edge_count()), None);
+            prop_assert_eq!(hypergraph.outgoing_range(hypergraph.vertex_count()), None);
+            prop_assert_eq!(hypergraph.ingoing_range(hypergraph.vertex_count()), None);
         }
 
         #[test]
         fn prop_degrees_match_iterators(input in arb_hypergraph()) {
-            let graph = DHCSR::from_directed_hyperedges(input);
+            let hypergraph = DHCSR::from_directed_hyperedges(input);
 
-            for e in 0..graph.hyperedge_count() {
-                prop_assert_eq!(graph.tail_cardinality(e), graph.tail(e).count());
-                prop_assert_eq!(graph.head_cardinality(e), graph.head(e).count());
+            for edge in 0..hypergraph.edge_count() {
+                prop_assert_eq!(hypergraph.tail_cardinality(edge), hypergraph.tail(edge).count());
+                prop_assert_eq!(hypergraph.head_cardinality(edge), hypergraph.head(edge).count());
             }
 
-            for v in 0..graph.vertex_count() {
-                prop_assert_eq!(graph.outgoing_degree(v), graph.outgoing(v).count());
-                prop_assert_eq!(graph.ingoing_degree(v), graph.ingoing(v).count());
+            for vertex in 0..hypergraph.vertex_count() {
+                prop_assert_eq!(hypergraph.outgoing_degree(vertex), hypergraph.outgoing(vertex).count());
+                prop_assert_eq!(hypergraph.ingoing_degree(vertex), hypergraph.ingoing(vertex).count());
             }
         }
     }

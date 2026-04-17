@@ -1,83 +1,27 @@
-use crate::graphs::graph::{FiniteVertices, VertexType};
+use crate::graphs::{
+    graph::{FiniteGraph, Graph},
+    structure::{EdgeOf, EdgeType, FiniteEdges, FiniteVertices, Structure},
+};
 
-/// Common vertex and hyperedge identifier types.
-pub trait HyperedgeType: VertexType {
-    /// Type used to identify hyperedges.
-    type Hyperedge: Eq + Copy;
-}
+/// Hyperedge identifier type of `H`.
+pub type HyperedgeOf<H> = EdgeOf<H>;
 
-/// Finite hyperedge store with global access to all hyperedges.
-pub trait Hyperedges: HyperedgeType {
-    /// Iterator over all hyperedges.
-    type Hyperedges<'a>: Iterator<Item = Self::Hyperedge>
-    where
-        Self: 'a;
-
-    /// Returns an iterator over all hyperedges.
-    fn hyperedges(&self) -> Self::Hyperedges<'_>;
-
-    /// Returns the number of hyperedges.
-    fn hyperedge_count(&self) -> usize {
-        self.hyperedges().count()
-    }
-}
-
-/// Hyperedge removal.
-pub trait RemoveHyperedge: HyperedgeType {
-    /// Removes `hyperedge` and returns whether it existed.
-    fn remove_hyperedge(&mut self, hyperedge: Self::Hyperedge) -> bool;
-}
-
-/// Finite hypergraph composed from a vertex store and a hyperedge store.
-pub trait Hypergraph: VertexType {
-    /// Common hyperedge type.
-    type Hyperedge: Eq + Copy;
-
-    /// Vertex storage component.
-    type Vertices: FiniteVertices<Vertex = Self::Vertex>;
-
-    /// Hyperedge storage component.
-    type Hyperedges: Hyperedges<Vertex = Self::Vertex, Hyperedge = Self::Hyperedge>;
-
-    /// Returns the vertex store.
-    fn vertex_store(&self) -> &Self::Vertices;
-
-    /// Returns the hyperedge store.
-    fn hyperedge_store(&self) -> &Self::Hyperedges;
-
-    /// Returns a default size measure: vertices plus hyperedges.
-    fn size(&self) -> usize {
-        self.vertex_store().vertex_count() + self.hyperedge_store().hyperedge_count()
-    }
-
-    /// Returns whether the hypergraph is empty.
-    fn is_empty(&self) -> bool {
-        self.size() == 0
-    }
-}
-
-/// Undirected hyperedge insertion.
-pub trait InsertUndirectedHyperedge: HyperedgeType {
-    /// Inserts a hyperedge from its member vertices.
-    fn insert_hyperedge<I>(&mut self, members: I) -> Option<Self::Hyperedge>
-    where
-        I: IntoIterator<Item = Self::Vertex>;
-}
-
-/// Undirected hypergraph interface without assumed global enumeration.
-pub trait InfiniteUndirectedHypergraph: HyperedgeType {
+/// Undirected hypergraph interface based on local exploration.
+///
+/// Suitable for finite, infinite, or implicit hypergraphs.
+pub trait UndirectedHypergraph: Graph {
     /// Iterator over the member vertices of a hyperedge.
     type Members<'a>: Iterator<Item = Self::Vertex>
     where
         Self: 'a;
 
     /// Iterator over the hyperedges incident to a vertex.
-    type Incident<'a>: Iterator<Item = Self::Hyperedge>
+    type Incident<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
     /// Returns the member vertices of `hyperedge`.
-    fn members(&self, hyperedge: Self::Hyperedge) -> Self::Members<'_>;
+    fn members(&self, hyperedge: Self::Edge) -> Self::Members<'_>;
 
     /// Returns the hyperedges incident to `vertex`.
     fn incident(&self, vertex: Self::Vertex) -> Self::Incident<'_>;
@@ -85,10 +29,14 @@ pub trait InfiniteUndirectedHypergraph: HyperedgeType {
 
 /// Finite undirected hypergraph.
 ///
-/// Extends [`InfiniteUndirectedHypergraph`] with convenience queries.
-pub trait UndirectedHypergraph: InfiniteUndirectedHypergraph {
+/// Extends [`UndirectedHypergraph`] with convenience queries.
+pub trait FiniteUndirectedHypergraph: UndirectedHypergraph + FiniteGraph
+where
+    <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
+    <Self as Structure>::Edges: FiniteEdges<Vertex = Self::Vertex, Edge = Self::Edge>,
+{
     /// Returns the number of members of `hyperedge`.
-    fn cardinality(&self, hyperedge: Self::Hyperedge) -> usize {
+    fn cardinality(&self, hyperedge: Self::Edge) -> usize {
         self.members(hyperedge).count()
     }
 
@@ -97,33 +45,32 @@ pub trait UndirectedHypergraph: InfiniteUndirectedHypergraph {
         self.incident(vertex).count()
     }
 
-    /// Returns whether `hyperedge` contains `vertex`.
-    fn contains(&self, hyperedge: Self::Hyperedge, vertex: Self::Vertex) -> bool {
+    /// Returns whether `vertex` is a member of `hyperedge`.
+    fn contains_member(&self, hyperedge: Self::Edge, vertex: Self::Vertex) -> bool {
         self.members(hyperedge).any(|u| u == vertex)
     }
 }
 
-/// Mutable undirected hyperedge store.
-pub trait UndirectedHypergraphMut:
-    Hyperedges + InsertUndirectedHyperedge + RemoveHyperedge
-{
-}
-impl<T> UndirectedHypergraphMut for T where
-    T: Hyperedges + InsertUndirectedHyperedge + RemoveHyperedge
+impl<T> FiniteUndirectedHypergraph for T
+where
+    T: UndirectedHypergraph + FiniteGraph,
+    <T as Structure>::Vertices: FiniteVertices<Vertex = T::Vertex>,
+    <T as Structure>::Edges: FiniteEdges<Vertex = T::Vertex, Edge = T::Edge>,
 {
 }
 
-/// Directed hyperedge insertion.
-pub trait InsertDirectedHyperedge: HyperedgeType {
-    /// Inserts a directed hyperedge from tail and head vertices.
-    fn insert_hyperedge<T, H>(&mut self, tail: T, head: H) -> Option<Self::Hyperedge>
+/// Undirected hyperedge insertion.
+pub trait InsertUndirectedHyperedge: EdgeType {
+    /// Inserts a hyperedge from its member vertices.
+    fn insert_hyperedge<I>(&mut self, members: I) -> Option<Self::Edge>
     where
-        T: IntoIterator<Item = Self::Vertex>,
-        H: IntoIterator<Item = Self::Vertex>;
+        I: IntoIterator<Item = Self::Vertex>;
 }
 
-/// Directed hypergraph interface without assumed global enumeration.
-pub trait InfiniteDirectedHypergraph: HyperedgeType {
+/// Directed hypergraph interface based on local exploration.
+///
+/// Suitable for finite, infinite, or implicit hypergraphs.
+pub trait DirectedHypergraph: Graph {
     /// Iterator over the tail vertices of a hyperedge.
     type Tail<'a>: Iterator<Item = Self::Vertex>
     where
@@ -135,49 +82,53 @@ pub trait InfiniteDirectedHypergraph: HyperedgeType {
         Self: 'a;
 
     /// Iterator over hyperedges whose tail contains `vertex`.
-    type Outgoing<'a>: Iterator<Item = Self::Hyperedge>
+    type Outgoing<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
     /// Iterator over hyperedges whose head contains `vertex`.
-    type Ingoing<'a>: Iterator<Item = Self::Hyperedge>
+    type Ingoing<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
     /// Returns the tail vertices of `hyperedge`.
-    fn tail(&self, hyperedge: Self::Hyperedge) -> Self::Tail<'_>;
+    fn tail(&self, hyperedge: Self::Edge) -> Self::Tail<'_>;
 
     /// Returns the head vertices of `hyperedge`.
-    fn head(&self, hyperedge: Self::Hyperedge) -> Self::Head<'_>;
+    fn head(&self, hyperedge: Self::Edge) -> Self::Head<'_>;
 
-    /// Returns all hyperedges whose tail contains `vertex`.
+    /// Returns the hyperedges whose tail contains `vertex`.
     fn outgoing(&self, vertex: Self::Vertex) -> Self::Outgoing<'_>;
 
-    /// Returns all hyperedges whose head contains `vertex`.
+    /// Returns the hyperedges whose head contains `vertex`.
     fn ingoing(&self, vertex: Self::Vertex) -> Self::Ingoing<'_>;
 }
 
 /// Finite directed hypergraph.
 ///
-/// Extends [`InfiniteDirectedHypergraph`] with convenience queries.
-pub trait DirectedHypergraph: InfiniteDirectedHypergraph {
+/// Extends [`DirectedHypergraph`] with convenience queries.
+pub trait FiniteDirectedHypergraph: DirectedHypergraph + FiniteGraph
+where
+    <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
+    <Self as Structure>::Edges: FiniteEdges<Vertex = Self::Vertex, Edge = Self::Edge>,
+{
     /// Returns whether `vertex` is in the tail of `hyperedge`.
-    fn in_tail(&self, hyperedge: Self::Hyperedge, vertex: Self::Vertex) -> bool {
+    fn in_tail(&self, hyperedge: Self::Edge, vertex: Self::Vertex) -> bool {
         self.tail(hyperedge).any(|u| u == vertex)
     }
 
     /// Returns whether `vertex` is in the head of `hyperedge`.
-    fn in_head(&self, hyperedge: Self::Hyperedge, vertex: Self::Vertex) -> bool {
+    fn in_head(&self, hyperedge: Self::Edge, vertex: Self::Vertex) -> bool {
         self.head(hyperedge).any(|u| u == vertex)
     }
 
     /// Returns the size of the tail of `hyperedge`.
-    fn tail_cardinality(&self, hyperedge: Self::Hyperedge) -> usize {
+    fn tail_cardinality(&self, hyperedge: Self::Edge) -> usize {
         self.tail(hyperedge).count()
     }
 
     /// Returns the size of the head of `hyperedge`.
-    fn head_cardinality(&self, hyperedge: Self::Hyperedge) -> usize {
+    fn head_cardinality(&self, hyperedge: Self::Edge) -> usize {
         self.head(hyperedge).count()
     }
 
@@ -192,19 +143,33 @@ pub trait DirectedHypergraph: InfiniteDirectedHypergraph {
     }
 }
 
-/// Mutable directed hyperedge store.
-pub trait DirectedHypergraphMut: Hyperedges + InsertDirectedHyperedge + RemoveHyperedge {}
-impl<T> DirectedHypergraphMut for T where T: Hyperedges + InsertDirectedHyperedge + RemoveHyperedge {}
+impl<T> FiniteDirectedHypergraph for T
+where
+    T: DirectedHypergraph + FiniteGraph,
+    <T as Structure>::Vertices: FiniteVertices<Vertex = T::Vertex>,
+    <T as Structure>::Edges: FiniteEdges<Vertex = T::Vertex, Edge = T::Edge>,
+{
+}
+
+/// Directed hyperedge insertion.
+pub trait InsertDirectedHyperedge: EdgeType {
+    /// Inserts a directed hyperedge from tail and head vertices.
+    fn insert_hyperedge<Tail, Head>(&mut self, tail: Tail, head: Head) -> Option<Self::Edge>
+    where
+        Tail: IntoIterator<Item = Self::Vertex>,
+        Head: IntoIterator<Item = Self::Vertex>;
+}
 
 /// Undirected hyperedge described by its member vertices.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct HyperedgeMembers<V> {
-    /// Vertices contained in the hyperedge.
+    /// Member vertices.
     pub members: Vec<V>,
 }
 
 impl<V> HyperedgeMembers<V> {
-    /// Creates a hyperedge from its member vertices.
+    /// Creates an undirected hyperedge from its member vertices.
+    #[must_use]
     #[inline]
     pub fn new<I>(members: I) -> Self
     where
@@ -228,6 +193,7 @@ pub struct DirectedHyperedge<V> {
 
 impl<V> DirectedHyperedge<V> {
     /// Creates a directed hyperedge from tail and head vertices.
+    #[must_use]
     #[inline]
     pub fn new<T, H>(tail: T, head: H) -> Self
     where
@@ -241,8 +207,8 @@ impl<V> DirectedHyperedge<V> {
     }
 }
 
-/// Undirected hypergraph constructible from owned hyperedges.
-pub trait FromHyperedges: Sized + VertexType {
+/// Hypergraph constructible from owned undirected hyperedges.
+pub trait FromHyperedges: Sized + Graph {
     /// Creates a hypergraph from owned hyperedges.
     fn from_hyperedges<I>(hyperedges: I) -> Self
     where
@@ -250,7 +216,7 @@ pub trait FromHyperedges: Sized + VertexType {
 }
 
 /// Directed hypergraph constructible from owned directed hyperedges.
-pub trait FromDirectedHyperedges: Sized + VertexType {
+pub trait FromDirectedHyperedges: Sized + Graph {
     /// Creates a directed hypergraph from owned directed hyperedges.
     fn from_directed_hyperedges<I>(hyperedges: I) -> Self
     where

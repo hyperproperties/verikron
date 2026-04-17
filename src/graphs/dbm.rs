@@ -2,16 +2,23 @@ use std::ops::Range;
 
 use bit_vec::BitVec;
 
-use crate::graphs::graph::{
-    Directed, EdgeType, Edges, Endpoints, FiniteDirected, FiniteEdges, FiniteVertices,
-    FromEndpoints, Graph, VertexType, Vertices,
+use crate::graphs::{
+    graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph},
+    structure::{
+        EdgeType, Edges, FiniteEdges, FiniteVertices, InsertVertex, Structure, VertexType, Vertices,
+    },
 };
 
 /// Dense bit-matrix representation of a directed simple graph.
 ///
-/// Vertices are `0..vertex_count()`. Edge `(from, to)` is stored as one bit in
-/// `matrix`. Loops are allowed; parallel edges are not.
-#[derive(Default)]
+/// Vertices are `0..vertex_count()`.
+///
+/// Edge `(from, to)` is stored as one bit in `matrix`.
+/// Loops are allowed; parallel edges are not.
+///
+/// Edge identifiers are matrix indices. An index identifies a present edge
+/// exactly when the corresponding bit is set.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DBM {
     /// Flat adjacency matrix of length `vertex_count()^2`.
     matrix: BitVec,
@@ -33,46 +40,43 @@ impl DBM {
 
     /// Creates a graph with `vertices` vertices.
     ///
-    /// When `complete` is `true`, all possible edges are present.
+    /// When `complete` is `true`, all possible directed edges are present,
+    /// including loops.
+    #[must_use]
     pub fn new(vertices: usize, complete: bool) -> Self {
-        if vertices == 0 {
-            let dbm = Self {
-                matrix: BitVec::default(),
-            };
-            debug_assert_eq!(dbm.vertex_count(), 0);
-            debug_assert_eq!(dbm.matrix.len(), 0);
-            return dbm;
-        }
-
-        let size = Self::size(vertices);
-        let matrix = BitVec::from_elem(size, complete);
-
-        debug_assert_eq!(
-            matrix.len(),
-            size,
-            "DBM::new: matrix.len() = {} != size({vertices}) = {size}",
-            matrix.len()
-        );
-
-        Self { matrix }
-    }
-
-    /// Returns `vertex^2`.
-    pub fn size(vertex: usize) -> usize {
-        debug_assert!(vertex > 0, "DBM::size: vertex must be positive");
-        if vertex <= 128 {
-            Self::SIZES[vertex - 1]
+        let size = if vertices == 0 {
+            0
         } else {
-            vertex.pow(2)
+            Self::size(vertices)
+        };
+        Self {
+            matrix: BitVec::from_elem(size, complete),
         }
     }
 
-    /// Returns `(vertex + 1)^2 - vertex^2`.
-    pub fn growth(vertex: usize) -> usize {
-        2 * vertex + 1
+    /// Returns `vertices^2`.
+    #[must_use]
+    #[inline]
+    pub fn size(vertices: usize) -> usize {
+        if vertices == 0 {
+            0
+        } else if vertices <= 128 {
+            Self::SIZES[vertices - 1]
+        } else {
+            vertices * vertices
+        }
     }
 
-    /// Maps `(from, to)` to a bit index.
+    /// Returns `(vertices + 1)^2 - vertices^2`.
+    #[must_use]
+    #[inline]
+    pub const fn growth(vertices: usize) -> usize {
+        2 * vertices + 1
+    }
+
+    /// Maps `(from, to)` to a matrix index.
+    #[must_use]
+    #[inline]
     pub fn index(from: usize, to: usize) -> usize {
         let radius = from.max(to);
 
@@ -90,6 +94,7 @@ impl DBM {
     }
 
     /// Inverse of [`DBM::index`].
+    #[must_use]
     pub fn inverse_index(index: usize) -> (usize, usize) {
         if index == 0 {
             return (0, 0);
@@ -99,24 +104,23 @@ impl DBM {
         let base = radius * radius;
         let offset = index - base;
 
-        debug_assert!(
-            offset <= 2 * radius,
-            "DBM::inverse_index: offset {} > 2 * radius {} for index {}",
-            offset,
-            2 * radius,
-            index
-        );
-
         if offset <= radius {
             (offset, radius)
         } else {
             (radius, 2 * radius - offset)
         }
     }
+
+    #[inline]
+    fn contains_edge_index(&self, edge: usize) -> bool {
+        self.matrix.get(edge).unwrap_or(false)
+    }
 }
 
 impl FromEndpoints for DBM {
     /// Builds a graph from directed edges.
+    ///
+    /// Duplicate edges are collapsed.
     fn from_endpoints<I>(edges: I) -> Self
     where
         I: IntoIterator<Item = Endpoints<Self::Vertex>>,
@@ -133,25 +137,7 @@ impl FromEndpoints for DBM {
         let mut dbm = Self::new(vertex_count, false);
 
         for edge in edges {
-            debug_assert!(
-                edge.from < vertex_count && edge.to < vertex_count,
-                "DBM::from_endpoints: endpoint ({}, {}) out of range {}",
-                edge.from,
-                edge.to,
-                vertex_count
-            );
-
             let index = Self::index(edge.from, edge.to);
-
-            debug_assert!(
-                index < dbm.matrix.len(),
-                "DBM::from_endpoints: index {} out of bounds {} for ({}, {})",
-                index,
-                dbm.matrix.len(),
-                edge.from,
-                edge.to
-            );
-
             dbm.matrix.set(index, true);
         }
 
@@ -163,6 +149,11 @@ impl VertexType for DBM {
     type Vertex = usize;
 }
 
+impl EdgeType for DBM {
+    /// Edge id as a flat matrix index.
+    type Edge = usize;
+}
+
 impl Vertices for DBM {
     type Vertices<'a>
         = Range<usize>
@@ -170,6 +161,7 @@ impl Vertices for DBM {
         Self: 'a;
 
     /// Returns all vertices.
+    #[inline]
     fn vertices(&self) -> Self::Vertices<'_> {
         0..self.vertex_count()
     }
@@ -177,6 +169,7 @@ impl Vertices for DBM {
 
 impl FiniteVertices for DBM {
     /// Returns the number of vertices.
+    #[inline]
     fn vertex_count(&self) -> usize {
         let len = self.matrix.len();
         if len == 0 {
@@ -184,350 +177,318 @@ impl FiniteVertices for DBM {
         }
 
         let vertices = len.isqrt();
-
-        debug_assert_eq!(
-            len,
-            Self::size(vertices),
-            "DBM::vertex_count: matrix.len() = {} is not a valid square size for {} vertices",
-            len,
-            vertices
-        );
-
+        debug_assert_eq!(len, Self::size(vertices));
         vertices
     }
-}
 
-impl EdgeType for DBM {
-    /// Edge id as a flat matrix index.
-    type Edge = usize;
+    /// Returns whether `vertex` exists.
+    #[inline]
+    fn contains(&self, vertex: &Self::Vertex) -> bool {
+        *vertex < self.vertex_count()
+    }
 }
 
 impl Edges for DBM {
     type Edges<'a>
-        = CbmEdges<'a>
+        = DbmEdgeIds<'a>
     where
         Self: 'a;
 
-    /// Returns all edges.
+    /// Returns all present edge identifiers.
+    #[inline]
     fn edges(&self) -> Self::Edges<'_> {
-        let vertices = self.vertex_count();
-        let expected_len = if vertices == 0 {
-            0
-        } else {
-            Self::size(vertices)
-        };
-
-        debug_assert_eq!(
-            self.matrix.len(),
-            expected_len,
-            "DBM::edges: matrix.len() = {} != size({vertices}) = {}",
-            self.matrix.len(),
-            expected_len
-        );
-
-        CbmEdges::all(self)
+        DbmEdgeIds::new(self)
     }
 }
 
 impl FiniteEdges for DBM {
     /// Returns the number of present edges.
+    #[inline]
     fn edge_count(&self) -> usize {
         self.matrix.count_ones() as usize
     }
-}
 
-impl Directed for DBM {
-    type Outgoing<'a>
-        = CbmEdges<'a>
-    where
-        Self: 'a;
-
-    type Ingoing<'a>
-        = CbmEdges<'a>
-    where
-        Self: 'a;
-
-    type Connections<'a>
-        = CbmEdges<'a>
-    where
-        Self: 'a;
-
-    /// Returns the source of `edge`.
-    fn source(&self, edge: Self::Edge) -> Self::Vertex {
-        debug_assert!(
-            edge < self.matrix.len(),
-            "DBM::source: edge {} out of bounds {}",
-            edge,
-            self.matrix.len()
-        );
-
-        let (from, _) = Self::inverse_index(edge);
-
-        debug_assert!(
-            from < self.vertex_count(),
-            "DBM::source: decoded source {} out of range {}",
-            from,
-            self.vertex_count()
-        );
-
-        from
-    }
-
-    /// Returns the target of `edge`.
-    fn target(&self, edge: Self::Edge) -> Self::Vertex {
-        debug_assert!(
-            edge < self.matrix.len(),
-            "DBM::target: edge {} out of bounds {}",
-            edge,
-            self.matrix.len()
-        );
-
-        let (_, to) = Self::inverse_index(edge);
-
-        debug_assert!(
-            to < self.vertex_count(),
-            "DBM::target: decoded target {} out of range {}",
-            to,
-            self.vertex_count()
-        );
-
-        to
-    }
-
-    /// Returns all outgoing edges from `source`.
-    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
-        debug_assert!(
-            source < self.vertex_count(),
-            "DBM::outgoing: source {} out of range {}",
-            source,
-            self.vertex_count()
-        );
-        CbmEdges::outgoing(self, source)
-    }
-
-    /// Returns all incoming edges to `destination`.
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
-        debug_assert!(
-            destination < self.vertex_count(),
-            "DBM::ingoing: destination {} out of range {}",
-            destination,
-            self.vertex_count()
-        );
-        CbmEdges::ingoing(self, destination)
-    }
-
-    /// Returns all edges from `from` to `to`.
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        debug_assert!(
-            from < self.vertex_count() && to < self.vertex_count(),
-            "DBM::connections: ({from}, {to}) out of range {}",
-            self.vertex_count()
-        );
-        CbmEdges::between(self, from, to)
+    /// Returns whether `edge` exists.
+    #[inline]
+    fn contains_edge(&self, edge: &Self::Edge) -> bool {
+        self.contains_edge_index(*edge)
     }
 }
 
-impl FiniteDirected for DBM {
-    /// Returns the number of loops at `vertex`.
-    fn loop_degree(&self, vertex: Self::Vertex) -> usize {
-        debug_assert!(
-            vertex < self.vertex_count(),
-            "DBM::loop_degree: vertex {} out of range {}",
-            vertex,
-            self.vertex_count()
-        );
-        usize::from(self.is_connected(vertex, vertex))
-    }
+impl InsertVertex for DBM {
+    /// Inserts a new isolated vertex.
+    ///
+    /// Existing edge indices remain unchanged.
+    #[inline]
+    fn insert_vertex(&mut self) -> Option<Self::Vertex> {
+        let vertex = self.vertex_count();
+        let growth = Self::growth(vertex);
 
-    /// Returns whether `(from, to)` is present.
-    fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
-        debug_assert!(
-            from < self.vertex_count() && to < self.vertex_count(),
-            "DBM::is_connected: ({from}, {to}) out of range {}",
-            self.vertex_count()
-        );
+        for _ in 0..growth {
+            self.matrix.push(false);
+        }
 
-        let index = Self::index(from, to);
-
-        debug_assert!(
-            index < self.matrix.len(),
-            "DBM::is_connected: index {} out of bounds {} for ({from}, {to})",
-            index,
-            self.matrix.len()
-        );
-
-        self.matrix[index]
-    }
-
-    /// Returns whether `edge` is exactly the edge `(from, to)` and is present.
-    fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
-        debug_assert!(
-            from < self.vertex_count() && to < self.vertex_count(),
-            "DBM::has_edge: ({from}, {to}) out of range {}",
-            self.vertex_count()
-        );
-        debug_assert!(
-            edge < self.matrix.len(),
-            "DBM::has_edge: edge {} out of bounds {}",
-            edge,
-            self.matrix.len()
-        );
-
-        let index = Self::index(from, to);
-
-        debug_assert!(
-            index < self.matrix.len(),
-            "DBM::has_edge: index {} out of bounds {} for ({from}, {to})",
-            index,
-            self.matrix.len()
-        );
-
-        edge == index && self.matrix[index]
+        Some(vertex)
     }
 }
 
-impl Graph for DBM {
+impl Structure for DBM {
     type Vertices = Self;
     type Edges = Self;
 
     /// Returns the edge store.
+    #[inline]
     fn edge_store(&self) -> &Self::Edges {
         self
     }
 
     /// Returns the vertex store.
+    #[inline]
     fn vertex_store(&self) -> &Self::Vertices {
         self
+    }
+}
+
+impl Graph for DBM {}
+
+impl Directed for DBM {
+    type Outgoing<'a>
+        = DbmEdges<'a>
+    where
+        Self: 'a;
+
+    type Ingoing<'a>
+        = DbmEdges<'a>
+    where
+        Self: 'a;
+
+    type Connections<'a>
+        = DbmEdges<'a>
+    where
+        Self: 'a;
+
+    /// Returns the source of `edge`.
+    ///
+    /// The caller is expected to pass the id of a present edge.
+    #[inline]
+    fn source(&self, edge: Self::Edge) -> Self::Vertex {
+        debug_assert!(self.contains_edge_index(edge));
+        let (from, _) = Self::inverse_index(edge);
+        from
+    }
+
+    /// Returns the target of `edge`.
+    ///
+    /// The caller is expected to pass the id of a present edge.
+    #[inline]
+    fn destination(&self, edge: Self::Edge) -> Self::Vertex {
+        debug_assert!(self.contains_edge_index(edge));
+        let (_, to) = Self::inverse_index(edge);
+        to
+    }
+
+    /// Returns all outgoing edges from `source`.
+    #[inline]
+    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
+        if !self.contains(&source) {
+            return DbmEdges::empty(self);
+        }
+        DbmEdges::outgoing(self, source)
+    }
+
+    /// Returns all incoming edges to `destination`.
+    #[inline]
+    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
+        if !self.contains(&destination) {
+            return DbmEdges::empty(self);
+        }
+        DbmEdges::ingoing(self, destination)
+    }
+
+    /// Returns all edges from `from` to `to`.
+    #[inline]
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
+        if !(self.contains(&from) && self.contains(&to)) {
+            return DbmEdges::empty(self);
+        }
+        DbmEdges::between(self, from, to)
+    }
+}
+
+impl FiniteDirected for DBM {
+    /// Returns the number of outgoing edges from `vertex`.
+    #[inline]
+    fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
+        if !self.contains(&vertex) {
+            return 0;
+        }
+
+        (0..self.vertex_count())
+            .filter(|&to| self.is_connected(vertex, to))
+            .count()
+    }
+
+    /// Returns the number of incoming edges to `vertex`.
+    #[inline]
+    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
+        if !self.contains(&vertex) {
+            return 0;
+        }
+
+        (0..self.vertex_count())
+            .filter(|&from| self.is_connected(from, vertex))
+            .count()
+    }
+
+    /// Returns the number of loops at `vertex`.
+    #[inline]
+    fn loop_degree(&self, vertex: Self::Vertex) -> usize {
+        usize::from(self.is_connected(vertex, vertex))
+    }
+
+    /// Returns whether `(from, to)` is present.
+    #[inline]
+    fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
+        if !(self.contains(&from) && self.contains(&to)) {
+            return false;
+        }
+
+        self.matrix[Self::index(from, to)]
+    }
+
+    /// Returns whether `edge` is exactly the edge `(from, to)` and is present.
+    #[inline]
+    fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
+        self.contains_edge_index(edge) && edge == Self::index(from, to)
+    }
+}
+
+/// Iterator over present DBM edge identifiers.
+#[derive(Clone, Debug)]
+pub struct DbmEdgeIds<'a> {
+    dbm: &'a DBM,
+    edge: usize,
+}
+
+impl<'a> DbmEdgeIds<'a> {
+    #[must_use]
+    #[inline]
+    fn new(dbm: &'a DBM) -> Self {
+        Self { dbm, edge: 0 }
+    }
+}
+
+impl<'a> Iterator for DbmEdgeIds<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.edge < self.dbm.matrix.len() {
+            let edge = self.edge;
+            self.edge += 1;
+
+            if self.dbm.matrix[edge] {
+                return Some(edge);
+            }
+        }
+
+        None
     }
 }
 
 /// Iterator over selected DBM edges.
 ///
 /// Yields `(from, edge, to)`.
-pub struct CbmEdges<'a> {
+#[derive(Clone, Debug)]
+pub struct DbmEdges<'a> {
     dbm: &'a DBM,
-    kind: CbmEdgesKind,
+    kind: DbmEdgesKind,
 }
 
 /// Internal iterator mode.
-enum CbmEdgesKind {
+#[derive(Clone, Debug)]
+enum DbmEdgesKind {
     All { edge: usize },
     Outgoing { from: usize, to: usize },
     Ingoing { from: usize, to: usize },
-    Between { from: usize, to: usize, state: u8 },
+    Between { from: usize, to: usize, done: bool },
+    Empty,
 }
 
-impl<'a> CbmEdges<'a> {
-    /// Iterates over all edges.
+impl<'a> DbmEdges<'a> {
+    /// Iterates over all present edges.
+    #[must_use]
     fn all(dbm: &'a DBM) -> Self {
-        let vertices = dbm.vertex_count();
-        let expected_len = if vertices == 0 {
-            0
-        } else {
-            DBM::size(vertices)
-        };
-
-        debug_assert_eq!(
-            dbm.matrix.len(),
-            expected_len,
-            "CbmEdges::all: matrix.len() = {} != size({vertices}) = {}",
-            dbm.matrix.len(),
-            expected_len
-        );
-
         Self {
             dbm,
-            kind: CbmEdgesKind::All { edge: 0 },
+            kind: DbmEdgesKind::All { edge: 0 },
         }
     }
 
     /// Iterates over edges outgoing from `from`.
+    #[must_use]
     fn outgoing(dbm: &'a DBM, from: usize) -> Self {
-        debug_assert!(
-            from < dbm.vertex_count(),
-            "CbmEdges::outgoing: from {} out of range {}",
-            from,
-            dbm.vertex_count()
-        );
-
         Self {
             dbm,
-            kind: CbmEdgesKind::Outgoing { from, to: 0 },
+            kind: DbmEdgesKind::Outgoing { from, to: 0 },
         }
     }
 
     /// Iterates over edges incoming to `to`.
+    #[must_use]
     fn ingoing(dbm: &'a DBM, to: usize) -> Self {
-        debug_assert!(
-            to < dbm.vertex_count(),
-            "CbmEdges::ingoing: to {} out of range {}",
-            to,
-            dbm.vertex_count()
-        );
-
         Self {
             dbm,
-            kind: CbmEdgesKind::Ingoing { from: 0, to },
+            kind: DbmEdgesKind::Ingoing { from: 0, to },
         }
     }
 
-    /// Iterates over edges between `from` and `to`.
+    /// Iterates over the directed edge from `from` to `to`, if present.
+    #[must_use]
     fn between(dbm: &'a DBM, from: usize, to: usize) -> Self {
-        debug_assert!(
-            from < dbm.vertex_count() && to < dbm.vertex_count(),
-            "CbmEdges::between: ({from}, {to}) out of range {}",
-            dbm.vertex_count()
-        );
-
         Self {
             dbm,
-            kind: CbmEdgesKind::Between { from, to, state: 0 },
+            kind: DbmEdgesKind::Between {
+                from,
+                to,
+                done: false,
+            },
+        }
+    }
+
+    /// Returns the empty iterator.
+    #[must_use]
+    fn empty(dbm: &'a DBM) -> Self {
+        Self {
+            dbm,
+            kind: DbmEdgesKind::Empty,
         }
     }
 }
 
-impl<'a> Iterator for CbmEdges<'a> {
+impl<'a> Iterator for DbmEdges<'a> {
     type Item = (usize, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.kind {
-            CbmEdgesKind::All { edge } => {
+            DbmEdgesKind::All { edge } => {
                 while *edge < self.dbm.matrix.len() {
                     let current = *edge;
                     *edge += 1;
 
                     if self.dbm.matrix[current] {
                         let (from, to) = DBM::inverse_index(current);
-
-                        debug_assert!(
-                            from < self.dbm.vertex_count() && to < self.dbm.vertex_count(),
-                            "CbmEdges::All: decoded ({from}, {to}) out of range {} for edge {}",
-                            self.dbm.vertex_count(),
-                            current
-                        );
-
                         return Some((from, current, to));
                     }
                 }
                 None
             }
 
-            CbmEdgesKind::Outgoing { from, to } => {
+            DbmEdgesKind::Outgoing { from, to } => {
                 while *to < self.dbm.vertex_count() {
                     let current_to = *to;
                     *to += 1;
 
                     let edge = DBM::index(*from, current_to);
-
-                    debug_assert!(
-                        edge < self.dbm.matrix.len(),
-                        "CbmEdges::Outgoing: index {} out of bounds {} for ({}, {})",
-                        edge,
-                        self.dbm.matrix.len(),
-                        *from,
-                        current_to
-                    );
-
                     if self.dbm.matrix[edge] {
                         return Some((*from, edge, current_to));
                     }
@@ -535,22 +496,12 @@ impl<'a> Iterator for CbmEdges<'a> {
                 None
             }
 
-            CbmEdgesKind::Ingoing { from, to } => {
+            DbmEdgesKind::Ingoing { from, to } => {
                 while *from < self.dbm.vertex_count() {
                     let current_from = *from;
                     *from += 1;
 
                     let edge = DBM::index(current_from, *to);
-
-                    debug_assert!(
-                        edge < self.dbm.matrix.len(),
-                        "CbmEdges::Ingoing: index {} out of bounds {} for ({}, {})",
-                        edge,
-                        self.dbm.matrix.len(),
-                        current_from,
-                        *to
-                    );
-
                     if self.dbm.matrix[edge] {
                         return Some((current_from, edge, *to));
                     }
@@ -558,47 +509,17 @@ impl<'a> Iterator for CbmEdges<'a> {
                 None
             }
 
-            CbmEdgesKind::Between { from, to, state } => {
-                if *state == 0 {
-                    *state = if *from == *to { 2 } else { 1 };
-
-                    let edge = DBM::index(*from, *to);
-
-                    debug_assert!(
-                        edge < self.dbm.matrix.len(),
-                        "CbmEdges::Between: index {} out of bounds {} for ({}, {})",
-                        edge,
-                        self.dbm.matrix.len(),
-                        *from,
-                        *to
-                    );
-
-                    if self.dbm.matrix[edge] {
-                        return Some((*from, edge, *to));
-                    }
+            DbmEdgesKind::Between { from, to, done } => {
+                if *done {
+                    return None;
                 }
 
-                if *state == 1 {
-                    *state = 2;
-
-                    let edge = DBM::index(*to, *from);
-
-                    debug_assert!(
-                        edge < self.dbm.matrix.len(),
-                        "CbmEdges::Between: reversed index {} out of bounds {} for ({}, {})",
-                        edge,
-                        self.dbm.matrix.len(),
-                        *to,
-                        *from
-                    );
-
-                    if self.dbm.matrix[edge] {
-                        return Some((*to, edge, *from));
-                    }
-                }
-
-                None
+                *done = true;
+                let edge = DBM::index(*from, *to);
+                self.dbm.matrix[edge].then_some((*from, edge, *to))
             }
+
+            DbmEdgesKind::Empty => None,
         }
     }
 }
@@ -606,12 +527,15 @@ impl<'a> Iterator for CbmEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::graph::Endpoints;
+    use crate::graphs::graph::FromEndpoints;
     use proptest::prelude::*;
     use std::collections::HashSet;
 
     fn edge_set(graph: &DBM) -> HashSet<(usize, usize)> {
-        graph.edges().map(|(from, _, to)| (from, to)).collect()
+        graph
+            .edges()
+            .map(|edge| (graph.source(edge), graph.destination(edge)))
+            .collect()
     }
 
     #[test]
@@ -713,9 +637,41 @@ mod tests {
             vec![0, 2]
         );
         assert_eq!(graph.connections(2, 1).count(), 1);
-        assert_eq!(graph.connections(1, 2).count(), 1);
+        assert_eq!(graph.connections(1, 2).count(), 0);
         assert_eq!(graph.loop_degree(2), 1);
         assert!(graph.has_edge(2, DBM::index(2, 2), 2));
+    }
+
+    #[test]
+    fn insert_vertex_appends_new_isolated_vertex() {
+        let mut graph = DBM::from_endpoints([Endpoints::new(0, 1), Endpoints::new(1, 1)]);
+
+        let vertex = graph.insert_vertex().unwrap();
+
+        assert_eq!(vertex, 2);
+        assert_eq!(graph.vertex_count(), 3);
+        assert_eq!(graph.edge_count(), 2);
+
+        for u in 0..3 {
+            assert!(!graph.is_connected(u, 2));
+            assert!(!graph.is_connected(2, u));
+        }
+    }
+
+    #[test]
+    fn edge_ids_enumerate_only_present_edges() {
+        let graph = DBM::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(2, 0),
+            Endpoints::new(2, 2),
+        ]);
+
+        let edges: Vec<_> = graph.edges().collect();
+
+        assert_eq!(edges.len(), 3);
+        for edge in edges {
+            assert!(graph.contains_edge(&edge));
+        }
     }
 
     #[test]
@@ -733,7 +689,7 @@ mod tests {
         }
 
         #[test]
-        fn prop_growth_matches_size_difference(n in 1usize..=1_000) {
+        fn prop_growth_matches_size_difference(n in 0usize..=1_000) {
             prop_assert_eq!(DBM::growth(n), DBM::size(n + 1) - DBM::size(n));
         }
 
@@ -762,9 +718,7 @@ mod tests {
             edges in prop::collection::vec((0usize..16, 0usize..16), 0..64)
         ) {
             let graph = DBM::from_endpoints(
-                edges.iter()
-                    .copied()
-                    .map(|(from, to)| Endpoints::new(from, to))
+                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
             );
 
             let expected: HashSet<_> = edges.into_iter().collect();
@@ -779,9 +733,7 @@ mod tests {
             edges in prop::collection::vec((0usize..12, 0usize..12), 0..48)
         ) {
             let graph = DBM::from_endpoints(
-                edges.iter()
-                    .copied()
-                    .map(|(from, to)| Endpoints::new(from, to))
+                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
             );
 
             let expected: HashSet<_> = edges.into_iter().collect();
@@ -798,6 +750,27 @@ mod tests {
                 let expected_ingoing: HashSet<_> =
                     expected.iter().copied().filter(|&(_, to)| to == vertex).collect();
                 prop_assert_eq!(actual_ingoing, expected_ingoing);
+            }
+        }
+
+        #[test]
+        fn prop_edges_enumerate_present_edge_ids_only(
+            edges in prop::collection::vec((0usize..12, 0usize..12), 0..48)
+        ) {
+            let graph = DBM::from_endpoints(
+                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            );
+
+            let enumerated: Vec<_> = graph.edges().collect();
+
+            prop_assert_eq!(enumerated.len(), graph.edge_count());
+
+            for edge in enumerated {
+                prop_assert!(graph.contains_edge(&edge));
+                let from = graph.source(edge);
+                let to = graph.destination(edge);
+                prop_assert!(graph.is_connected(from, to));
+                prop_assert_eq!(DBM::index(from, to), edge);
             }
         }
     }

@@ -3,10 +3,12 @@ use symbol_table::Symbol;
 use crate::{
     automata::acceptors::Acceptor,
     graphs::{
+        attributed::AttributedGraph,
         backward::Backward,
         forward::Forward,
-        graph::{Directed, EdgeOf, FiniteEdges, FiniteVertices, Graph, VertexOf},
-        labeled::LabeledEdges,
+        graph::{Directed, Graph},
+        properties::Properties,
+        structure::{EdgeOf, EdgeType, FiniteVertices, Structure, VertexOf, VertexType},
     },
     lattices::set::Set,
 };
@@ -29,36 +31,48 @@ impl IoLabel {
     }
 }
 
-/// Automaton over a labeled graph with an external acceptance condition.
+/// Automaton over a directed transition structure with edge labels stored as
+/// edge properties in an attributed graph.
 ///
-/// The graph stores the transition structure and edge labels.
+/// The underlying graph provides the transition structure.
+/// The edge-property store provides [`IoLabel`] values.
+/// The alphabet is declared explicitly, so it is available even when the
+/// transition structure is infinite.
 /// The acceptor decides acceptance from its own summary type.
-#[derive(Clone)]
-pub struct Automaton<G, A>
+#[derive(Clone, PartialEq, Eq)]
+pub struct Automaton<G, VP, EP, A>
 where
-    G: Graph + Forward + Backward + Directed,
-    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
+    G: Structure + Forward + Backward + Directed,
+    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
     initial: VertexOf<G>,
-    graph: G,
+    graph: AttributedGraph<G, VP, EP>,
+    alphabet: Set<IoLabel>,
     acceptor: A,
 }
 
-impl<G, A> Automaton<G, A>
+impl<G, VP, EP, A> Automaton<G, VP, EP, A>
 where
-    G: Graph + Forward + Backward + Directed,
-    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
+    G: Structure + Forward + Backward + Directed,
+    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
     /// Creates an automaton without checking that `initial` belongs to `graph`.
     ///
-    /// This works for both finite and infinite graphs.
+    /// This works for both finite and infinite structures.
     #[must_use]
-    pub fn new(initial: VertexOf<G>, graph: G, acceptor: A) -> Self {
+    #[inline]
+    pub fn new(
+        initial: VertexOf<G>,
+        graph: AttributedGraph<G, VP, EP>,
+        alphabet: Set<IoLabel>,
+        acceptor: A,
+    ) -> Self {
         Self {
             initial,
             graph,
+            alphabet,
             acceptor,
         }
     }
@@ -70,25 +84,25 @@ where
         self.initial
     }
 
-    /// Returns the underlying graph.
+    /// Returns the declared label alphabet.
     #[must_use]
     #[inline]
-    pub fn graph(&self) -> &G {
-        &self.graph
+    pub fn alphabet(&self) -> &Set<IoLabel> {
+        &self.alphabet
     }
 
-    /// Returns the acceptance condition.
+    /// Returns the declared input alphabet.
     #[must_use]
     #[inline]
-    pub fn acceptor(&self) -> &A {
-        &self.acceptor
+    pub fn input_alphabet(&self) -> Set<Symbol> {
+        self.alphabet.iter().map(|label| label.input).collect()
     }
 
-    /// Consumes the automaton and returns `(initial, graph, acceptor)`.
+    /// Returns the declared output alphabet.
     #[must_use]
     #[inline]
-    pub fn into_parts(self) -> (VertexOf<G>, G, A) {
-        (self.initial, self.graph, self.acceptor)
+    pub fn output_alphabet(&self) -> Set<Symbol> {
+        self.alphabet.iter().map(|label| label.output).collect()
     }
 
     /// Delegates acceptance of `summary` to the underlying acceptor.
@@ -98,101 +112,62 @@ where
         self.acceptor.accept(summary)
     }
 
-    /// Returns the endpoints of `edge`.
-    #[must_use]
-    #[inline]
-    pub fn endpoints(&self, edge: EdgeOf<G>) -> (VertexOf<G>, VertexOf<G>) {
-        (self.graph.source(edge), self.graph.target(edge))
-    }
-
     /// Returns the label of `edge`, if present.
     #[must_use]
     #[inline]
     pub fn label(&self, edge: EdgeOf<G>) -> Option<&IoLabel> {
-        self.graph.edge_store().label(edge)
-    }
-
-    /// Returns the labeled edge `(from, label, to)`, if `edge` is labeled.
-    #[must_use]
-    #[inline]
-    pub fn labeled_edge(&self, edge: EdgeOf<G>) -> Option<(VertexOf<G>, IoLabel, VertexOf<G>)> {
-        let (from, to) = self.endpoints(edge);
-        self.label(edge).copied().map(|label| (from, label, to))
-    }
-
-    /// Returns the outgoing edges of `vertex`.
-    #[inline]
-    pub fn successors(&self, vertex: VertexOf<G>) -> <G as Forward>::Successors<'_> {
-        self.graph.successors(vertex)
-    }
-
-    /// Returns the incoming edges of `vertex`.
-    #[inline]
-    pub fn predecessors(&self, vertex: VertexOf<G>) -> <G as Backward>::Predecessors<'_> {
-        self.graph.predecessors(vertex)
-    }
-
-    /// Returns labeled outgoing edges of `vertex`.
-    ///
-    /// Unlabeled edges are skipped.
-    #[inline]
-    pub fn labeled_successors(
-        &self,
-        vertex: VertexOf<G>,
-    ) -> impl Iterator<Item = (VertexOf<G>, IoLabel, VertexOf<G>)> + '_ {
-        self.successors(vertex)
-            .filter_map(|(from, edge, to)| self.label(edge).copied().map(|label| (from, label, to)))
-    }
-
-    /// Returns labeled incoming edges of `vertex`.
-    ///
-    /// Unlabeled edges are skipped.
-    #[inline]
-    pub fn labeled_predecessors(
-        &self,
-        vertex: VertexOf<G>,
-    ) -> impl Iterator<Item = (VertexOf<G>, IoLabel, VertexOf<G>)> + '_ {
-        self.predecessors(vertex)
-            .filter_map(|(from, edge, to)| self.label(edge).copied().map(|label| (from, label, to)))
+        self.graph.edge_properties().property(edge)
     }
 }
 
-impl<G, A> Automaton<G, A>
+impl<G, VP, EP, A> Automaton<G, VP, EP, A>
 where
-    G: Graph + Forward + Backward + Directed,
+    G: Structure + Forward + Backward + Directed,
     G::Vertices: FiniteVertices<Vertex = VertexOf<G>>,
-    G::Edges: LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
+    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
     /// Creates an automaton and checks that `initial` belongs to `graph`.
     ///
     /// Panics if `initial` is not a vertex of `graph`.
     #[must_use]
-    pub fn new_checked(initial: VertexOf<G>, graph: G, acceptor: A) -> Self {
+    #[inline]
+    pub fn new_checked(
+        initial: VertexOf<G>,
+        graph: AttributedGraph<G, VP, EP>,
+        alphabet: Set<IoLabel>,
+        acceptor: A,
+    ) -> Self {
         assert!(
             graph.vertex_store().contains(&initial),
             "initial vertex must belong to the graph",
         );
-        Self::new(initial, graph, acceptor)
+        Self::new(initial, graph, alphabet, acceptor)
     }
 
     /// Creates an automaton if `initial` belongs to `graph`.
     #[must_use]
-    pub fn try_new(initial: VertexOf<G>, graph: G, acceptor: A) -> Option<Self> {
+    #[inline]
+    pub fn try_checked(
+        initial: VertexOf<G>,
+        graph: AttributedGraph<G, VP, EP>,
+        alphabet: Set<IoLabel>,
+        acceptor: A,
+    ) -> Option<Self> {
         graph
             .vertex_store()
             .contains(&initial)
-            .then(|| Self::new(initial, graph, acceptor))
+            .then(|| Self::new(initial, graph, alphabet, acceptor))
     }
 
-    /// Returns whether `vertex` belongs to the graph.
+    /// Returns whether `vertex` belongs to the transition structure.
     #[must_use]
     #[inline]
     pub fn contains_vertex(&self, vertex: VertexOf<G>) -> bool {
         self.graph.vertex_store().contains(&vertex)
     }
 
-    /// Returns whether the initial vertex belongs to the graph.
+    /// Returns whether the initial vertex belongs to the transition structure.
     #[must_use]
     #[inline]
     pub fn has_valid_initial(&self) -> bool {
@@ -200,40 +175,107 @@ where
     }
 }
 
-impl<G, A> Automaton<G, A>
+impl<G, VP, EP, A> VertexType for Automaton<G, VP, EP, A>
 where
-    G: Graph + Forward + Backward + Directed,
-    G::Edges: FiniteEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>>
-        + LabeledEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>, Label = IoLabel>,
+    G: Structure + Forward + Backward + Directed,
+    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
-    /// Returns the set of labels appearing on labeled edges.
-    #[must_use]
-    pub fn alphabet(&self) -> Set<IoLabel> {
-        self.graph
-            .edge_store()
-            .labeled_edges()
-            .map(|(_, _, label, _)| *label)
-            .collect()
+    type Vertex = VertexOf<G>;
+}
+
+impl<G, VP, EP, A> EdgeType for Automaton<G, VP, EP, A>
+where
+    G: Structure + Forward + Backward + Directed,
+    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
+    A: Acceptor,
+{
+    type Edge = EdgeOf<G>;
+}
+
+impl<G, VP, EP, A> Structure for Automaton<G, VP, EP, A>
+where
+    G: Structure + Forward + Backward + Directed,
+    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
+    A: Acceptor,
+{
+    type Vertices = G::Vertices;
+    type Edges = G::Edges;
+
+    #[inline]
+    fn vertex_store(&self) -> &Self::Vertices {
+        self.graph.vertex_store()
     }
 
-    /// Returns the set of input symbols appearing on labeled edges.
-    #[must_use]
-    pub fn input_alphabet(&self) -> Set<Symbol> {
-        self.graph
-            .edge_store()
-            .labeled_edges()
-            .map(|(_, _, label, _)| label.input)
-            .collect()
+    #[inline]
+    fn edge_store(&self) -> &Self::Edges {
+        self.graph.edge_store()
+    }
+}
+
+impl<G, VP, EP, A> Graph for Automaton<G, VP, EP, A>
+where
+    G: Graph + Forward + Backward + Directed,
+    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
+    A: Acceptor,
+{
+}
+
+impl<G, VP, EP, A> Directed for Automaton<G, VP, EP, A>
+where
+    G: Structure + Forward + Backward + Directed,
+    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
+    A: Acceptor,
+{
+    type Outgoing<'a>
+        = <G as Directed>::Outgoing<'a>
+    where
+        Self: 'a,
+        G: 'a,
+        VP: 'a,
+        EP: 'a,
+        A: 'a;
+
+    type Ingoing<'a>
+        = <G as Directed>::Ingoing<'a>
+    where
+        Self: 'a,
+        G: 'a,
+        VP: 'a,
+        EP: 'a,
+        A: 'a;
+
+    type Connections<'a>
+        = <G as Directed>::Connections<'a>
+    where
+        Self: 'a,
+        G: 'a,
+        VP: 'a,
+        EP: 'a,
+        A: 'a;
+
+    #[inline]
+    fn source(&self, edge: Self::Edge) -> Self::Vertex {
+        self.graph.graph().source(edge)
     }
 
-    /// Returns the set of output symbols appearing on labeled edges.
-    #[must_use]
-    pub fn output_alphabet(&self) -> Set<Symbol> {
-        self.graph
-            .edge_store()
-            .labeled_edges()
-            .map(|(_, _, label, _)| label.output)
-            .collect()
+    #[inline]
+    fn destination(&self, edge: Self::Edge) -> Self::Vertex {
+        self.graph.graph().destination(edge)
+    }
+
+    #[inline]
+    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
+        self.graph.graph().outgoing(source)
+    }
+
+    #[inline]
+    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
+        self.graph.graph().ingoing(destination)
+    }
+
+    #[inline]
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
+        self.graph.graph().connections(from, to)
     }
 }
