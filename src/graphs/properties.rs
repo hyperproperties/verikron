@@ -44,11 +44,6 @@ pub trait RemoveProperty: PropertyStoreType {
     fn remove_property(&mut self, key: Self::Key) -> Option<Self::Property>;
 }
 
-/// Mutable property store.
-pub trait PropertiesMut: Properties + WriteProperty + InsertProperty + RemoveProperty {}
-
-impl<T> PropertiesMut for T where T: Properties + WriteProperty + InsertProperty + RemoveProperty {}
-
 /// Property store indexed directly by `usize`.
 ///
 /// The property for key `k` is stored in `properties[k]`.
