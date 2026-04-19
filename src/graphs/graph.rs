@@ -69,7 +69,7 @@ where
     /// Returns the number of loop edges at `vertex`.
     fn loop_degree(&self, vertex: Self::Vertex) -> usize;
 
-    /// Returns whether there exists an edge from `from` to `to`.
+    /// Returns true if `from` and `to` is connected by some edge.
     fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
         self.connections(from, to).next().is_some()
     }
@@ -77,6 +77,63 @@ where
     /// Returns whether `edge` is an edge from `from` to `to`.
     fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
         self.connections(from, to).any(|(_, e, _)| e == edge)
+    }
+}
+
+/// Directed graph with indexable local adjacency.
+///
+/// This trait provides random access to the outgoing and ingoing neighbor lists
+/// of each vertex, without exposing edge identifiers.
+///
+/// It is suitable for algorithms that need efficient local traversal state,
+/// such as iterative DFS, SCC decomposition, reachability, and reverse search.
+///
+/// The graph may have infinitely many edges globally, as long as each vertex
+/// has finitely many outgoing and ingoing neighbors.
+pub trait IndexedDirected: Graph
+where
+    <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
+{
+    /// Returns the number of outgoing neighbors of `vertex`.
+    fn outgoing_count(&self, vertex: Self::Vertex) -> usize;
+
+    /// Returns the `index`th outgoing neighbor of `vertex`.
+    ///
+    /// Requires `index < outgoing_count(vertex)`.
+    fn outgoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex>;
+
+    /// Returns the number of ingoing neighbors of `vertex`.
+    fn ingoing_count(&self, vertex: Self::Vertex) -> usize;
+
+    /// Returns the `index`th ingoing neighbor of `vertex`.
+    ///
+    /// Requires `index < ingoing_count(vertex)`.
+    fn ingoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex>;
+
+    /// Returns whether `vertex` has a self-loop.
+    fn has_loop(&self, vertex: Self::Vertex) -> bool {
+        (0..self.outgoing_count(vertex)).any(|i| self.outgoing_at(vertex, i).unwrap() == vertex)
+    }
+
+    /// Returns whether `from` has `to` as an outgoing neighbor.
+    fn connects_to(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
+        (0..self.outgoing_count(from)).any(|i| self.outgoing_at(from, i).unwrap() == to)
+    }
+
+    /// Returns the outgoing neighbors of `vertex`.
+    fn outgoing_neighbors(&self, vertex: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_
+    where
+        Self: Sized,
+    {
+        (0..self.outgoing_count(vertex)).map(move |i| self.outgoing_at(vertex, i).unwrap())
+    }
+
+    /// Returns the ingoing neighbors of `vertex`.
+    fn ingoing_neighbors(&self, vertex: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_
+    where
+        Self: Sized,
+    {
+        (0..self.ingoing_count(vertex)).map(move |i| self.ingoing_at(vertex, i).unwrap())
     }
 }
 
@@ -136,6 +193,47 @@ where
     /// Returns whether `edge` is an edge between `u` and `v`.
     fn has_edge(&self, u: Self::Vertex, edge: Self::Edge, v: Self::Vertex) -> bool {
         self.connections(u, v).any(|(_, e, _)| e == edge)
+    }
+}
+
+/// Undirected graph with indexable local adjacency.
+///
+/// This trait provides random access to the neighbor list of each vertex,
+/// without exposing edge identifiers.
+///
+/// It is suitable for algorithms that need efficient local traversal state,
+/// such as iterative DFS, connectivity, and local neighborhood queries.
+///
+/// The graph may have infinitely many edges globally, as long as each vertex
+/// has finitely many incident neighbors.
+pub trait IndexedUndirected: Graph
+where
+    <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
+{
+    /// Returns the number of neighbors of `vertex`.
+    fn incident_count(&self, vertex: Self::Vertex) -> usize;
+
+    /// Returns the `index`th neighbor of `vertex`.
+    ///
+    /// Requires `index < incident_count(vertex)`.
+    fn incident_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex>;
+
+    /// Returns whether `vertex` has a loop.
+    fn has_loop(&self, vertex: Self::Vertex) -> bool {
+        (0..self.incident_count(vertex)).any(|i| self.incident_at(vertex, i).unwrap() == vertex)
+    }
+
+    /// Returns whether `u` and `v` are adjacent.
+    fn is_adjacent(&self, u: Self::Vertex, v: Self::Vertex) -> bool {
+        (0..self.incident_count(u)).any(|i| self.incident_at(u, i).unwrap() == v)
+    }
+
+    /// Returns the neighbors of `vertex`.
+    fn neighbors(&self, vertex: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_
+    where
+        Self: Sized,
+    {
+        (0..self.incident_count(vertex)).map(move |i| self.incident_at(vertex, i).unwrap())
     }
 }
 

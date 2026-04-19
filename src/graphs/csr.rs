@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use crate::{
     graphs::{
-        graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph},
+        graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph, IndexedDirected},
         structure::{
             EdgeType, Edges, FiniteEdges, FiniteVertices, InsertVertex, Structure, VertexType,
             Vertices,
@@ -296,6 +296,85 @@ impl FiniteDirected for CSR {
     }
 }
 
+impl IndexedDirected for CSR {
+    #[inline]
+    fn outgoing_count(&self, vertex: Self::Vertex) -> usize {
+        let n = self.vertex_count();
+        if vertex >= n {
+            return 0;
+        }
+
+        self.offsets[vertex + 1] - self.offsets[vertex]
+    }
+
+    #[inline]
+    fn outgoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex> {
+        let n = self.vertex_count();
+        if vertex >= n {
+            return None;
+        }
+
+        let start = self.offsets[vertex];
+        let end = self.offsets[vertex + 1];
+
+        if index < end - start {
+            Some(self.indices[start + index])
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn ingoing_count(&self, vertex: Self::Vertex) -> usize {
+        let n = self.vertex_count();
+        if vertex >= n {
+            return 0;
+        }
+
+        let indices = &self.indices;
+        let mut count = 0;
+        let mut edge = 0;
+
+        while edge < indices.len() {
+            count += (indices[edge] == vertex) as usize;
+            edge += 1;
+        }
+
+        count
+    }
+
+    #[inline]
+    fn ingoing_at(&self, vertex: Self::Vertex, mut index: usize) -> Option<Self::Vertex> {
+        let n = self.vertex_count();
+        if vertex >= n {
+            return None;
+        }
+
+        let offsets = &self.offsets;
+        let indices = &self.indices;
+        let mut from = 0;
+        let mut edge = 0;
+        let edge_count = indices.len();
+
+        while edge < edge_count {
+            while edge == offsets[from + 1] {
+                from += 1;
+            }
+
+            if indices[edge] == vertex {
+                if index == 0 {
+                    return Some(from);
+                }
+                index -= 1;
+            }
+
+            edge += 1;
+        }
+
+        None
+    }
+}
+
 /// Iterator over selected CSR edges.
 ///
 /// Yields `(source, edge, destination)`.
@@ -574,6 +653,35 @@ mod tests {
         assert_csr_invariants(&graph);
     }
 
+    #[test]
+    fn indexed_directed_matches_expected() {
+        let graph = CSR::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(0, 2),
+            Endpoints::new(2, 1),
+            Endpoints::new(2, 1),
+        ]);
+
+        assert_eq!(graph.outgoing_count(0), 2);
+        assert_eq!(graph.outgoing_count(1), 0);
+        assert_eq!(graph.outgoing_count(2), 2);
+        assert_eq!(graph.outgoing_count(3), 0);
+
+        assert_eq!(graph.outgoing_at(0, 0), Some(1));
+        assert_eq!(graph.outgoing_at(0, 1), Some(2));
+        assert_eq!(graph.outgoing_at(0, 2), None);
+
+        assert_eq!(graph.ingoing_count(0), 0);
+        assert_eq!(graph.ingoing_count(1), 3);
+        assert_eq!(graph.ingoing_count(2), 1);
+        assert_eq!(graph.ingoing_count(3), 0);
+
+        assert_eq!(graph.ingoing_at(1, 0), Some(0));
+        assert_eq!(graph.ingoing_at(1, 1), Some(2));
+        assert_eq!(graph.ingoing_at(1, 2), Some(2));
+        assert_eq!(graph.ingoing_at(1, 3), None);
+    }
+
     proptest! {
         #[test]
         fn prop_constructor_preserves_edges_and_invariants(edges in arbitrary_csr_instance()) {
@@ -675,6 +783,38 @@ mod tests {
                 .count();
 
             prop_assert_eq!(graph.connections(from, to).count(), expected);
+        }
+
+        #[test]
+        fn prop_indexed_directed_matches_iterators(edges in arbitrary_csr_instance()) {
+            let graph = CSR::from_endpoints(
+                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            );
+
+            for vertex in 0..graph.vertex_count() {
+                let outgoing: Vec<_> = graph.outgoing(vertex).map(|(_, _, to)| to).collect();
+                prop_assert_eq!(graph.outgoing_count(vertex), outgoing.len());
+
+                for index in 0..outgoing.len() {
+                    prop_assert_eq!(graph.outgoing_at(vertex, index), Some(outgoing[index]));
+                }
+                prop_assert_eq!(graph.outgoing_at(vertex, outgoing.len()), None);
+
+                let ingoing: Vec<_> = graph.ingoing(vertex).map(|(from, _, _)| from).collect();
+                prop_assert_eq!(graph.ingoing_count(vertex), ingoing.len());
+
+                for index in 0..ingoing.len() {
+                    prop_assert_eq!(graph.ingoing_at(vertex, index), Some(ingoing[index]));
+                }
+                prop_assert_eq!(graph.ingoing_at(vertex, ingoing.len()), None);
+            }
+
+            let invalid = graph.vertex_count();
+
+            prop_assert_eq!(graph.outgoing_count(invalid), 0);
+            prop_assert_eq!(graph.outgoing_at(invalid, 0), None);
+            prop_assert_eq!(graph.ingoing_count(invalid), 0);
+            prop_assert_eq!(graph.ingoing_at(invalid, 0), None);
         }
     }
 }

@@ -3,7 +3,7 @@ use std::ops::Range;
 use bit_vec::BitVec;
 
 use crate::graphs::{
-    graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph},
+    graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph, IndexedDirected},
     structure::{
         EdgeType, Edges, FiniteEdges, FiniteVertices, InsertVertex, Structure, VertexType, Vertices,
     },
@@ -363,6 +363,68 @@ impl FiniteDirected for DBM {
     }
 }
 
+impl IndexedDirected for DBM {
+    #[inline]
+    fn outgoing_count(&self, vertex: Self::Vertex) -> usize {
+        if !self.contains(&vertex) {
+            return 0;
+        }
+
+        (0..self.vertex_count())
+            .filter(|&to| self.is_connected(vertex, to))
+            .count()
+    }
+
+    #[inline]
+    fn outgoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex> {
+        if !self.contains(&vertex) {
+            return None;
+        }
+
+        let mut seen = 0usize;
+        for to in 0..self.vertex_count() {
+            if self.is_connected(vertex, to) {
+                if seen == index {
+                    return Some(to);
+                }
+                seen += 1;
+            }
+        }
+
+        None
+    }
+
+    #[inline]
+    fn ingoing_count(&self, vertex: Self::Vertex) -> usize {
+        if !self.contains(&vertex) {
+            return 0;
+        }
+
+        (0..self.vertex_count())
+            .filter(|&from| self.is_connected(from, vertex))
+            .count()
+    }
+
+    #[inline]
+    fn ingoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex> {
+        if !self.contains(&vertex) {
+            return None;
+        }
+
+        let mut seen = 0usize;
+        for from in 0..self.vertex_count() {
+            if self.is_connected(from, vertex) {
+                if seen == index {
+                    return Some(from);
+                }
+                seen += 1;
+            }
+        }
+
+        None
+    }
+}
+
 /// Iterator over present DBM edge identifiers.
 #[derive(Clone, Debug)]
 pub struct DbmEdgeIds<'a> {
@@ -682,6 +744,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn indexed_directed_queries_are_consistent() {
+        let graph = DBM::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(0, 2),
+            Endpoints::new(2, 1),
+            Endpoints::new(2, 2),
+            Endpoints::new(2, 2), // duplicate should still collapse
+        ]);
+
+        assert_eq!(graph.outgoing_count(0), 2);
+        assert_eq!(graph.outgoing_count(1), 0);
+        assert_eq!(graph.outgoing_count(2), 2);
+        assert_eq!(graph.outgoing_count(3), 0);
+
+        assert_eq!(graph.outgoing_at(0, 0), Some(1));
+        assert_eq!(graph.outgoing_at(0, 1), Some(2));
+        assert_eq!(graph.outgoing_at(0, 2), None);
+
+        assert_eq!(graph.outgoing_at(1, 0), None);
+
+        assert_eq!(graph.outgoing_at(2, 0), Some(1));
+        assert_eq!(graph.outgoing_at(2, 1), Some(2));
+        assert_eq!(graph.outgoing_at(2, 2), None);
+
+        assert_eq!(graph.ingoing_count(0), 0);
+        assert_eq!(graph.ingoing_count(1), 2);
+        assert_eq!(graph.ingoing_count(2), 2);
+        assert_eq!(graph.ingoing_count(3), 0);
+
+        assert_eq!(graph.ingoing_at(0, 0), None);
+
+        assert_eq!(graph.ingoing_at(1, 0), Some(0));
+        assert_eq!(graph.ingoing_at(1, 1), Some(2));
+        assert_eq!(graph.ingoing_at(1, 2), None);
+
+        assert_eq!(graph.ingoing_at(2, 0), Some(0));
+        assert_eq!(graph.ingoing_at(2, 1), Some(2));
+        assert_eq!(graph.ingoing_at(2, 2), None);
+
+        assert_eq!(graph.outgoing_count(99), 0);
+        assert_eq!(graph.outgoing_at(99, 0), None);
+        assert_eq!(graph.ingoing_count(99), 0);
+        assert_eq!(graph.ingoing_at(99, 0), None);
+    }
+
     proptest! {
         #[test]
         fn prop_size_matches_square(n in 1usize..=1_000) {
@@ -772,6 +880,44 @@ mod tests {
                 prop_assert!(graph.is_connected(from, to));
                 prop_assert_eq!(DBM::index(from, to), edge);
             }
+        }
+
+        #[test]
+        fn prop_indexed_directed_matches_connectivity(
+            edges in prop::collection::vec((0usize..12, 0usize..12), 0..48)
+        ) {
+            let graph = DBM::from_endpoints(
+                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            );
+
+            let n = graph.vertex_count();
+
+            for vertex in 0..n {
+                let expected_outgoing: Vec<_> =
+                    (0..n).filter(|&to| graph.is_connected(vertex, to)).collect();
+                prop_assert_eq!(graph.outgoing_count(vertex), expected_outgoing.len());
+
+                for (index, &to) in expected_outgoing.iter().enumerate() {
+                    prop_assert_eq!(graph.outgoing_at(vertex, index), Some(to));
+                }
+                prop_assert_eq!(graph.outgoing_at(vertex, expected_outgoing.len()), None);
+
+                let expected_ingoing: Vec<_> =
+                    (0..n).filter(|&from| graph.is_connected(from, vertex)).collect();
+                prop_assert_eq!(graph.ingoing_count(vertex), expected_ingoing.len());
+
+                for (index, &from) in expected_ingoing.iter().enumerate() {
+                    prop_assert_eq!(graph.ingoing_at(vertex, index), Some(from));
+                }
+                prop_assert_eq!(graph.ingoing_at(vertex, expected_ingoing.len()), None);
+            }
+
+            let invalid = n;
+
+            prop_assert_eq!(graph.outgoing_count(invalid), 0);
+            prop_assert_eq!(graph.outgoing_at(invalid, 0), None);
+            prop_assert_eq!(graph.ingoing_count(invalid), 0);
+            prop_assert_eq!(graph.ingoing_at(invalid, 0), None);
         }
     }
 }

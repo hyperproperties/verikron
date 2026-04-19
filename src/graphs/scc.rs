@@ -1,7 +1,4 @@
-use crate::graphs::{
-    properties::Properties,
-    quotient::Quotient,
-};
+use crate::graphs::{properties::Properties, quotient::Quotient};
 
 /// Strongly-connected-component decomposition.
 ///
