@@ -1,51 +1,54 @@
-use std::{ops::Range, slice, usize};
-
-use bit_vec::BitVec;
+use std::{ops::Range, slice};
 
 use crate::graphs::{
-    graph::IndexedDirected,
+    dbm::DBM,
+    graph::{Endpoints, FiniteDirected, FromEndpoints, IndexedDirected},
     properties::{Properties, PropertyStoreType},
     quotient::{Quotient, QuotientType},
     scc::SCC,
-    structure::{FiniteVertices, Structure, VertexType, Vertices},
+    structure::{FiniteVertices, InsertVertex, Structure, VertexType, Vertices},
 };
 
-/// Dense SCC decomposition on vertices `0..vertex_count()`.
+/// Dense SCC quotient on vertices `0..vertex_count()`.
 ///
-/// `classes[v]` is the SCC of `v`.
+/// `classes[v]` is the SCC id of `v`.
 /// `members` stores all vertices grouped by SCC, so vertices of the same SCC
 /// occupy one contiguous range.
+///
+/// `graph` is the SCC quotient graph:
+/// - `c -> d` exists iff some original edge goes from SCC `c` to SCC `d`,
+/// - `c -> c` exists iff SCC `c` is recurrent.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DSCC {
+pub struct SCCQuotient {
     /// SCC id of each vertex.
     classes: Box<[usize]>,
 
     /// Vertices grouped by SCC.
     members: Box<[usize]>,
 
-    /// Whether each SCC is recurrent.
-    recurrent: BitVec,
+    /// SCC quotient graph with recurrence self-loops.
+    graph: DBM,
 }
 
-impl DSCC {
-    /// Creates a dense SCC decomposition.
+impl SCCQuotient {
+    /// Creates a dense SCC quotient.
     ///
-    /// The caller must uphold the [`DSCC`] invariants.
+    /// The caller must uphold the [`SCCQuotient`] invariants.
     #[must_use]
-    pub fn new(classes: Box<[usize]>, members: Box<[usize]>, recurrent: BitVec) -> Self {
+    pub fn new(classes: Box<[usize]>, members: Box<[usize]>, graph: DBM) -> Self {
         Self {
             classes,
             members,
-            recurrent,
+            graph,
         }
     }
 
-    /// Computes the dense SCC decomposition of `graph` by iterative Tarjan.
+    /// Computes the dense SCC quotient of `graph` by iterative Tarjan.
     ///
     /// Vertices are assumed to be dense `usize` values in `0..vertex_count()`.
     /// SCC ids are assigned in pop order. The resulting `members` array stores
-    /// vertices grouped contiguously by SCC, and `recurrent[c]` records whether
-    /// SCC `c` can sustain an infinite path.
+    /// vertices grouped contiguously by SCC. The quotient graph contains edges
+    /// between SCCs and a self-loop on each recurrent SCC.
     #[must_use]
     #[inline]
     pub fn tarjan<G>(graph: &G) -> Self
@@ -75,7 +78,9 @@ impl DSCC {
         // Output buffers.
         let mut classes: Box<[usize]> = vec![UNASSIGNED; vertex_count].into_boxed_slice();
         let mut members: Box<[usize]> = vec![0; vertex_count].into_boxed_slice();
-        let mut recurrent = BitVec::new();
+
+        // Temporary recurrence flags, later encoded as quotient self-loops.
+        let mut recurrent: Vec<bool> = Vec::new();
 
         let mut next_discovery = 1usize;
         let mut next_member = 0usize;
@@ -146,10 +151,40 @@ impl DSCC {
             }
         }
 
-        Self::new(classes, members, recurrent)
+        let component_count = recurrent.len();
+
+        // Build the SCC quotient graph:
+        // - inter-component edges from original edges,
+        // - self-loops exactly on recurrent SCCs.
+        let mut quotient = DBM::from_endpoints(
+            (0..vertex_count)
+                .flat_map(|from| {
+                    let classes_ref = &classes;
+                    (0..graph.outgoing_count(from)).filter_map(move |i| {
+                        let to = graph.outgoing_at(from, i).unwrap();
+                        let from_class = classes_ref[from];
+                        let to_class = classes_ref[to];
+
+                        (from_class != to_class).then(|| Endpoints::new(from_class, to_class))
+                    })
+                })
+                .chain(
+                    (0..component_count)
+                        .filter(|&class| recurrent[class])
+                        .map(|class| Endpoints::new(class, class)),
+                ),
+        );
+
+        // `from_endpoints` infers vertices from edges, so isolated SCCs would be
+        // dropped. Add missing quotient vertices explicitly.
+        while quotient.vertex_count() < component_count {
+            assert!(quotient.insert_vertex().is_some());
+        }
+
+        Self::new(classes, members, quotient)
     }
 
-    /// Returns the number of vertices.
+    /// Returns the number of original vertices.
     #[must_use]
     #[inline]
     pub fn vertex_count(&self) -> usize {
@@ -160,7 +195,14 @@ impl DSCC {
     #[must_use]
     #[inline]
     pub fn component_count(&self) -> usize {
-        self.recurrent.len()
+        self.graph.vertex_count()
+    }
+
+    /// Returns the SCC quotient graph.
+    #[must_use]
+    #[inline]
+    pub fn graph(&self) -> &DBM {
+        &self.graph
     }
 
     /// Returns the contiguous range of `members` belonging to `class`.
@@ -178,7 +220,7 @@ impl DSCC {
         start..end
     }
 
-    /// Returns the vertices in `class`.
+    /// Returns the original vertices in `class`.
     #[must_use]
     #[inline]
     pub fn members_slice(&self, class: usize) -> &[usize] {
@@ -187,16 +229,16 @@ impl DSCC {
     }
 }
 
-impl VertexType for DSCC {
+impl VertexType for SCCQuotient {
     type Vertex = usize;
 }
 
-impl PropertyStoreType for DSCC {
+impl PropertyStoreType for SCCQuotient {
     type Key = usize;
     type Property = usize;
 }
 
-impl Properties for DSCC {
+impl Properties for SCCQuotient {
     /// Returns the SCC id of `key`.
     #[inline]
     fn property(&self, key: Self::Key) -> Option<&Self::Property> {
@@ -204,11 +246,11 @@ impl Properties for DSCC {
     }
 }
 
-impl QuotientType for DSCC {
+impl QuotientType for SCCQuotient {
     type Class = usize;
 }
 
-impl Quotient for DSCC {
+impl Quotient for SCCQuotient {
     type Classes<'a>
         = Range<usize>
     where
@@ -225,20 +267,20 @@ impl Quotient for DSCC {
         0..self.component_count()
     }
 
-    /// Returns the SCC of `vertex`.
+    /// Returns the SCC id of `vertex`.
     #[inline]
     fn class(&self, vertex: Self::Vertex) -> Self::Class {
         self.classes[vertex]
     }
 
-    /// Returns the vertices in `class`.
+    /// Returns the original vertices in `class`.
     #[inline]
     fn members(&self, class: Self::Class) -> Self::Members<'_> {
         self.members_slice(class).iter().copied()
     }
 }
 
-impl SCC for DSCC {
+impl SCC for SCCQuotient {
     /// Returns an arbitrary representative of `class`.
     #[inline]
     fn representative(&self, class: Self::Class) -> Self::Vertex {
@@ -248,7 +290,7 @@ impl SCC for DSCC {
     /// Returns whether `class` is recurrent.
     #[inline]
     fn is_recurrent(&self, class: Self::Class) -> bool {
-        self.recurrent.get(class).unwrap_or(false)
+        self.graph.is_connected(class, class)
     }
 }
 
@@ -267,15 +309,23 @@ mod tests {
 
     use proptest::prelude::*;
 
-    fn sample_dscc() -> DSCC {
-        // Components:
+    fn sample_dscc() -> SCCQuotient {
+        // SCCs:
         // 0 -> {1, 4}
         // 1 -> {0, 2}
         // 2 -> {3}
-        DSCC::new(
+        //
+        // Quotient edges:
+        // 1 -> 2
+        // 0 and 1 are recurrent, 2 is not.
+        SCCQuotient::new(
             vec![1, 0, 1, 2, 0].into_boxed_slice(),
             vec![1, 4, 0, 2, 3].into_boxed_slice(),
-            BitVec::from_iter([true, true, false]),
+            DBM::from_endpoints([
+                Endpoints::new(0, 0),
+                Endpoints::new(1, 1),
+                Endpoints::new(1, 2),
+            ]),
         )
     }
 
@@ -359,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn recurrence_queries_match_bit_vector() {
+    fn recurrence_queries_match_quotient_self_loops() {
         let dscc = sample_dscc();
 
         assert!(dscc.is_recurrent(0));
@@ -386,10 +436,10 @@ mod tests {
 
     #[test]
     fn empty_dscc_is_valid() {
-        let dscc = DSCC::new(
+        let dscc = SCCQuotient::new(
             Vec::<usize>::new().into_boxed_slice(),
             Vec::<usize>::new().into_boxed_slice(),
-            BitVec::new(),
+            DBM::default(),
         );
 
         assert_eq!(dscc.vertex_count(), 0);
@@ -400,10 +450,10 @@ mod tests {
 
     #[test]
     fn singleton_component_is_supported() {
-        let dscc = DSCC::new(
+        let dscc = SCCQuotient::new(
             vec![0].into_boxed_slice(),
             vec![0].into_boxed_slice(),
-            BitVec::from_iter([false]),
+            DBM::new(1, false),
         );
 
         assert_eq!(dscc.vertex_count(), 1);
@@ -418,11 +468,12 @@ mod tests {
     #[test]
     fn tarjan_on_empty_graph_returns_empty_decomposition() {
         let graph = DBM::default();
-        let dscc = DSCC::tarjan(&graph);
+        let dscc = SCCQuotient::tarjan(&graph);
 
         assert_eq!(dscc.vertex_count(), 0);
         assert_eq!(dscc.component_count(), 0);
         assert_eq!(dscc.classes().collect::<Vec<_>>(), Vec::<usize>::new());
+        assert_eq!(dscc.graph().vertex_count(), 0);
     }
 
     #[test]
@@ -434,7 +485,7 @@ mod tests {
             Endpoints::new(2, 3),
         ]);
 
-        let dscc = DSCC::tarjan(&graph);
+        let dscc = SCCQuotient::tarjan(&graph);
 
         for vertex in 0..graph.vertex_count() {
             assert!(dscc.are_strongly_connected(vertex, vertex));
@@ -459,7 +510,7 @@ mod tests {
 
         assert_eq!(graph.insert_vertex(), Some(5));
 
-        let dscc = DSCC::tarjan(&graph);
+        let dscc = SCCQuotient::tarjan(&graph);
 
         assert!(dscc.are_strongly_connected(0, 1));
         assert!(dscc.are_strongly_connected(2, 3));
@@ -469,6 +520,28 @@ mod tests {
         assert!(!dscc.are_strongly_connected(1, 2));
         assert!(!dscc.are_strongly_connected(0, 4));
         assert!(!dscc.are_strongly_connected(4, 5));
+    }
+
+    #[test]
+    fn tarjan_builds_quotient_graph() {
+        let graph = DBM::from_endpoints([
+            Endpoints::new(0, 1),
+            Endpoints::new(1, 0),
+            Endpoints::new(1, 2),
+            Endpoints::new(2, 3),
+            Endpoints::new(3, 2),
+        ]);
+
+        let dscc = SCCQuotient::tarjan(&graph);
+
+        let c01 = dscc.class(0);
+        let c23 = dscc.class(2);
+
+        assert_ne!(c01, c23);
+        assert!(dscc.graph().is_connected(c01, c23));
+        assert!(!dscc.graph().is_connected(c23, c01));
+        assert!(dscc.graph().is_connected(c01, c01));
+        assert!(dscc.graph().is_connected(c23, c23));
     }
 
     proptest! {
@@ -485,7 +558,7 @@ mod tests {
                 let _ = graph.insert_vertex();
             }
 
-            let dscc = DSCC::tarjan(&graph);
+            let dscc = SCCQuotient::tarjan(&graph);
             let n = graph.vertex_count();
 
             prop_assert_eq!(dscc.vertex_count(), n);
@@ -506,6 +579,7 @@ mod tests {
                     members.len() > 1 || graph.is_connected(members[0], members[0]);
 
                 prop_assert_eq!(dscc.is_recurrent(class), expected_recurrent);
+                prop_assert_eq!(dscc.graph().is_connected(class, class), expected_recurrent);
             }
         }
     }
