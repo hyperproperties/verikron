@@ -1,32 +1,34 @@
 use std::{ops::Range, slice};
 
 use crate::graphs::{
-    dbm::DBM,
-    graph::{Endpoints, FiniteDirected, FromEndpoints, IndexedDirected},
+    dbm::{DBM, DbmEdgeIds, DbmEdges},
+    graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph, IndexedDirected},
     properties::{Properties, PropertyStoreType},
     quotient::{Quotient, QuotientType},
     scc::SCC,
-    structure::{FiniteVertices, InsertVertex, Structure, VertexType, Vertices},
+    structure::{
+        EdgeType, Edges, FiniteEdges, FiniteVertices, InsertVertex, Structure, VertexType, Vertices,
+    },
 };
 
 /// Dense SCC quotient on vertices `0..vertex_count()`.
 ///
 /// `classes[v]` is the SCC id of `v`.
-/// `members` stores all vertices grouped by SCC, so vertices of the same SCC
-/// occupy one contiguous range.
+/// `members` stores all original vertices grouped by SCC, so each SCC occupies
+/// one contiguous range.
 ///
 /// `graph` is the SCC quotient graph:
 /// - `c -> d` exists iff some original edge goes from SCC `c` to SCC `d`,
 /// - `c -> c` exists iff SCC `c` is recurrent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SCCQuotient {
-    /// SCC id of each vertex.
+    /// SCC id of each original vertex.
     classes: Box<[usize]>,
 
-    /// Vertices grouped by SCC.
+    /// Original vertices grouped contiguously by SCC id.
     members: Box<[usize]>,
 
-    /// SCC quotient graph with recurrence self-loops.
+    /// Quotient graph on SCC ids, with recurrence encoded as self-loops.
     graph: DBM,
 }
 
@@ -46,9 +48,8 @@ impl SCCQuotient {
     /// Computes the dense SCC quotient of `graph` by iterative Tarjan.
     ///
     /// Vertices are assumed to be dense `usize` values in `0..vertex_count()`.
-    /// SCC ids are assigned in pop order. The resulting `members` array stores
-    /// vertices grouped contiguously by SCC. The quotient graph contains edges
-    /// between SCCs and a self-loop on each recurrent SCC.
+    /// SCC ids are assigned in pop order. The quotient graph contains edges
+    /// between distinct SCCs and a self-loop on each recurrent SCC.
     #[must_use]
     #[inline]
     pub fn tarjan<G>(graph: &G) -> Self
@@ -61,30 +62,31 @@ impl SCCQuotient {
 
         let vertex_count = graph.vertex_store().vertex_count();
 
-        // DFS stack of active recursion frames.
+        // DFS stack of active vertices.
         let mut frontier = Vec::<usize>::with_capacity(vertex_count);
 
         // Tarjan stack of discovered but not yet assigned vertices.
         let mut active = Vec::<usize>::with_capacity(vertex_count);
 
-        // Per-vertex DFS resume position.
+        // Per-vertex resume position in the outgoing neighborhood.
         let mut next_out: Box<[usize]> = vec![0; vertex_count].into_boxed_slice();
 
-        // Discovery index and lowlink.
-        // Discovery indices start at 1 so 0 means "undiscovered".
+        // Tarjan discovery times and lowlinks.
+        // Discovery times start at 1 so 0 can mean "undiscovered".
         let mut discoveries: Box<[usize]> = vec![UNDISCOVERED; vertex_count].into_boxed_slice();
         let mut lowlinks: Box<[usize]> = vec![0; vertex_count].into_boxed_slice();
 
-        // Output buffers.
+        // Vertex-to-SCC map and grouped SCC members.
         let mut classes: Box<[usize]> = vec![UNASSIGNED; vertex_count].into_boxed_slice();
         let mut members: Box<[usize]> = vec![0; vertex_count].into_boxed_slice();
 
-        // Temporary recurrence flags, later encoded as quotient self-loops.
+        // Temporary recurrence flags; later encoded as quotient self-loops.
         let mut recurrent: Vec<bool> = Vec::new();
 
         let mut next_discovery = 1usize;
         let mut next_member = 0usize;
 
+        // Start one DFS from each not-yet-discovered vertex.
         for root in graph.vertex_store().vertices() {
             if discoveries[root] != UNDISCOVERED {
                 continue;
@@ -101,6 +103,7 @@ impl SCCQuotient {
             while let Some(&vertex) = frontier.last() {
                 let next = next_out[vertex];
 
+                // Explore the next outgoing neighbor of `vertex`.
                 if let Some(successor) = graph.outgoing_at(vertex, next) {
                     next_out[vertex] += 1;
 
@@ -114,14 +117,14 @@ impl SCCQuotient {
                         active.push(successor);
                     } else if classes[successor] == UNASSIGNED {
                         // Back edge into the active DFS region:
-                        // use discovery index, not lowlink.
+                        // lowlink uses the discovery time of the target.
                         lowlinks[vertex] = lowlinks[vertex].min(discoveries[successor]);
                     }
 
                     continue;
                 }
 
-                // `vertex` is finished now.
+                // All outgoing neighbors of `vertex` have been processed.
                 frontier.pop();
 
                 // If `vertex` is an SCC root, pop exactly that SCC.
@@ -140,11 +143,12 @@ impl SCCQuotient {
                         }
                     }
 
+                    // A finite SCC is recurrent iff it has size > 1 or a self-loop.
                     let size = next_member - start;
                     recurrent.push(size > 1 || graph.has_loop(vertex));
                 }
 
-                // Propagate lowlink to the DFS parent, if any.
+                // Propagate the completed lowlink to the DFS parent, if any.
                 if let Some(&parent) = frontier.last() {
                     lowlinks[parent] = lowlinks[parent].min(lowlinks[vertex]);
                 }
@@ -153,9 +157,9 @@ impl SCCQuotient {
 
         let component_count = recurrent.len();
 
-        // Build the SCC quotient graph:
-        // - inter-component edges from original edges,
-        // - self-loops exactly on recurrent SCCs.
+        // Build the quotient graph:
+        // - inter-component edges come from original edges,
+        // - recurrence is encoded by quotient self-loops.
         let mut quotient = DBM::from_endpoints(
             (0..vertex_count)
                 .flat_map(|from| {
@@ -175,8 +179,8 @@ impl SCCQuotient {
                 ),
         );
 
-        // `from_endpoints` infers vertices from edges, so isolated SCCs would be
-        // dropped. Add missing quotient vertices explicitly.
+        // `from_endpoints` infers vertices from present edges, so isolated SCCs
+        // would disappear unless they are added explicitly.
         while quotient.vertex_count() < component_count {
             assert!(quotient.insert_vertex().is_some());
         }
@@ -291,6 +295,218 @@ impl SCC for SCCQuotient {
     #[inline]
     fn is_recurrent(&self, class: Self::Class) -> bool {
         self.graph.is_connected(class, class)
+    }
+}
+
+impl Vertices for SCCQuotient {
+    type Vertices<'a>
+        = Range<usize>
+    where
+        Self: 'a;
+
+    /// Returns all SCC ids as quotient vertices.
+    #[inline]
+    fn vertices(&self) -> Self::Vertices<'_> {
+        self.graph.vertices()
+    }
+}
+
+impl FiniteVertices for SCCQuotient {
+    /// Returns the number of SCCs.
+    #[inline]
+    fn vertex_count(&self) -> usize {
+        self.graph.vertex_count()
+    }
+
+    /// Returns whether `vertex` is a valid SCC id.
+    #[inline]
+    fn contains(&self, vertex: &Self::Vertex) -> bool {
+        self.graph.contains(vertex)
+    }
+}
+
+impl EdgeType for SCCQuotient {
+    type Edge = usize;
+}
+
+impl Edges for SCCQuotient {
+    type Edges<'a>
+        = DbmEdgeIds<'a>
+    where
+        Self: 'a;
+
+    /// Returns all quotient-edge ids.
+    #[inline]
+    fn edges(&self) -> Self::Edges<'_> {
+        self.graph.edges()
+    }
+}
+
+impl FiniteEdges for SCCQuotient {
+    /// Returns the number of quotient edges.
+    #[inline]
+    fn edge_count(&self) -> usize {
+        self.graph.edge_count()
+    }
+
+    /// Returns whether `edge` is a valid quotient-edge id.
+    #[inline]
+    fn contains_edge(&self, edge: &Self::Edge) -> bool {
+        self.graph.contains_edge(edge)
+    }
+}
+
+impl Structure for SCCQuotient {
+    type Vertices = Self;
+    type Edges = Self;
+
+    /// Returns the quotient edge store.
+    #[inline]
+    fn edge_store(&self) -> &Self::Edges {
+        self
+    }
+
+    /// Returns the quotient vertex store.
+    #[inline]
+    fn vertex_store(&self) -> &Self::Vertices {
+        self
+    }
+}
+
+impl Graph for SCCQuotient {}
+
+impl Directed for SCCQuotient {
+    type Outgoing<'a>
+        = DbmEdges<'a>
+    where
+        Self: 'a;
+
+    type Ingoing<'a>
+        = DbmEdges<'a>
+    where
+        Self: 'a;
+
+    type Connections<'a>
+        = DbmEdges<'a>
+    where
+        Self: 'a;
+
+    /// Returns the source SCC of `edge`.
+    #[inline]
+    fn source(&self, edge: Self::Edge) -> Self::Vertex {
+        self.graph.source(edge)
+    }
+
+    /// Returns the destination SCC of `edge`.
+    #[inline]
+    fn destination(&self, edge: Self::Edge) -> Self::Vertex {
+        self.graph.destination(edge)
+    }
+
+    /// Returns all quotient edges outgoing from `source`.
+    #[inline]
+    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
+        self.graph.outgoing(source)
+    }
+
+    /// Returns all quotient edges ingoing to `destination`.
+    #[inline]
+    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
+        self.graph.ingoing(destination)
+    }
+
+    /// Returns all quotient edges from `from` to `to`.
+    #[inline]
+    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
+        self.graph.connections(from, to)
+    }
+}
+
+impl FiniteDirected for SCCQuotient {
+    /// Returns the number of quotient self-loops at `vertex`.
+    #[inline]
+    fn loop_degree(&self, vertex: Self::Vertex) -> usize {
+        self.graph.loop_degree(vertex)
+    }
+
+    /// Returns the number of outgoing quotient edges from `vertex`.
+    #[inline]
+    fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
+        self.graph.outgoing(vertex).count()
+    }
+
+    /// Returns the number of ingoing quotient edges to `vertex`.
+    #[inline]
+    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
+        self.graph.ingoing(vertex).count()
+    }
+
+    /// Returns whether there is a quotient edge from `from` to `to`.
+    #[inline]
+    fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
+        self.graph.connections(from, to).next().is_some()
+    }
+
+    /// Returns whether `edge` is a quotient edge from `from` to `to`.
+    #[inline]
+    fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
+        self.graph.connections(from, to).any(|(_, e, _)| e == edge)
+    }
+}
+
+impl IndexedDirected for SCCQuotient {
+    /// Returns the number of outgoing neighboring SCCs of `vertex`.
+    #[inline]
+    fn outgoing_count(&self, vertex: Self::Vertex) -> usize {
+        self.graph.outgoing_count(vertex)
+    }
+
+    /// Returns the `index`th outgoing neighboring SCC of `vertex`.
+    #[inline]
+    fn outgoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex> {
+        self.graph.outgoing_at(vertex, index)
+    }
+
+    /// Returns the number of ingoing neighboring SCCs of `vertex`.
+    #[inline]
+    fn ingoing_count(&self, vertex: Self::Vertex) -> usize {
+        self.graph.ingoing_count(vertex)
+    }
+
+    /// Returns the `index`th ingoing neighboring SCC of `vertex`.
+    #[inline]
+    fn ingoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex> {
+        self.graph.ingoing_at(vertex, index)
+    }
+
+    /// Returns whether `vertex` has a quotient self-loop.
+    #[inline]
+    fn has_loop(&self, vertex: Self::Vertex) -> bool {
+        self.graph.has_loop(vertex)
+    }
+
+    /// Returns whether `from` has `to` as an outgoing neighboring SCC.
+    #[inline]
+    fn connects_to(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
+        self.graph.connects_to(from, to)
+    }
+
+    /// Returns the outgoing neighboring SCCs of `vertex`.
+    #[inline]
+    fn outgoing_neighbors(&self, vertex: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_
+    where
+        Self: Sized,
+    {
+        self.graph.outgoing_neighbors(vertex)
+    }
+
+    /// Returns the ingoing neighboring SCCs of `vertex`.
+    #[inline]
+    fn ingoing_neighbors(&self, vertex: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_
+    where
+        Self: Sized,
+    {
+        self.graph.ingoing_neighbors(vertex)
     }
 }
 
