@@ -2,7 +2,10 @@ use std::hash::Hash;
 
 use crate::graphs::{
     backward::Backward,
-    expansion::{BackwardExpansion, Expansion, ForwardExpansion},
+    expansion::{
+        BackwardExpansion, Expansion, ForwardExpansion, HyperBackwardExpansion,
+        HyperForwardExpansion,
+    },
     forward::Forward,
     frontier::SearchFrontier,
     queue_frontier::QueueFrontier,
@@ -18,6 +21,13 @@ use crate::graphs::{
 pub type SequentialForwardSearch<'g, G, V, F> = SequentialSearch<ForwardExpansion<'g, G>, V, F>;
 /// Sequential search over a backward graph.
 pub type SequentialBackwardSearch<'g, G, V, F> = SequentialSearch<BackwardExpansion<'g, G>, V, F>;
+
+/// Sequential search over a forward hypergraphs.
+pub type SequentialHyperForwardSearch<'g, G, V, F> =
+    SequentialSearch<HyperForwardExpansion<'g, G>, V, F>;
+/// Sequential search over a backward hypergraphs.
+pub type SequentialHyperBackwardSearch<'g, G, V, F> =
+    SequentialSearch<HyperBackwardExpansion<'g, G>, V, F>;
 
 /// Generic sequential search over an expansion relation.
 ///

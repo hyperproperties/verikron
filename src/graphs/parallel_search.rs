@@ -4,7 +4,10 @@ use rayon::iter::{IntoParallelRefIterator, ParallelExtend, ParallelIterator};
 
 use crate::graphs::{
     backward::Backward,
-    expansion::{BackwardExpansion, Expansion, ExpansionStateOf, ForwardExpansion},
+    expansion::{
+        BackwardExpansion, Expansion, ExpansionStateOf, ForwardExpansion, HyperBackwardExpansion,
+        HyperForwardExpansion,
+    },
     forward::Forward,
     frontier::IncrementalFrontier,
     layered_frontier::LayeredFrontier,
@@ -19,6 +22,11 @@ use crate::graphs::{
 pub type ParallelForwardSearch<'g, G, V> = ParallelSearch<ForwardExpansion<'g, G>, V>;
 /// Parallel search over a backward graph.
 pub type ParallelBackwardSearch<'g, G, V> = ParallelSearch<BackwardExpansion<'g, G>, V>;
+
+/// Parallel search over a forward graph.
+pub type ParallelHyperForwardSearch<'g, G, V> = ParallelSearch<HyperForwardExpansion<'g, G>, V>;
+/// Parallel search over a backward graph.
+pub type ParallelHyperBackwardSearch<'g, G, V> = ParallelSearch<HyperBackwardExpansion<'g, G>, V>;
 
 /// Default minimum layer size for parallel expansion.
 pub const DEFAULT_PARALLEL_THRESHOLD: usize = 1024;
