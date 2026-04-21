@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use crate::graphs::{backward::Backward, forward::Forward, structure::VertexOf};
 
 /// Local expansion relation for a search.
