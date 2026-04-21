@@ -158,7 +158,6 @@ pub trait FromHyperarcs: Sized + Graph {
         S: IntoIterator<Item = Self::Vertex>;
 }
 
-
 /// Undirected hypergraph interface based on local exploration.
 ///
 /// Suitable for finite, infinite, or implicit hypergraphs.
