@@ -40,25 +40,23 @@ impl<'g, G> ForwardExpansion<'g, G> {
     }
 }
 
-/// Backward graph expansion yielding predecessor vertices.
-#[derive(Debug, Clone, Copy)]
-pub struct BackwardExpansion<'g, G> {
-    graph: &'g G,
-}
+impl<'g, G> Expansion for ForwardExpansion<'g, G>
+where
+    G: Forward,
+{
+    type State = VertexOf<G>;
 
-impl<'g, G> BackwardExpansion<'g, G> {
-    /// Creates a backward expansion wrapper.
-    #[must_use]
-    #[inline]
-    pub const fn new(graph: &'g G) -> Self {
-        Self { graph }
-    }
+    type Successors<'a>
+        = SuccessorVertices<'a, G>
+    where
+        Self: 'a;
 
-    /// Returns the underlying graph.
-    #[must_use]
     #[inline]
-    pub const fn graph(&self) -> &'g G {
-        self.graph
+    fn successors(&self, state: Self::State) -> Self::Successors<'_> {
+        SuccessorVertices {
+            graph: self.graph,
+            edges: self.graph.successors(state),
+        }
     }
 }
 
@@ -84,45 +82,25 @@ where
     }
 }
 
-/// Iterator over predecessor vertices of a graph vertex.
-#[derive(Debug, Clone)]
-pub struct PredecessorVertices<'g, G>
-where
-    G: Backward,
-{
+/// Backward graph expansion yielding predecessor vertices.
+#[derive(Debug, Clone, Copy)]
+pub struct BackwardExpansion<'g, G> {
     graph: &'g G,
-    edges: G::Predecessors<'g>,
 }
 
-impl<'g, G> Iterator for PredecessorVertices<'g, G>
-where
-    G: Backward,
-{
-    type Item = VertexOf<G>;
-
+impl<'g, G> BackwardExpansion<'g, G> {
+    /// Creates a backward expansion wrapper.
+    #[must_use]
     #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.edges.next().map(|edge| self.graph.source(edge))
+    pub const fn new(graph: &'g G) -> Self {
+        Self { graph }
     }
-}
 
-impl<'g, G> Expansion for ForwardExpansion<'g, G>
-where
-    G: Forward,
-{
-    type State = VertexOf<G>;
-
-    type Successors<'a>
-        = SuccessorVertices<'a, G>
-    where
-        Self: 'a;
-
+    /// Returns the underlying graph.
+    #[must_use]
     #[inline]
-    fn successors(&self, state: Self::State) -> Self::Successors<'_> {
-        SuccessorVertices {
-            graph: self.graph,
-            edges: self.graph.successors(state),
-        }
+    pub const fn graph(&self) -> &'g G {
+        self.graph
     }
 }
 
@@ -143,5 +121,27 @@ where
             graph: self.graph,
             edges: self.graph.predecessors(state),
         }
+    }
+}
+
+/// Iterator over predecessor vertices of a graph vertex.
+#[derive(Debug, Clone)]
+pub struct PredecessorVertices<'g, G>
+where
+    G: Backward,
+{
+    graph: &'g G,
+    edges: G::Predecessors<'g>,
+}
+
+impl<'g, G> Iterator for PredecessorVertices<'g, G>
+where
+    G: Backward,
+{
+    type Item = VertexOf<G>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.edges.next().map(|edge| self.graph.source(edge))
     }
 }
