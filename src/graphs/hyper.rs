@@ -8,94 +8,6 @@ use crate::graphs::{
 /// Hyperedge identifier type of `H`.
 pub type HyperedgeOf<H> = EdgeOf<H>;
 
-/// Undirected hypergraph interface based on local exploration.
-///
-/// Suitable for finite, infinite, or implicit hypergraphs.
-pub trait UndirectedHypergraph: Graph {
-    /// Iterator over the member vertices of a hyperedge.
-    type Members<'a>: Iterator<Item = Self::Vertex>
-    where
-        Self: 'a;
-
-    /// Iterator over the hyperedges incident to a vertex.
-    type Incident<'a>: Iterator<Item = Self::Edge>
-    where
-        Self: 'a;
-
-    /// Iterator over the hyperedges containing both `u` and `v`.
-    type Connections<'a>: Iterator<Item = Self::Edge>
-    where
-        Self: 'a;
-
-    /// Returns the member vertices of `hyperedge`.
-    fn members(&self, hyperedge: Self::Edge) -> Self::Members<'_>;
-
-    /// Returns the owned member collection of `hyperedge`.
-    #[must_use]
-    fn hyperedge(&self, hyperedge: Self::Edge) -> Members<Vec<Self::Vertex>>
-    where
-        Self: Sized,
-    {
-        Members::new(self.members(hyperedge).collect())
-    }
-
-    /// Returns the hyperedges incident to `vertex`.
-    fn incident(&self, vertex: Self::Vertex) -> Self::Incident<'_>;
-
-    /// Returns the hyperedges containing both `u` and `v`.
-    fn connections(&self, u: Self::Vertex, v: Self::Vertex) -> Self::Connections<'_>;
-}
-
-/// Finite undirected hypergraph.
-///
-/// Extends [`UndirectedHypergraph`] with finite-style convenience queries.
-pub trait FiniteUndirectedHypergraph: UndirectedHypergraph + FiniteGraph
-where
-    <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
-    <Self as Structure>::Edges: FiniteEdges<Vertex = Self::Vertex, Edge = Self::Edge>,
-{
-    /// Returns the number of members of `hyperedge`.
-    fn cardinality(&self, hyperedge: Self::Edge) -> usize {
-        self.members(hyperedge).count()
-    }
-
-    /// Returns the number of incident hyperedges of `vertex`.
-    fn degree(&self, vertex: Self::Vertex) -> usize {
-        self.incident(vertex).count()
-    }
-
-    /// Returns whether `vertex` is a member of `hyperedge`.
-    fn contains_member(&self, hyperedge: Self::Edge, vertex: Self::Vertex) -> bool {
-        self.members(hyperedge).any(|u| u == vertex)
-    }
-
-    /// Returns whether there exists some hyperedge containing both `u` and `v`.
-    fn is_connected(&self, u: Self::Vertex, v: Self::Vertex) -> bool {
-        self.connections(u, v).next().is_some()
-    }
-
-    /// Returns whether `hyperedge` contains both `u` and `v`.
-    fn has_edge(&self, u: Self::Vertex, hyperedge: Self::Edge, v: Self::Vertex) -> bool {
-        self.connections(u, v).any(|e| e == hyperedge)
-    }
-}
-
-impl<T> FiniteUndirectedHypergraph for T
-where
-    T: UndirectedHypergraph + FiniteGraph,
-    <T as Structure>::Vertices: FiniteVertices<Vertex = T::Vertex>,
-    <T as Structure>::Edges: FiniteEdges<Vertex = T::Vertex, Edge = T::Edge>,
-{
-}
-
-/// Undirected hyperedge insertion.
-pub trait InsertUndirectedHyperedge: EdgeType {
-    /// Inserts a hyperedge from its member vertices.
-    fn insert_hyperedge<S>(&mut self, hyperedge: Members<S>) -> Option<Self::Edge>
-    where
-        S: IntoIterator<Item = Self::Vertex>;
-}
-
 /// Directed hypergraph interface based on local exploration.
 ///
 /// Suitable for finite, infinite, or implicit hypergraphs.
@@ -243,5 +155,94 @@ pub trait FromHyperarcs: Sized + Graph {
     fn from_hyperarcs<I, S>(hyperedges: I) -> Self
     where
         I: IntoIterator<Item = Arc<S>>,
+        S: IntoIterator<Item = Self::Vertex>;
+}
+
+
+/// Undirected hypergraph interface based on local exploration.
+///
+/// Suitable for finite, infinite, or implicit hypergraphs.
+pub trait UndirectedHypergraph: Graph {
+    /// Iterator over the member vertices of a hyperedge.
+    type Members<'a>: Iterator<Item = Self::Vertex>
+    where
+        Self: 'a;
+
+    /// Iterator over the hyperedges incident to a vertex.
+    type Incident<'a>: Iterator<Item = Self::Edge>
+    where
+        Self: 'a;
+
+    /// Iterator over the hyperedges containing both `u` and `v`.
+    type Connections<'a>: Iterator<Item = Self::Edge>
+    where
+        Self: 'a;
+
+    /// Returns the member vertices of `hyperedge`.
+    fn members(&self, hyperedge: Self::Edge) -> Self::Members<'_>;
+
+    /// Returns the owned member collection of `hyperedge`.
+    #[must_use]
+    fn hyperedge(&self, hyperedge: Self::Edge) -> Members<Vec<Self::Vertex>>
+    where
+        Self: Sized,
+    {
+        Members::new(self.members(hyperedge).collect())
+    }
+
+    /// Returns the hyperedges incident to `vertex`.
+    fn incident(&self, vertex: Self::Vertex) -> Self::Incident<'_>;
+
+    /// Returns the hyperedges containing both `u` and `v`.
+    fn connections(&self, u: Self::Vertex, v: Self::Vertex) -> Self::Connections<'_>;
+}
+
+/// Finite undirected hypergraph.
+///
+/// Extends [`UndirectedHypergraph`] with finite-style convenience queries.
+pub trait FiniteUndirectedHypergraph: UndirectedHypergraph + FiniteGraph
+where
+    <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
+    <Self as Structure>::Edges: FiniteEdges<Vertex = Self::Vertex, Edge = Self::Edge>,
+{
+    /// Returns the number of members of `hyperedge`.
+    fn cardinality(&self, hyperedge: Self::Edge) -> usize {
+        self.members(hyperedge).count()
+    }
+
+    /// Returns the number of incident hyperedges of `vertex`.
+    fn degree(&self, vertex: Self::Vertex) -> usize {
+        self.incident(vertex).count()
+    }
+
+    /// Returns whether `vertex` is a member of `hyperedge`.
+    fn contains_member(&self, hyperedge: Self::Edge, vertex: Self::Vertex) -> bool {
+        self.members(hyperedge).any(|u| u == vertex)
+    }
+
+    /// Returns whether there exists some hyperedge containing both `u` and `v`.
+    fn is_connected(&self, u: Self::Vertex, v: Self::Vertex) -> bool {
+        self.connections(u, v).next().is_some()
+    }
+
+    /// Returns whether `hyperedge` contains both `u` and `v`.
+    fn has_edge(&self, u: Self::Vertex, hyperedge: Self::Edge, v: Self::Vertex) -> bool {
+        self.connections(u, v).any(|e| e == hyperedge)
+    }
+}
+
+impl<T> FiniteUndirectedHypergraph for T
+where
+    T: UndirectedHypergraph + FiniteGraph,
+    <T as Structure>::Vertices: FiniteVertices<Vertex = T::Vertex>,
+    <T as Structure>::Edges: FiniteEdges<Vertex = T::Vertex, Edge = T::Edge>,
+{
+}
+
+/// Undirected hyperedge insertion.
+pub trait InsertUndirectedHyperedge: EdgeType {
+    /// Inserts a hyperedge from its member vertices.
+    fn insert_hyperedge<S>(&mut self, hyperedge: Members<S>) -> Option<Self::Edge>
+    where
         S: IntoIterator<Item = Self::Vertex>;
 }
