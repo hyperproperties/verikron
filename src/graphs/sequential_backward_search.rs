@@ -3,10 +3,9 @@ use std::hash::Hash;
 use crate::graphs::{
     backward::Backward,
     frontier::{QueueFrontier, SearchFrontier, StackFrontier},
-    sequential_forward_search::{BFS, DFS},
+    search::VisitedSearch,
     structure::VertexOf,
     visited::Visited,
-    worklist::Worklist,
 };
 
 /// Sequential backward search over a graph.
@@ -69,6 +68,13 @@ where
     #[inline]
     pub fn is_finished(&self) -> bool {
         self.frontier.is_empty()
+    }
+
+    /// Borrows the visited structure while the search is still running.
+    #[must_use]
+    #[inline]
+    pub fn visited(&self) -> &V {
+        &self.visited
     }
 
     /// Consumes the search and returns the visited structure.
@@ -148,33 +154,24 @@ where
     }
 }
 
-impl<'g, G, V, F> Worklist<VertexOf<G>, V> for SequentialBackwardSearch<'g, G, V, F>
+impl<'g, G, V, F> VisitedSearch for SequentialBackwardSearch<'g, G, V, F>
 where
     G: Backward,
     VertexOf<G>: Eq + Hash + Copy,
     V: Visited<VertexOf<G>>,
     F: SearchFrontier<VertexOf<G>>,
 {
-    fn worklist(mut self) -> V {
-        while self.next().is_some() {}
-        self.into_visited()
+    type Visited = V;
+
+    #[inline]
+    fn into_visited(self) -> Self::Visited {
+        self.visited
     }
-}
 
-impl<'g, G, V> DFS<VertexOf<G>> for SequentialBackwardSearch<'g, G, V, StackFrontier<VertexOf<G>>>
-where
-    G: Backward,
-    VertexOf<G>: Eq + Hash + Copy,
-    V: Visited<VertexOf<G>>,
-{
-}
-
-impl<'g, G, V> BFS<VertexOf<G>> for SequentialBackwardSearch<'g, G, V, QueueFrontier<VertexOf<G>>>
-where
-    G: Backward,
-    VertexOf<G>: Eq + Hash + Copy,
-    V: Visited<VertexOf<G>>,
-{
+    #[inline]
+    fn visited(&self) -> &Self::Visited {
+        &self.visited
+    }
 }
 
 #[cfg(test)]
@@ -187,6 +184,7 @@ mod tests {
         csr::CSR,
         graph::{Endpoints, FromEndpoints},
         structure::FiniteVertices,
+        worklist::Worklist,
     };
     use crate::lattices::set::Set;
     use proptest::prelude::*;

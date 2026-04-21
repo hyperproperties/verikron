@@ -5,9 +5,9 @@ use rayon::iter::{IntoParallelRefIterator, ParallelExtend, ParallelIterator};
 use crate::graphs::{
     forward::Forward,
     frontier::{IncrementalFrontier, LayeredFrontier},
+    search::VisitedSearch,
     structure::VertexOf,
     visited::Visited,
-    worklist::Worklist,
 };
 
 /// Default minimum layer size for parallel expansion.
@@ -73,6 +73,7 @@ where
         parallel_threshold: usize,
     ) -> Self {
         let mut initial_layer = Vec::new();
+
         for vertex in initials {
             if visited.visit(vertex) {
                 initial_layer.push(vertex);
@@ -114,6 +115,20 @@ where
     #[inline]
     pub fn is_finished(&self) -> bool {
         self.frontier.is_empty()
+    }
+
+    /// Returns the visited structure.
+    #[must_use]
+    #[inline]
+    pub fn visited(&self) -> &V {
+        &self.visited
+    }
+
+    /// Consumes the BFS and returns the visited structure.
+    #[must_use]
+    #[inline]
+    pub fn into_visited(self) -> V {
+        self.visited
     }
 
     /// Expands one layer sequentially and returns the previous layer.
@@ -226,15 +241,22 @@ where
     }
 }
 
-impl<'g, G, V> Worklist<VertexOf<G>, V> for ParallelGraphBFS<'g, G, V>
+impl<'g, G, V> VisitedSearch for ParallelGraphBFS<'g, G, V>
 where
     G: Forward + Sync,
     VertexOf<G>: Eq + Hash + Copy + Send + Sync,
     V: Visited<VertexOf<G>>,
 {
-    fn worklist(mut self) -> V {
-        while self.next().is_some() {}
+    type Visited = V;
+
+    #[inline]
+    fn into_visited(self) -> Self::Visited {
         self.visited
+    }
+
+    #[inline]
+    fn visited(&self) -> &Self::Visited {
+        &self.visited
     }
 }
 

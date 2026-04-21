@@ -3,21 +3,10 @@ use std::hash::Hash;
 use crate::graphs::{
     forward::Forward,
     frontier::{QueueFrontier, SearchFrontier, StackFrontier},
+    search::VisitedSearch,
     structure::VertexOf,
     visited::Visited,
-    worklist::Worklist,
 };
-
-/// Iterator-based graph search.
-pub trait Search<T>: Iterator<Item = T> {}
-
-impl<T, I> Search<T> for I where I: Iterator<Item = T> {}
-
-/// Depth-first search marker.
-pub trait DFS<T>: Search<T> {}
-
-/// Breadth-first search marker.
-pub trait BFS<T>: Search<T> {}
 
 /// Sequential search over a forward graph.
 ///
@@ -73,6 +62,13 @@ where
     #[inline]
     pub fn is_finished(&self) -> bool {
         self.frontier.is_empty()
+    }
+
+    /// Borrows the visited structure while the search is still running.
+    #[must_use]
+    #[inline]
+    pub fn visited(&self) -> &V {
+        &self.visited
     }
 
     /// Consumes the search and returns the visited structure.
@@ -152,33 +148,24 @@ where
     }
 }
 
-impl<'g, G, V, F> Worklist<VertexOf<G>, V> for SequentialGraphSearch<'g, G, V, F>
+impl<'g, G, V, F> VisitedSearch for SequentialGraphSearch<'g, G, V, F>
 where
     G: Forward,
     VertexOf<G>: Eq + Hash + Copy,
     V: Visited<VertexOf<G>>,
     F: SearchFrontier<VertexOf<G>>,
 {
-    fn worklist(mut self) -> V {
-        while self.next().is_some() {}
-        self.into_visited()
+    type Visited = V;
+
+    #[inline]
+    fn into_visited(self) -> Self::Visited {
+        self.visited
     }
-}
 
-impl<'g, G, V> DFS<VertexOf<G>> for SequentialGraphSearch<'g, G, V, StackFrontier<VertexOf<G>>>
-where
-    G: Forward,
-    VertexOf<G>: Eq + Hash + Copy,
-    V: Visited<VertexOf<G>>,
-{
-}
-
-impl<'g, G, V> BFS<VertexOf<G>> for SequentialGraphSearch<'g, G, V, QueueFrontier<VertexOf<G>>>
-where
-    G: Forward,
-    VertexOf<G>: Eq + Hash + Copy,
-    V: Visited<VertexOf<G>>,
-{
+    #[inline]
+    fn visited(&self) -> &Self::Visited {
+        &self.visited
+    }
 }
 
 #[inline]
