@@ -108,3 +108,6 @@ pub trait CompleteLattice: BoundedLattice {
     /// but the exact behavior should be documented by each implementation.
     fn meet_all<I: IntoIterator<Item = Self>>(iterator: I) -> Self;
 }
+
+/// Join and meet distribute over eachother.
+pub trait DistributiveLattice: JoinSemiLattice + MeetSemiLattice {}
