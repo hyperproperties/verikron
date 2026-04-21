@@ -138,7 +138,8 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let vertex = self.frontier.pop()?;
 
-        for (_, _, successor) in self.graph.successors(vertex) {
+        for edge in self.graph.successors(vertex) {
+            let successor = self.graph.destination(edge);
             if self.visited.visit(successor) {
                 self.frontier.push(successor);
             }
@@ -187,8 +188,10 @@ mod tests {
     use super::*;
 
     use crate::graphs::{
+        arc::{Arc, FromArcs},
         csr::CSR,
-        graph::{Endpoints, FromEndpoints},
+        forward::Forward,
+        graph::Directed,
         structure::FiniteVertices,
         worklist::Worklist,
     };
@@ -197,16 +200,11 @@ mod tests {
     use proptest::prelude::*;
     use std::collections::VecDeque;
 
-    fn arbitrary_instance() -> impl Strategy<Value = (Vec<Endpoints<usize>>, Vec<usize>)> {
+    fn arbitrary_instance() -> impl Strategy<Value = (Vec<(usize, usize)>, Vec<usize>)> {
         prop::collection::vec((0usize..16, 0usize..16), 0..64).prop_flat_map(|raw_edges| {
-            let edges: Vec<_> = raw_edges
-                .into_iter()
-                .map(|(from, to)| Endpoints::new(from, to))
-                .collect();
-
-            let vertex_count = edges
+            let vertex_count = raw_edges
                 .iter()
-                .map(|edge| edge.from.max(edge.to))
+                .map(|&(from, to)| from.max(to))
                 .max()
                 .map(|m| m + 1)
                 .unwrap_or(0);
@@ -217,7 +215,7 @@ mod tests {
                 prop::collection::vec(0usize..vertex_count, 0..16).boxed()
             };
 
-            (Just(edges), initials)
+            (Just(raw_edges), initials)
         })
     }
 
@@ -232,7 +230,8 @@ mod tests {
         }
 
         while let Some(from) = queue.pop_front() {
-            for (_, _, to) in graph.successors(from) {
+            for edge in graph.successors(from) {
+                let to = graph.destination(edge);
                 if visited.visit(to) {
                     queue.push_back(to);
                 }
@@ -272,11 +271,7 @@ mod tests {
 
     #[test]
     fn dfs_on_line_visits_all_vertices() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
 
         let mut dfs: SequentialGraphSearch<CSR, Set<usize>, StackFrontier<usize>> =
             SequentialGraphSearch::dfs(&graph, [0]);
@@ -289,11 +284,7 @@ mod tests {
 
     #[test]
     fn dfs_on_cycle_terminates() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 1),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 1)]);
 
         let mut dfs: SequentialGraphSearch<CSR, Set<usize>, StackFrontier<usize>> =
             SequentialGraphSearch::dfs(&graph, [0]);
@@ -308,7 +299,7 @@ mod tests {
 
     #[test]
     fn bfs_on_empty_graph_is_empty() {
-        let graph = CSR::from_endpoints(std::iter::empty::<Endpoints<usize>>());
+        let graph = CSR::from_arcs(std::iter::empty::<Arc<usize>>());
 
         let mut bfs: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
             SequentialGraphSearch::bfs(&graph, std::iter::empty());
@@ -319,11 +310,7 @@ mod tests {
 
     #[test]
     fn bfs_on_line_visits_vertices_in_layer_order() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
 
         let mut bfs: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
             SequentialGraphSearch::bfs(&graph, [0]);
@@ -336,11 +323,11 @@ mod tests {
 
     #[test]
     fn bfs_respects_layers() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(1, 3),
-            Endpoints::new(2, 3),
+        let graph = CSR::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(1, 3),
+            Arc::new(2, 3),
         ]);
 
         let mut bfs: SequentialGraphSearch<CSR, Set<usize>, QueueFrontier<usize>> =
@@ -361,7 +348,7 @@ mod tests {
 
     #[test]
     fn bfs_on_disconnected_graph_depends_on_initials() {
-        let graph = CSR::from_endpoints([Endpoints::new(0, 1), Endpoints::new(2, 3)]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
 
         let left: Set<usize> =
             SequentialGraphSearch::<CSR, Set<usize>, QueueFrontier<usize>>::bfs(&graph, [0])
@@ -377,11 +364,11 @@ mod tests {
 
     #[test]
     fn bfs_and_dfs_reach_the_same_set() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(1, 3),
-            Endpoints::new(2, 4),
+        let graph = CSR::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(1, 3),
+            Arc::new(2, 4),
         ]);
 
         let bfs: Set<usize> =
@@ -399,7 +386,9 @@ mod tests {
     proptest! {
         #[test]
         fn prop_bfs_bitvector_and_set_visited_agree((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(edges);
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(from, to)| Arc::new(from, to))
+            );
 
             let set_visited: Set<usize> =
                 SequentialGraphSearch::<CSR, Set<usize>, QueueFrontier<usize>>::bfs(
@@ -427,7 +416,9 @@ mod tests {
 
         #[test]
         fn prop_bfs_every_initial_is_visited((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(edges);
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(from, to)| Arc::new(from, to))
+            );
 
             let reachable: Set<usize> =
                 SequentialGraphSearch::<CSR, Set<usize>, QueueFrontier<usize>>::bfs(
@@ -443,7 +434,9 @@ mod tests {
 
         #[test]
         fn prop_bfs_matches_reference((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(edges.clone());
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(from, to)| Arc::new(from, to))
+            );
 
             let actual: Set<usize> =
                 SequentialGraphSearch::<CSR, Set<usize>, QueueFrontier<usize>>::bfs(

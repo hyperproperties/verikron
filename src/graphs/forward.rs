@@ -1,13 +1,18 @@
 use crate::graphs::graph::Directed;
 
-/// Successor view of a directed graph.
+/// Forward exploration for directed graphs.
+///
+/// This is a thin convenience layer over [`Directed`] that exposes outgoing
+/// edges under successor terminology.
 pub trait Forward: Directed {
-    /// Iterator over successors as `(from, edge, to)`.
-    type Successors<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    /// Iterator over successor edges of a vertex.
+    ///
+    /// Each returned edge has source equal to the queried vertex.
+    type Successors<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
-    /// Returns all successors of `vertex`.
+    /// Returns all successor edges of `vertex`.
     fn successors(&self, vertex: Self::Vertex) -> Self::Successors<'_>;
 }
 
@@ -16,7 +21,7 @@ where
     T: Directed,
 {
     type Successors<'a>
-        = T::Outgoing<'a>
+        = <T as Directed>::Outgoing<'a>
     where
         Self: 'a;
 

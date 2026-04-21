@@ -1,7 +1,8 @@
 use std::ops::Range;
 
 use crate::graphs::{
-    graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph},
+    arc::{Arc, FromArcs},
+    graph::{Directed, FiniteDirected, Graph},
     structure::{
         EdgeType, Edges, FiniteEdges, FiniteVertices, InsertEdge, InsertVertex, RemoveEdge,
         RemoveVertex, Structure, VertexType, Vertices,
@@ -67,35 +68,35 @@ impl MCSR {
     }
 }
 
-impl FromEndpoints for MCSR {
-    /// Builds a graph from owned directed edges.
-    fn from_endpoints<I>(edges: I) -> Self
+impl FromArcs for MCSR {
+    /// Builds a graph from owned directed arcs.
+    fn from_arcs<I>(arcs: I) -> Self
     where
-        I: IntoIterator<Item = Endpoints<Self::Vertex>>,
+        I: IntoIterator<Item = Arc<Self::Vertex>>,
     {
-        let mut edges: Vec<_> = edges.into_iter().collect();
+        let mut arcs: Vec<_> = arcs.into_iter().collect();
 
-        if edges.is_empty() {
+        if arcs.is_empty() {
             return Self::new();
         }
 
-        let vertex_count = edges
+        let vertex_count = arcs
             .iter()
-            .map(|edge| edge.from.max(edge.to))
+            .map(|arc| arc.source.max(arc.destination))
             .max()
             .unwrap()
             + 1;
 
-        edges.sort_unstable_by_key(|edge| edge.from);
+        arcs.sort_unstable_by_key(|arc| arc.source);
 
         let mut offsets = vec![0usize; vertex_count + 1];
-        let mut indices = Vec::with_capacity(edges.len());
-        let mut sources = Vec::with_capacity(edges.len());
+        let mut indices = Vec::with_capacity(arcs.len());
+        let mut sources = Vec::with_capacity(arcs.len());
 
-        for edge in edges {
-            offsets[edge.from + 1] += 1;
-            indices.push(edge.to);
-            sources.push(edge.from);
+        for arc in arcs {
+            offsets[arc.source + 1] += 1;
+            indices.push(arc.destination);
+            sources.push(arc.source);
         }
 
         for vertex in 1..=vertex_count {
@@ -300,7 +301,7 @@ impl Directed for MCSR {
     where
         Self: 'a;
 
-    type Ingoing<'a>
+    type Incoming<'a>
         = MCSREdges<'a>
     where
         Self: 'a;
@@ -332,14 +333,18 @@ impl Directed for MCSR {
 
     /// Returns all incoming edges to `destination`.
     #[inline]
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
-        MCSREdges::ingoing(self, destination)
+    fn incoming(&self, destination: Self::Vertex) -> Self::Incoming<'_> {
+        MCSREdges::incoming(self, destination)
     }
 
-    /// Returns all edges from `from` to `to`.
+    /// Returns all edges from `source` to `destination`.
     #[inline]
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        MCSREdges::connections(self, from, to)
+    fn connections(
+        &self,
+        source: Self::Vertex,
+        destination: Self::Vertex,
+    ) -> Self::Connections<'_> {
+        MCSREdges::connections(self, source, destination)
     }
 }
 
@@ -355,7 +360,7 @@ impl FiniteDirected for MCSR {
 
     /// Returns the number of incoming edges to `vertex`.
     #[inline]
-    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
+    fn incoming_degree(&self, vertex: Self::Vertex) -> usize {
         if !self.contains(&vertex) {
             return 0;
         }
@@ -389,17 +394,15 @@ pub struct MCSREdges<'a> {
 #[derive(Debug, Clone)]
 enum MCSREdgesKind {
     Outgoing {
-        source: usize,
         edge: usize,
         end: usize,
     },
-    Ingoing {
+    Incoming {
         destination: usize,
         edge: usize,
         end: usize,
     },
     Connections {
-        source: usize,
         destination: usize,
         edge: usize,
         end: usize,
@@ -417,20 +420,20 @@ impl<'a> MCSREdges<'a> {
 
         Self {
             graph,
-            kind: MCSREdgesKind::Outgoing { source, edge, end },
+            kind: MCSREdgesKind::Outgoing { edge, end },
         }
     }
 
     #[must_use]
     #[inline]
-    fn ingoing(graph: &'a MCSR, destination: usize) -> Self {
+    fn incoming(graph: &'a MCSR, destination: usize) -> Self {
         if !graph.contains(&destination) {
             return Self::empty(graph);
         }
 
         Self {
             graph,
-            kind: MCSREdgesKind::Ingoing {
+            kind: MCSREdgesKind::Incoming {
                 destination,
                 edge: 0,
                 end: graph.edge_count(),
@@ -452,7 +455,6 @@ impl<'a> MCSREdges<'a> {
         Self {
             graph,
             kind: MCSREdgesKind::Connections {
-                source,
                 destination,
                 edge,
                 end,
@@ -471,21 +473,21 @@ impl<'a> MCSREdges<'a> {
 }
 
 impl<'a> Iterator for MCSREdges<'a> {
-    type Item = (usize, usize, usize);
+    type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.kind {
-            MCSREdgesKind::Outgoing { source, edge, end } => {
+            MCSREdgesKind::Outgoing { edge, end } => {
                 if *edge >= *end {
                     return None;
                 }
 
                 let current = *edge;
                 *edge += 1;
-                Some((*source, current, self.graph.indices[current]))
+                Some(current)
             }
 
-            MCSREdgesKind::Ingoing {
+            MCSREdgesKind::Incoming {
                 destination,
                 edge,
                 end,
@@ -495,14 +497,13 @@ impl<'a> Iterator for MCSREdges<'a> {
                     *edge += 1;
 
                     if self.graph.indices[current] == *destination {
-                        return Some((self.graph.sources[current], current, *destination));
+                        return Some(current);
                     }
                 }
                 None
             }
 
             MCSREdgesKind::Connections {
-                source,
                 destination,
                 edge,
                 end,
@@ -512,7 +513,7 @@ impl<'a> Iterator for MCSREdges<'a> {
                     *edge += 1;
 
                     if self.graph.indices[current] == *destination {
-                        return Some((*source, current, *destination));
+                        return Some(current);
                     }
                 }
                 None
@@ -528,8 +529,9 @@ mod tests {
     use super::*;
 
     use crate::graphs::{
+        arc::{Arc, FromArcs},
         csr::CSR,
-        graph::{Directed, FiniteDirected, FromEndpoints},
+        graph::{Directed, FiniteDirected},
         structure::{Edges, FiniteEdges, FiniteVertices},
     };
 
@@ -595,7 +597,7 @@ mod tests {
                 .iter()
                 .filter(|&&(from, _)| from == vertex)
                 .count();
-            let expected_ingoing = expected_edges
+            let expected_incoming = expected_edges
                 .iter()
                 .filter(|&&(_, to)| to == vertex)
                 .count();
@@ -605,14 +607,20 @@ mod tests {
                 .count();
 
             assert_eq!(graph.outgoing_degree(vertex), expected_outgoing);
-            assert_eq!(graph.ingoing_degree(vertex), expected_ingoing);
+            assert_eq!(graph.incoming_degree(vertex), expected_incoming);
             assert_eq!(graph.loop_degree(vertex), expected_loops);
 
-            let outgoing_targets: Vec<_> = graph.outgoing(vertex).map(|(_, _, to)| to).collect();
+            let outgoing_targets: Vec<_> = graph
+                .outgoing(vertex)
+                .map(|edge| graph.destination(edge))
+                .collect();
             assert_eq!(outgoing_targets.len(), expected_outgoing);
 
-            let ingoing_sources: Vec<_> = graph.ingoing(vertex).map(|(from, _, _)| from).collect();
-            assert_eq!(ingoing_sources.len(), expected_ingoing);
+            let incoming_sources: Vec<_> = graph
+                .incoming(vertex)
+                .map(|edge| graph.source(edge))
+                .collect();
+            assert_eq!(incoming_sources.len(), expected_incoming);
         }
 
         for &(from, to) in expected_edges {
@@ -632,18 +640,8 @@ mod tests {
     }
 
     fn assert_mcsr_matches_csr(edges: &[(usize, usize)]) {
-        let mcsr = MCSR::from_endpoints(
-            edges
-                .iter()
-                .copied()
-                .map(|(from, to)| Endpoints::new(from, to)),
-        );
-        let csr = CSR::from_endpoints(
-            edges
-                .iter()
-                .copied()
-                .map(|(from, to)| Endpoints::new(from, to)),
-        );
+        let mcsr = MCSR::from_arcs(edges.iter().copied().map(|(from, to)| Arc::new(from, to)));
+        let csr = CSR::from_arcs(edges.iter().copied().map(|(from, to)| Arc::new(from, to)));
 
         assert_eq!(mcsr.vertex_count(), csr.vertex_count());
         assert_eq!(mcsr.edge_count(), csr.edge_count());
@@ -651,7 +649,7 @@ mod tests {
 
         for vertex in 0..mcsr.vertex_count() {
             assert_eq!(mcsr.outgoing_degree(vertex), csr.outgoing_degree(vertex));
-            assert_eq!(mcsr.ingoing_degree(vertex), csr.ingoing_degree(vertex));
+            assert_eq!(mcsr.incoming_degree(vertex), csr.incoming_degree(vertex));
             assert_eq!(mcsr.loop_degree(vertex), csr.loop_degree(vertex));
         }
     }
@@ -672,8 +670,8 @@ mod tests {
     }
 
     #[test]
-    fn from_endpoints_empty_is_empty() {
-        let graph = MCSR::from_endpoints(std::iter::empty::<Endpoints<usize>>());
+    fn from_arcs_empty_is_empty() {
+        let graph = MCSR::from_arcs(std::iter::empty::<Arc<usize>>());
 
         assert_eq!(graph.vertex_count(), 0);
         assert_eq!(graph.edge_count(), 0);
@@ -681,27 +679,22 @@ mod tests {
     }
 
     #[test]
-    fn from_endpoints_matches_input_multiset() {
+    fn from_arcs_matches_input_multiset() {
         let edges = vec![(0, 1), (0, 2), (2, 1), (2, 1), (3, 3)];
-        let graph = MCSR::from_endpoints(
-            edges
-                .iter()
-                .copied()
-                .map(|(from, to)| Endpoints::new(from, to)),
-        );
+        let graph = MCSR::from_arcs(edges.iter().copied().map(|(from, to)| Arc::new(from, to)));
 
         assert_graph_matches_edges(&graph, &edges);
     }
 
     #[test]
-    fn from_endpoints_matches_csr() {
+    fn from_arcs_matches_csr() {
         let edges = vec![(0, 1), (0, 2), (2, 1), (2, 1), (3, 3)];
         assert_mcsr_matches_csr(&edges);
     }
 
     #[test]
     fn insert_vertex_appends_isolated_vertex() {
-        let mut graph = MCSR::from_endpoints([Endpoints::new(0, 1), Endpoints::new(1, 2)]);
+        let mut graph = MCSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2)]);
 
         let new_vertex = graph.insert_vertex();
 
@@ -709,13 +702,13 @@ mod tests {
         assert_eq!(graph.vertex_count(), 4);
         assert_eq!(graph.edge_count(), 2);
         assert_eq!(graph.outgoing_degree(3), 0);
-        assert_eq!(graph.ingoing_degree(3), 0);
+        assert_eq!(graph.incoming_degree(3), 0);
         assert_eq!(sorted_edge_pairs(&graph), vec![(0, 1), (1, 2)]);
     }
 
     #[test]
     fn insert_edge_adds_edge_when_endpoints_exist() {
-        let mut graph = MCSR::from_endpoints([Endpoints::new(0, 1), Endpoints::new(1, 2)]);
+        let mut graph = MCSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2)]);
 
         let edge = graph.insert_edge(2, 0);
 
@@ -727,7 +720,7 @@ mod tests {
 
     #[test]
     fn insert_edge_rejects_out_of_bounds_vertices() {
-        let mut graph = MCSR::from_endpoints([Endpoints::new(0, 1)]);
+        let mut graph = MCSR::from_arcs([Arc::new(0, 1)]);
 
         assert_eq!(graph.insert_edge(0, 2), None);
         assert_eq!(graph.insert_edge(2, 0), None);
@@ -737,11 +730,7 @@ mod tests {
 
     #[test]
     fn remove_edge_removes_requested_edge() {
-        let mut graph = MCSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(1, 2),
-        ]);
+        let mut graph = MCSR::from_arcs([Arc::new(0, 1), Arc::new(0, 2), Arc::new(1, 2)]);
 
         let removed = graph.remove_edge(1);
 
@@ -753,7 +742,7 @@ mod tests {
 
     #[test]
     fn remove_edge_rejects_out_of_bounds_edge() {
-        let mut graph = MCSR::from_endpoints([Endpoints::new(0, 1)]);
+        let mut graph = MCSR::from_arcs([Arc::new(0, 1)]);
 
         assert!(!graph.remove_edge(1));
         assert_eq!(graph.edge_count(), 1);
@@ -762,12 +751,12 @@ mod tests {
 
     #[test]
     fn remove_vertex_removes_incident_edges_and_shifts_vertices() {
-        let mut graph = MCSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
-            Endpoints::new(3, 0),
-            Endpoints::new(3, 3),
+        let mut graph = MCSR::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(1, 2),
+            Arc::new(2, 3),
+            Arc::new(3, 0),
+            Arc::new(3, 3),
         ]);
 
         let removed = graph.remove_vertex(1);
@@ -780,7 +769,7 @@ mod tests {
 
     #[test]
     fn remove_vertex_rejects_out_of_bounds_vertex() {
-        let mut graph = MCSR::from_endpoints([Endpoints::new(0, 1)]);
+        let mut graph = MCSR::from_arcs([Arc::new(0, 1)]);
 
         assert!(!graph.remove_vertex(2));
         assert_eq!(graph.vertex_count(), 2);
@@ -801,12 +790,8 @@ mod tests {
     }
 
     #[test]
-    fn source_target_and_edge_iterator_agree() {
-        let graph = MCSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(2, 2),
-        ]);
+    fn source_destination_and_edge_iterator_agree() {
+        let graph = MCSR::from_arcs([Arc::new(0, 1), Arc::new(0, 2), Arc::new(2, 2)]);
 
         for edge in graph.edges() {
             let from = graph.source(edge);
@@ -817,11 +802,11 @@ mod tests {
 
     #[test]
     fn connections_match_edge_multiplicity() {
-        let graph = MCSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(1, 1),
+        let graph = MCSR::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(1, 1),
         ]);
 
         assert_eq!(graph.connections(0, 1).count(), 2);
@@ -832,27 +817,27 @@ mod tests {
 
     proptest! {
         #[test]
-        fn prop_from_endpoints_matches_input(edges in arbitrary_edges()) {
-            let graph = MCSR::from_endpoints(
+        fn prop_from_arcs_matches_input(edges in arbitrary_edges()) {
+            let graph = MCSR::from_arcs(
                 edges.iter()
                     .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
+                    .map(|(from, to)| Arc::new(from, to)),
             );
 
             assert_graph_matches_edges(&graph, &edges);
         }
 
         #[test]
-        fn prop_from_endpoints_matches_csr(edges in arbitrary_edges()) {
+        fn prop_from_arcs_matches_csr(edges in arbitrary_edges()) {
             assert_mcsr_matches_csr(&edges);
         }
 
         #[test]
         fn prop_insert_vertex_preserves_existing_edges(edges in arbitrary_edges()) {
-            let mut graph = MCSR::from_endpoints(
+            let mut graph = MCSR::from_arcs(
                 edges.iter()
                     .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
+                    .map(|(from, to)| Arc::new(from, to)),
             );
 
             let old_vertex_count = graph.vertex_count();
@@ -864,7 +849,7 @@ mod tests {
             prop_assert_eq!(graph.vertex_count(), old_vertex_count + 1);
             prop_assert_eq!(sorted_edge_pairs(&graph), old_edges);
             prop_assert_eq!(graph.outgoing_degree(old_vertex_count), 0);
-            prop_assert_eq!(graph.ingoing_degree(old_vertex_count), 0);
+            prop_assert_eq!(graph.incoming_degree(old_vertex_count), 0);
         }
 
         #[test]
@@ -873,10 +858,10 @@ mod tests {
             from in 0usize..16,
             to in 0usize..16,
         ) {
-            let mut graph = MCSR::from_endpoints(
+            let mut graph = MCSR::from_arcs(
                 edges.iter()
                     .copied()
-                    .map(|(u, v)| Endpoints::new(u, v)),
+                    .map(|(u, v)| Arc::new(u, v)),
             );
 
             if from < graph.vertex_count() && to < graph.vertex_count() {
@@ -902,10 +887,10 @@ mod tests {
             edges in arbitrary_edges(),
             edge_hint in 0usize..80,
         ) {
-            let mut graph = MCSR::from_endpoints(
+            let mut graph = MCSR::from_arcs(
                 edges.iter()
                     .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
+                    .map(|(from, to)| Arc::new(from, to)),
             );
 
             let old_edge_count = graph.edge_count();
@@ -939,10 +924,10 @@ mod tests {
             edges in arbitrary_edges(),
             vertex_hint in 0usize..20,
         ) {
-            let mut graph = MCSR::from_endpoints(
+            let mut graph = MCSR::from_arcs(
                 edges.iter()
                     .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
+                    .map(|(from, to)| Arc::new(from, to)),
             );
 
             let old_vertex_count = graph.vertex_count();

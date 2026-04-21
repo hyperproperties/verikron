@@ -136,7 +136,8 @@ where
     pub fn sequential_step(&mut self) -> Option<Vec<VertexOf<G>>> {
         self.frontier.step(|current, next| {
             for &from in current {
-                for (_, _, to) in self.graph.successors(from) {
+                for edge in self.graph.successors(from) {
+                    let to = self.graph.destination(edge);
                     if self.visited.visit(to) {
                         next.push(to);
                     }
@@ -187,11 +188,12 @@ where
         self.frontier.step(|current, next| {
             self.scratch.clear();
 
-            self.scratch.par_extend(
-                current
-                    .par_iter()
-                    .flat_map_iter(|&from| self.graph.successors(from).map(|(_, _, to)| to)),
-            );
+            self.scratch
+                .par_extend(current.par_iter().flat_map_iter(|&from| {
+                    self.graph
+                        .successors(from)
+                        .map(|edge| self.graph.destination(edge))
+                }));
 
             for to in self.scratch.drain(..) {
                 if self.visited.visit(to) {
@@ -265,8 +267,10 @@ mod tests {
     use super::*;
 
     use crate::graphs::{
+        arc::{Arc, FromArcs},
         csr::CSR,
-        graph::{Endpoints, FromEndpoints},
+        forward::Forward,
+        graph::Directed,
         structure::FiniteVertices,
         worklist::Worklist,
     };
@@ -286,7 +290,8 @@ mod tests {
         }
 
         while let Some(from) = queue.pop_front() {
-            for (_, _, to) in graph.successors(from) {
+            for edge in graph.successors(from) {
+                let to = graph.destination(edge);
                 if visited.visit(to) {
                     queue.push_back(to);
                 }
@@ -317,7 +322,7 @@ mod tests {
 
     #[test]
     fn bfs_empty_graph_without_initials_is_empty() {
-        let graph = CSR::from_endpoints(std::iter::empty::<Endpoints<usize>>());
+        let graph = CSR::from_arcs(std::iter::empty::<Arc<usize>>());
         let mut bfs: ParallelGraphBFS<CSR, Set<usize>> =
             ParallelGraphBFS::new(&graph, std::iter::empty());
 
@@ -327,11 +332,7 @@ mod tests {
 
     #[test]
     fn bfs_line_graph_visits_vertices_in_layer_order() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
         let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
 
         let order: Vec<_> = bfs.by_ref().collect();
@@ -342,11 +343,11 @@ mod tests {
 
     #[test]
     fn bfs_branching_graph_reaches_all_reachable_vertices() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(1, 3),
-            Endpoints::new(2, 3),
+        let graph = CSR::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(1, 3),
+            Arc::new(2, 3),
         ]);
         let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
 
@@ -359,11 +360,7 @@ mod tests {
 
     #[test]
     fn bfs_cycle_graph_terminates() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 1),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 1)]);
         let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
 
         let mut seen: Vec<_> = bfs.by_ref().collect();
@@ -376,7 +373,7 @@ mod tests {
 
     #[test]
     fn worklist_on_disconnected_graph_depends_on_initials() {
-        let graph = CSR::from_endpoints([Endpoints::new(0, 1), Endpoints::new(2, 3)]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
 
         let from_left: Set<usize> =
             ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [0]).worklist();
@@ -392,11 +389,7 @@ mod tests {
 
     #[test]
     fn worklist_handles_loops() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 0),
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 1),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 0), Arc::new(0, 1), Arc::new(1, 1)]);
 
         let reachable: Set<usize> =
             ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [0]).worklist();
@@ -406,14 +399,14 @@ mod tests {
 
     #[test]
     fn sequential_and_parallel_step_agree() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(1, 3),
-            Endpoints::new(2, 3),
-            Endpoints::new(3, 4),
-            Endpoints::new(4, 5),
-            Endpoints::new(5, 3),
+        let graph = CSR::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(1, 3),
+            Arc::new(2, 3),
+            Arc::new(3, 4),
+            Arc::new(4, 5),
+            Arc::new(5, 3),
         ]);
 
         let mut sequential: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
@@ -440,10 +433,10 @@ mod tests {
     proptest! {
         #[test]
         fn prop_worklist_matches_reference_bfs((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(
+            let graph = CSR::from_arcs(
                 edges.iter()
                     .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
+                    .map(|(from, to)| Arc::new(from, to)),
             );
 
             let actual: Set<usize> =
@@ -456,10 +449,10 @@ mod tests {
 
         #[test]
         fn prop_bitvector_and_set_visited_agree((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(
+            let graph = CSR::from_arcs(
                 edges.iter()
                     .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
+                    .map(|(from, to)| Arc::new(from, to)),
             );
 
             let set_result: Set<usize> =
@@ -480,10 +473,10 @@ mod tests {
 
         #[test]
         fn prop_worklist_is_idempotent((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(
+            let graph = CSR::from_arcs(
                 edges.iter()
                     .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
+                    .map(|(from, to)| Arc::new(from, to)),
             );
 
             let first: Set<usize> =
@@ -497,10 +490,10 @@ mod tests {
 
         #[test]
         fn prop_every_initial_is_reached((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(
+            let graph = CSR::from_arcs(
                 edges.iter()
                     .copied()
-                    .map(|(from, to)| Endpoints::new(from, to)),
+                    .map(|(from, to)| Arc::new(from, to)),
             );
 
             let reachable: Set<usize> =

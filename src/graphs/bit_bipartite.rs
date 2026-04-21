@@ -1,9 +1,10 @@
 use bit_vec::BitVec;
 
 use crate::graphs::{
+    arc::{Arc, FromArcs},
     bipartite::{BipartiteVertices, RepartitionError, RepartitionVertex, Side},
-    colored::{ColoredVertices, FromColoredEndpoints, InsertColoredVertex, VertexColor},
-    graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph},
+    colored::{ColoredVertices, FromColoredArcs, InsertColoredVertex, VertexColor},
+    graph::{Directed, FiniteDirected, Graph},
     structure::{
         EdgeType, Edges, FiniteEdges, FiniteVertices, InsertEdge, InsertVertex, Structure,
         VertexType, Vertices,
@@ -28,9 +29,9 @@ pub struct BitBipartite<G> {
 
 impl<G> BitBipartite<G>
 where
-    G: Graph + Directed + VertexType<Vertex = usize>,
-    G::Vertices: FiniteVertices<Vertex = usize>,
-    G::Edges: FiniteEdges<Vertex = usize, Edge = G::Edge>,
+    G: Directed + VertexType<Vertex = usize>,
+    G::Vertices: Vertices<Vertex = usize> + FiniteVertices<Vertex = usize>,
+    G::Edges: Edges<Vertex = usize, Edge = G::Edge> + FiniteEdges<Vertex = usize, Edge = G::Edge>,
 {
     #[must_use]
     #[inline]
@@ -61,11 +62,11 @@ where
 
         for edge in graph.edge_store().edges() {
             let source = graph.source(edge);
-            let target = graph.destination(edge);
+            let destination = graph.destination(edge);
 
             assert_ne!(
                 colors.get(source),
-                colors.get(target),
+                colors.get(destination),
                 "BitBipartite requires every edge to cross the partition",
             );
         }
@@ -200,7 +201,7 @@ where
 
 impl<G> Directed for BitBipartite<G>
 where
-    G: Graph + Directed + VertexType<Vertex = usize>,
+    G: Directed + VertexType<Vertex = usize>,
     G::Vertices: FiniteVertices<Vertex = usize>,
 {
     type Outgoing<'a>
@@ -209,8 +210,8 @@ where
         Self: 'a,
         G: 'a;
 
-    type Ingoing<'a>
-        = G::Ingoing<'a>
+    type Incoming<'a>
+        = G::Incoming<'a>
     where
         Self: 'a,
         G: 'a;
@@ -237,19 +238,23 @@ where
     }
 
     #[inline]
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
-        self.graph.ingoing(destination)
+    fn incoming(&self, destination: Self::Vertex) -> Self::Incoming<'_> {
+        self.graph.incoming(destination)
     }
 
     #[inline]
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        self.graph.connections(from, to)
+    fn connections(
+        &self,
+        source: Self::Vertex,
+        destination: Self::Vertex,
+    ) -> Self::Connections<'_> {
+        self.graph.connections(source, destination)
     }
 }
 
 impl<G> FiniteDirected for BitBipartite<G>
 where
-    G: Graph + FiniteDirected + VertexType<Vertex = usize>,
+    G: FiniteDirected + VertexType<Vertex = usize>,
     G::Vertices: FiniteVertices<Vertex = usize>,
     G::Edges: FiniteEdges<Vertex = usize, Edge = G::Edge>,
 {
@@ -264,18 +269,18 @@ where
     }
 
     #[inline]
-    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
-        self.graph.ingoing_degree(vertex)
+    fn incoming_degree(&self, vertex: Self::Vertex) -> usize {
+        self.graph.incoming_degree(vertex)
     }
 
     #[inline]
-    fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
-        self.graph.is_connected(from, to)
+    fn is_connected(&self, source: Self::Vertex, destination: Self::Vertex) -> bool {
+        self.graph.is_connected(source, destination)
     }
 
     #[inline]
-    fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
-        self.graph.has_edge(from, edge, to)
+    fn has_edge(&self, source: Self::Vertex, edge: Self::Edge, destination: Self::Vertex) -> bool {
+        self.graph.has_edge(source, edge, destination)
     }
 }
 
@@ -348,7 +353,7 @@ where
 
 impl<G> RepartitionVertex for BitBipartite<G>
 where
-    G: Graph + Directed + VertexType<Vertex = usize>,
+    G: Directed + VertexType<Vertex = usize>,
     G::Vertices: FiniteVertices<Vertex = usize>,
 {
     /// Moves `vertex` to `side` if all incident edges remain bipartite.
@@ -370,13 +375,15 @@ where
             return Ok(old_side);
         }
 
-        for (_, _, target) in self.graph.outgoing(vertex) {
+        for edge in self.graph.outgoing(vertex) {
+            let target = self.graph.destination(edge);
             if self.colors.get(target) == Some(new_bit) {
                 return Err(RepartitionError::ViolatesBipartiteness);
             }
         }
 
-        for (source, _, _) in self.graph.ingoing(vertex) {
+        for edge in self.graph.incoming(vertex) {
+            let source = self.graph.source(edge);
             if self.colors.get(source) == Some(new_bit) {
                 return Err(RepartitionError::ViolatesBipartiteness);
             }
@@ -387,25 +394,25 @@ where
     }
 }
 
-impl<G> FromColoredEndpoints for BitBipartite<G>
+impl<G> FromColoredArcs for BitBipartite<G>
 where
-    G: FromEndpoints + Graph + Directed + InsertVertex + VertexType<Vertex = usize>,
-    G::Vertices: FiniteVertices<Vertex = usize>,
-    G::Edges: FiniteEdges<Vertex = usize, Edge = G::Edge>,
+    G: FromArcs + Directed + InsertVertex + VertexType<Vertex = usize>,
+    G::Vertices: Vertices<Vertex = usize> + FiniteVertices<Vertex = usize>,
+    G::Edges: Edges<Vertex = usize, Edge = G::Edge> + FiniteEdges<Vertex = usize, Edge = G::Edge>,
 {
-    /// Builds a bipartite graph from endpoints and vertex colors.
+    /// Builds a bipartite graph from arcs and vertex colors.
     ///
     /// Missing isolated vertices are inserted so the graph has one vertex per
     /// color entry.
     #[inline]
-    fn from_endpoints_and_colors<E, C>(edges: E, colors: C) -> Self
+    fn from_arcs_and_colors<A, C>(arcs: A, colors: C) -> Self
     where
         Self: Sized,
-        E: IntoIterator<Item = Endpoints<Self::Vertex>>,
+        A: IntoIterator<Item = Arc<Self::Vertex>>,
         C: IntoIterator<Item = Self::Color>,
     {
         let colors: Vec<Side> = colors.into_iter().collect();
-        let mut graph = G::from_endpoints(edges);
+        let mut graph = G::from_arcs(arcs);
 
         assert!(
             graph.vertex_store().vertex_count() <= colors.len(),
@@ -430,8 +437,9 @@ mod tests {
     use super::*;
 
     use crate::graphs::{
+        arc::Arc,
         bipartite::{RepartitionError, RepartitionVertex, Side},
-        colored::{ColoredVertices, FromColoredEndpoints, InsertColoredVertex},
+        colored::{ColoredVertices, FromColoredArcs, InsertColoredVertex},
         graph::{Directed, FiniteDirected},
         mcsr::MCSR,
         structure::{FiniteEdges, FiniteVertices, InsertEdge},
@@ -439,11 +447,11 @@ mod tests {
     use proptest::prelude::*;
 
     fn make_bipartite(edges: &[(usize, usize)], sides: &[Side]) -> BitBipartite<MCSR> {
-        BitBipartite::<MCSR>::from_endpoints_and_colors(
+        BitBipartite::<MCSR>::from_arcs_and_colors(
             edges
                 .iter()
                 .copied()
-                .map(|(from, to)| Endpoints::new(from, to)),
+                .map(|(source, destination)| Arc::new(source, destination)),
             sides.iter().copied(),
         )
     }
@@ -465,13 +473,15 @@ mod tests {
             return true;
         }
 
-        for (_, _, to) in graph.outgoing(vertex) {
+        for edge in graph.outgoing(vertex) {
+            let to = graph.destination(edge);
             if graph.vertex_color(to) == Some(new_side) {
                 return false;
             }
         }
 
-        for (from, _, _) in graph.ingoing(vertex) {
+        for edge in graph.incoming(vertex) {
+            let from = graph.source(edge);
             if graph.vertex_color(from) == Some(new_side) {
                 return false;
             }
@@ -604,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn from_endpoints_and_colors_adds_isolated_vertices() {
+    fn from_arcs_and_colors_adds_isolated_vertices() {
         let graph = make_bipartite(&[(0, 1)], &[Side::Left, Side::Right, Side::Left]);
 
         assert_eq!(graph.vertex_count(), 3);
@@ -626,9 +636,9 @@ mod tests {
         assert_eq!(graph.outgoing_degree(1), 0);
         assert_eq!(graph.outgoing_degree(2), 2);
 
-        assert_eq!(graph.ingoing_degree(0), 0);
-        assert_eq!(graph.ingoing_degree(1), 2);
-        assert_eq!(graph.ingoing_degree(3), 1);
+        assert_eq!(graph.incoming_degree(0), 0);
+        assert_eq!(graph.incoming_degree(1), 2);
+        assert_eq!(graph.incoming_degree(3), 1);
 
         assert_eq!(graph.loop_degree(0), 0);
         assert!(graph.is_connected(0, 1));

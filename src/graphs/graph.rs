@@ -1,4 +1,8 @@
-use crate::graphs::structure::{FiniteEdges, FiniteStructure, FiniteVertices, Structure};
+use crate::graphs::{
+    arc::Arc,
+    endpoints::Endpoints,
+    structure::{FiniteEdges, FiniteStructure, FiniteVertices, Structure},
+};
 
 /// Marker trait for edge-vertex structures.
 ///
@@ -10,20 +14,20 @@ pub trait Graph: Structure {}
 
 /// Directed graph interface based on local exploration.
 ///
-/// Suitable for infinite or implicit graphs.
+/// Suitable for finite, infinite, or implicit graphs.
 pub trait Directed: Graph {
     /// Iterator over outgoing edges from a source vertex.
-    type Outgoing<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    type Outgoing<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
     /// Iterator over incoming edges to a destination vertex.
-    type Ingoing<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    type Incoming<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
-    /// Iterator over edges from `from` to `to`.
-    type Connections<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    /// Iterator over edges from `source` to `destination`.
+    type Connections<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
@@ -33,19 +37,21 @@ pub trait Directed: Graph {
     /// Returns the destination vertex of `edge`.
     fn destination(&self, edge: Self::Edge) -> Self::Vertex;
 
-    /// Returns the endpoints of `edge`.
-    fn endpoints(&self, edge: Self::Edge) -> Endpoints<Self::Vertex> {
-        Endpoints::new(self.source(edge), self.destination(edge))
+    /// Returns the directed endpoints of `edge`.
+    #[must_use]
+    fn arc(&self, edge: Self::Edge) -> Arc<Self::Vertex> {
+        Arc::new(self.source(edge), self.destination(edge))
     }
 
     /// Returns all outgoing edges from `source`.
     fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_>;
 
     /// Returns all incoming edges to `destination`.
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_>;
+    fn incoming(&self, destination: Self::Vertex) -> Self::Incoming<'_>;
 
-    /// Returns all edges from `from` to `to`.
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_>;
+    /// Returns all edges from `source` to `destination`.
+    fn connections(&self, source: Self::Vertex, destination: Self::Vertex)
+    -> Self::Connections<'_>;
 }
 
 /// Finite directed graph.
@@ -62,38 +68,35 @@ where
     }
 
     /// Returns the number of incoming edges to `vertex`.
-    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
-        self.ingoing(vertex).count()
+    fn incoming_degree(&self, vertex: Self::Vertex) -> usize {
+        self.incoming(vertex).count()
     }
 
     /// Returns the number of loop edges at `vertex`.
     fn loop_degree(&self, vertex: Self::Vertex) -> usize;
 
-    /// Returns true if `from` and `to` is connected by some edge.
-    fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
-        self.connections(from, to).next().is_some()
+    /// Returns whether there exists some edge from `source` to `destination`.
+    fn is_connected(&self, source: Self::Vertex, destination: Self::Vertex) -> bool {
+        self.connections(source, destination).next().is_some()
     }
 
-    /// Returns whether `edge` is an edge from `from` to `to`.
-    fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
-        self.connections(from, to).any(|(_, e, _)| e == edge)
+    /// Returns whether `edge` is an edge from `source` to `destination`.
+    fn has_edge(&self, source: Self::Vertex, edge: Self::Edge, destination: Self::Vertex) -> bool {
+        self.connections(source, destination).any(|e| e == edge)
     }
 }
 
 /// Directed graph with indexable local adjacency.
 ///
-/// This trait provides random access to the outgoing and ingoing neighbor lists
-/// of each vertex, without exposing edge identifiers.
+/// This trait provides random access to the outgoing and incoming neighbor
+/// lists of each vertex, without exposing edge identifiers.
 ///
 /// It is suitable for algorithms that need efficient local traversal state,
 /// such as iterative DFS, SCC decomposition, reachability, and reverse search.
 ///
-/// The graph may have infinitely many edges globally, as long as each vertex
-/// has finitely many outgoing and ingoing neighbors.
-pub trait IndexedDirected: Graph
-where
-    <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
-{
+/// The graph need not have a finite global vertex set. It is enough that each
+/// individual vertex has finitely many outgoing and incoming neighbors.
+pub trait IndexedDirected: Graph {
     /// Returns the number of outgoing neighbors of `vertex`.
     fn outgoing_count(&self, vertex: Self::Vertex) -> usize;
 
@@ -102,22 +105,30 @@ where
     /// Requires `index < outgoing_count(vertex)`.
     fn outgoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex>;
 
-    /// Returns the number of ingoing neighbors of `vertex`.
-    fn ingoing_count(&self, vertex: Self::Vertex) -> usize;
+    /// Returns the number of incoming neighbors of `vertex`.
+    fn incoming_count(&self, vertex: Self::Vertex) -> usize;
 
-    /// Returns the `index`th ingoing neighbor of `vertex`.
+    /// Returns the `index`th incoming neighbor of `vertex`.
     ///
-    /// Requires `index < ingoing_count(vertex)`.
-    fn ingoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex>;
+    /// Requires `index < incoming_count(vertex)`.
+    fn incoming_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex>;
 
     /// Returns whether `vertex` has a self-loop.
     fn has_loop(&self, vertex: Self::Vertex) -> bool {
-        (0..self.outgoing_count(vertex)).any(|i| self.outgoing_at(vertex, i).unwrap() == vertex)
+        (0..self.outgoing_count(vertex)).any(|i| {
+            self.outgoing_at(vertex, i)
+                .expect("outgoing_at must be defined for indices below outgoing_count")
+                == vertex
+        })
     }
 
-    /// Returns whether `from` has `to` as an outgoing neighbor.
-    fn connects_to(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
-        (0..self.outgoing_count(from)).any(|i| self.outgoing_at(from, i).unwrap() == to)
+    /// Returns whether `source` has `destination` as an outgoing neighbor.
+    fn connects_to(&self, source: Self::Vertex, destination: Self::Vertex) -> bool {
+        (0..self.outgoing_count(source)).any(|i| {
+            self.outgoing_at(source, i)
+                .expect("outgoing_at must be defined for indices below outgoing_count")
+                == destination
+        })
     }
 
     /// Returns the outgoing neighbors of `vertex`.
@@ -125,34 +136,40 @@ where
     where
         Self: Sized,
     {
-        (0..self.outgoing_count(vertex)).map(move |i| self.outgoing_at(vertex, i).unwrap())
+        (0..self.outgoing_count(vertex)).map(move |i| {
+            self.outgoing_at(vertex, i)
+                .expect("outgoing_at must be defined for indices below outgoing_count")
+        })
     }
 
-    /// Returns the ingoing neighbors of `vertex`.
-    fn ingoing_neighbors(&self, vertex: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_
+    /// Returns the incoming neighbors of `vertex`.
+    fn incoming_neighbors(&self, vertex: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_
     where
         Self: Sized,
     {
-        (0..self.ingoing_count(vertex)).map(move |i| self.ingoing_at(vertex, i).unwrap())
+        (0..self.incoming_count(vertex)).map(move |i| {
+            self.incoming_at(vertex, i)
+                .expect("incoming_at must be defined for indices below incoming_count")
+        })
     }
 }
 
 /// Undirected graph interface based on local exploration.
 ///
-/// Suitable for infinite or implicit graphs.
+/// Suitable for finite, infinite, or implicit graphs.
 pub trait Undirected: Graph {
     /// Iterator over edges incident to a vertex.
-    type Incident<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    type Incident<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
     /// Iterator over edges between two vertices.
-    type Connections<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    type Connections<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
     /// Returns the endpoints of `edge`.
-    fn endpoints(&self, edge: Self::Edge) -> (Self::Vertex, Self::Vertex);
+    fn endpoints(&self, edge: Self::Edge) -> Endpoints<Self::Vertex>;
 
     /// Returns all edges incident to `vertex`.
     fn incident(&self, vertex: Self::Vertex) -> Self::Incident<'_>;
@@ -174,14 +191,20 @@ where
     /// By convention, each loop contributes `2`.
     fn degree(&self, vertex: Self::Vertex) -> usize {
         self.incident(vertex)
-            .map(|(u, _, v)| if u == v { 2 } else { 1 })
+            .map(|e| {
+                let endpoints = self.endpoints(e);
+                if endpoints.u == endpoints.v { 2 } else { 1 }
+            })
             .sum()
     }
 
     /// Returns the number of loop edges at `vertex`.
     fn loop_degree(&self, vertex: Self::Vertex) -> usize {
         self.incident(vertex)
-            .filter(|(u, _, v)| *u == vertex && *v == vertex)
+            .filter(|e| {
+                let endpoints = self.endpoints(*e);
+                endpoints.u == vertex && endpoints.v == vertex
+            })
             .count()
     }
 
@@ -192,7 +215,7 @@ where
 
     /// Returns whether `edge` is an edge between `u` and `v`.
     fn has_edge(&self, u: Self::Vertex, edge: Self::Edge, v: Self::Vertex) -> bool {
-        self.connections(u, v).any(|(_, e, _)| e == edge)
+        self.connections(u, v).any(|e| e == edge)
     }
 }
 
@@ -204,12 +227,9 @@ where
 /// It is suitable for algorithms that need efficient local traversal state,
 /// such as iterative DFS, connectivity, and local neighborhood queries.
 ///
-/// The graph may have infinitely many edges globally, as long as each vertex
-/// has finitely many incident neighbors.
-pub trait IndexedUndirected: Graph
-where
-    <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
-{
+/// The graph need not have a finite global vertex set. It is enough that each
+/// individual vertex has finitely many incident neighbors.
+pub trait IndexedUndirected: Graph {
     /// Returns the number of neighbors of `vertex`.
     fn incident_count(&self, vertex: Self::Vertex) -> usize;
 
@@ -220,12 +240,20 @@ where
 
     /// Returns whether `vertex` has a loop.
     fn has_loop(&self, vertex: Self::Vertex) -> bool {
-        (0..self.incident_count(vertex)).any(|i| self.incident_at(vertex, i).unwrap() == vertex)
+        (0..self.incident_count(vertex)).any(|i| {
+            self.incident_at(vertex, i)
+                .expect("incident_at must be defined for indices below incident_count")
+                == vertex
+        })
     }
 
     /// Returns whether `u` and `v` are adjacent.
     fn is_adjacent(&self, u: Self::Vertex, v: Self::Vertex) -> bool {
-        (0..self.incident_count(u)).any(|i| self.incident_at(u, i).unwrap() == v)
+        (0..self.incident_count(u)).any(|i| {
+            self.incident_at(u, i)
+                .expect("incident_at must be defined for indices below incident_count")
+                == v
+        })
     }
 
     /// Returns the neighbors of `vertex`.
@@ -233,7 +261,10 @@ where
     where
         Self: Sized,
     {
-        (0..self.incident_count(vertex)).map(move |i| self.incident_at(vertex, i).unwrap())
+        (0..self.incident_count(vertex)).map(move |i| {
+            self.incident_at(vertex, i)
+                .expect("incident_at must be defined for indices below incident_count")
+        })
     }
 }
 
@@ -253,29 +284,4 @@ where
     <T as Structure>::Vertices: FiniteVertices,
     <T as Structure>::Edges: FiniteEdges,
 {
-}
-
-/// Endpoints of an edge.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Endpoints<V> {
-    /// Source or first endpoint.
-    pub from: V,
-    /// Target or second endpoint.
-    pub to: V,
-}
-
-impl<V> Endpoints<V> {
-    /// Creates a new pair of endpoints.
-    #[inline]
-    pub const fn new(from: V, to: V) -> Self {
-        Self { from, to }
-    }
-}
-
-/// Graph constructible from owned edge endpoints.
-pub trait FromEndpoints: Sized + Graph {
-    /// Creates a graph from owned edge endpoints.
-    fn from_endpoints<I>(edges: I) -> Self
-    where
-        I: IntoIterator<Item = Endpoints<Self::Vertex>>;
 }

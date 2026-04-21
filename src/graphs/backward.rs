@@ -7,9 +7,8 @@ use crate::graphs::graph::Directed;
 pub trait Backward: Directed {
     /// Iterator over predecessor edges of a vertex.
     ///
-    /// Each item is `(source, edge, destination)`, where `destination`
-    /// equals the queried vertex.
-    type Predecessors<'a>: Iterator<Item = (Self::Vertex, Self::Edge, Self::Vertex)>
+    /// Each returned edge has destination equal to the queried vertex.
+    type Predecessors<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
@@ -22,12 +21,12 @@ where
     T: Directed,
 {
     type Predecessors<'a>
-        = <T as Directed>::Ingoing<'a>
+        = <T as Directed>::Incoming<'a>
     where
         Self: 'a;
 
     #[inline]
     fn predecessors(&self, vertex: Self::Vertex) -> Self::Predecessors<'_> {
-        self.ingoing(vertex)
+        self.incoming(vertex)
     }
 }

@@ -1,5 +1,7 @@
 use crate::graphs::{
+    arc::Arc,
     graph::{FiniteGraph, Graph},
+    members::Members,
     structure::{EdgeOf, EdgeType, FiniteEdges, FiniteVertices, Structure},
 };
 
@@ -20,16 +22,33 @@ pub trait UndirectedHypergraph: Graph {
     where
         Self: 'a;
 
+    /// Iterator over the hyperedges containing both `u` and `v`.
+    type Connections<'a>: Iterator<Item = Self::Edge>
+    where
+        Self: 'a;
+
     /// Returns the member vertices of `hyperedge`.
     fn members(&self, hyperedge: Self::Edge) -> Self::Members<'_>;
 
+    /// Returns the owned member collection of `hyperedge`.
+    #[must_use]
+    fn hyperedge(&self, hyperedge: Self::Edge) -> Members<Vec<Self::Vertex>>
+    where
+        Self: Sized,
+    {
+        Members::new(self.members(hyperedge).collect())
+    }
+
     /// Returns the hyperedges incident to `vertex`.
     fn incident(&self, vertex: Self::Vertex) -> Self::Incident<'_>;
+
+    /// Returns the hyperedges containing both `u` and `v`.
+    fn connections(&self, u: Self::Vertex, v: Self::Vertex) -> Self::Connections<'_>;
 }
 
 /// Finite undirected hypergraph.
 ///
-/// Extends [`UndirectedHypergraph`] with convenience queries.
+/// Extends [`UndirectedHypergraph`] with finite-style convenience queries.
 pub trait FiniteUndirectedHypergraph: UndirectedHypergraph + FiniteGraph
 where
     <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
@@ -49,6 +68,16 @@ where
     fn contains_member(&self, hyperedge: Self::Edge, vertex: Self::Vertex) -> bool {
         self.members(hyperedge).any(|u| u == vertex)
     }
+
+    /// Returns whether there exists some hyperedge containing both `u` and `v`.
+    fn is_connected(&self, u: Self::Vertex, v: Self::Vertex) -> bool {
+        self.connections(u, v).next().is_some()
+    }
+
+    /// Returns whether `hyperedge` contains both `u` and `v`.
+    fn has_edge(&self, u: Self::Vertex, hyperedge: Self::Edge, v: Self::Vertex) -> bool {
+        self.connections(u, v).any(|e| e == hyperedge)
+    }
 }
 
 impl<T> FiniteUndirectedHypergraph for T
@@ -62,9 +91,9 @@ where
 /// Undirected hyperedge insertion.
 pub trait InsertUndirectedHyperedge: EdgeType {
     /// Inserts a hyperedge from its member vertices.
-    fn insert_hyperedge<I>(&mut self, members: I) -> Option<Self::Edge>
+    fn insert_hyperedge<S>(&mut self, hyperedge: Members<S>) -> Option<Self::Edge>
     where
-        I: IntoIterator<Item = Self::Vertex>;
+        S: IntoIterator<Item = Self::Vertex>;
 }
 
 /// Directed hypergraph interface based on local exploration.
@@ -87,7 +116,13 @@ pub trait DirectedHypergraph: Graph {
         Self: 'a;
 
     /// Iterator over hyperedges whose head contains `vertex`.
-    type Ingoing<'a>: Iterator<Item = Self::Edge>
+    type Incoming<'a>: Iterator<Item = Self::Edge>
+    where
+        Self: 'a;
+
+    /// Iterator over hyperedges whose tail contains `source`
+    /// and whose head contains `destination`.
+    type Connections<'a>: Iterator<Item = Self::Edge>
     where
         Self: 'a;
 
@@ -97,16 +132,33 @@ pub trait DirectedHypergraph: Graph {
     /// Returns the head vertices of `hyperedge`.
     fn head(&self, hyperedge: Self::Edge) -> Self::Head<'_>;
 
+    /// Returns the owned directed incidence of `hyperedge`.
+    #[must_use]
+    fn arc(&self, hyperedge: Self::Edge) -> Arc<Vec<Self::Vertex>>
+    where
+        Self: Sized,
+    {
+        Arc::new(
+            self.tail(hyperedge).collect(),
+            self.head(hyperedge).collect(),
+        )
+    }
+
     /// Returns the hyperedges whose tail contains `vertex`.
     fn outgoing(&self, vertex: Self::Vertex) -> Self::Outgoing<'_>;
 
     /// Returns the hyperedges whose head contains `vertex`.
-    fn ingoing(&self, vertex: Self::Vertex) -> Self::Ingoing<'_>;
+    fn incoming(&self, vertex: Self::Vertex) -> Self::Incoming<'_>;
+
+    /// Returns the hyperedges whose tail contains `source`
+    /// and whose head contains `destination`.
+    fn connections(&self, source: Self::Vertex, destination: Self::Vertex)
+    -> Self::Connections<'_>;
 }
 
 /// Finite directed hypergraph.
 ///
-/// Extends [`DirectedHypergraph`] with convenience queries.
+/// Extends [`DirectedHypergraph`] with finite-style convenience queries.
 pub trait FiniteDirectedHypergraph: DirectedHypergraph + FiniteGraph
 where
     <Self as Structure>::Vertices: FiniteVertices<Vertex = Self::Vertex>,
@@ -137,9 +189,26 @@ where
         self.outgoing(vertex).count()
     }
 
-    /// Returns the number of ingoing hyperedges of `vertex`.
-    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
-        self.ingoing(vertex).count()
+    /// Returns the number of incoming hyperedges of `vertex`.
+    fn incoming_degree(&self, vertex: Self::Vertex) -> usize {
+        self.incoming(vertex).count()
+    }
+
+    /// Returns whether there exists some hyperedge whose tail contains `source`
+    /// and whose head contains `destination`.
+    fn is_connected(&self, source: Self::Vertex, destination: Self::Vertex) -> bool {
+        self.connections(source, destination).next().is_some()
+    }
+
+    /// Returns whether `hyperedge` connects `source` to `destination`.
+    fn has_edge(
+        &self,
+        source: Self::Vertex,
+        hyperedge: Self::Edge,
+        destination: Self::Vertex,
+    ) -> bool {
+        self.connections(source, destination)
+            .any(|e| e == hyperedge)
     }
 }
 
@@ -153,72 +222,26 @@ where
 
 /// Directed hyperedge insertion.
 pub trait InsertDirectedHyperedge: EdgeType {
-    /// Inserts a directed hyperedge from tail and head vertices.
-    fn insert_hyperedge<Tail, Head>(&mut self, tail: Tail, head: Head) -> Option<Self::Edge>
+    /// Inserts a directed hyperedge from tail and head vertex collections.
+    fn insert_hyperedge<S>(&mut self, hyperedge: Arc<S>) -> Option<Self::Edge>
     where
-        Tail: IntoIterator<Item = Self::Vertex>,
-        Head: IntoIterator<Item = Self::Vertex>;
+        S: IntoIterator<Item = Self::Vertex>;
 }
 
-/// Undirected hyperedge described by its member vertices.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct HyperedgeMembers<V> {
-    /// Member vertices.
-    pub members: Vec<V>,
-}
-
-impl<V> HyperedgeMembers<V> {
-    /// Creates an undirected hyperedge from its member vertices.
-    #[must_use]
-    #[inline]
-    pub fn new<I>(members: I) -> Self
+/// Undirected hypergraph constructible from owned member collections.
+pub trait FromMembers: Sized + Graph {
+    /// Creates an undirected hypergraph from owned member collections.
+    fn from_members<I, S>(hyperedges: I) -> Self
     where
-        I: IntoIterator<Item = V>,
-    {
-        Self {
-            members: members.into_iter().collect(),
-        }
-    }
+        I: IntoIterator<Item = Members<S>>,
+        S: IntoIterator<Item = Self::Vertex>;
 }
 
-/// Directed hyperedge described by its tail and head vertices.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct DirectedHyperedge<V> {
-    /// Tail vertices.
-    pub tail: Vec<V>,
-
-    /// Head vertices.
-    pub head: Vec<V>,
-}
-
-impl<V> DirectedHyperedge<V> {
-    /// Creates a directed hyperedge from tail and head vertices.
-    #[must_use]
-    #[inline]
-    pub fn new<T, H>(tail: T, head: H) -> Self
+/// Directed hypergraph constructible from owned directed incidence.
+pub trait FromHyperarcs: Sized + Graph {
+    /// Creates a directed hypergraph from owned tail/head collections.
+    fn from_hyperarcs<I, S>(hyperedges: I) -> Self
     where
-        T: IntoIterator<Item = V>,
-        H: IntoIterator<Item = V>,
-    {
-        Self {
-            tail: tail.into_iter().collect(),
-            head: head.into_iter().collect(),
-        }
-    }
-}
-
-/// Hypergraph constructible from owned undirected hyperedges.
-pub trait FromHyperedges: Sized + Graph {
-    /// Creates a hypergraph from owned hyperedges.
-    fn from_hyperedges<I>(hyperedges: I) -> Self
-    where
-        I: IntoIterator<Item = HyperedgeMembers<Self::Vertex>>;
-}
-
-/// Directed hypergraph constructible from owned directed hyperedges.
-pub trait FromDirectedHyperedges: Sized + Graph {
-    /// Creates a directed hypergraph from owned directed hyperedges.
-    fn from_directed_hyperedges<I>(hyperedges: I) -> Self
-    where
-        I: IntoIterator<Item = DirectedHyperedge<Self::Vertex>>;
+        I: IntoIterator<Item = Arc<S>>,
+        S: IntoIterator<Item = Self::Vertex>;
 }

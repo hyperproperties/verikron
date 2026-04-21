@@ -144,7 +144,8 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let vertex = self.frontier.pop()?;
 
-        for (predecessor, _, _) in self.graph.predecessors(vertex) {
+        for edge in self.graph.predecessors(vertex) {
+            let predecessor = self.graph.source(edge);
             if self.visited.visit(predecessor) {
                 self.frontier.push(predecessor);
             }
@@ -181,8 +182,10 @@ mod tests {
     use std::collections::VecDeque;
 
     use crate::graphs::{
+        arc::{Arc, FromArcs},
+        backward::Backward,
         csr::CSR,
-        graph::{Endpoints, FromEndpoints},
+        graph::Directed,
         structure::FiniteVertices,
         worklist::Worklist,
     };
@@ -200,7 +203,8 @@ mod tests {
         }
 
         while let Some(vertex) = queue.pop_front() {
-            for (predecessor, _, _) in graph.predecessors(vertex) {
+            for edge in graph.predecessors(vertex) {
+                let predecessor = graph.source(edge);
                 if visited.visit(predecessor) {
                     queue.push_back(predecessor);
                 }
@@ -210,16 +214,11 @@ mod tests {
         visited
     }
 
-    fn arbitrary_instance() -> impl Strategy<Value = (Vec<Endpoints<usize>>, Vec<usize>)> {
-        prop::collection::vec((0usize..16, 0usize..16), 0..64).prop_flat_map(|raw_edges| {
-            let edges: Vec<_> = raw_edges
-                .into_iter()
-                .map(|(from, to)| Endpoints::new(from, to))
-                .collect();
-
+    fn arbitrary_instance() -> impl Strategy<Value = (Vec<(usize, usize)>, Vec<usize>)> {
+        prop::collection::vec((0usize..16, 0usize..16), 0..64).prop_flat_map(|edges| {
             let vertex_count = edges
                 .iter()
-                .map(|edge| edge.from.max(edge.to))
+                .map(|&(from, to)| from.max(to))
                 .max()
                 .map(|m| m + 1)
                 .unwrap_or(0);
@@ -236,7 +235,7 @@ mod tests {
 
     #[test]
     fn empty_graph_without_initials_is_empty() {
-        let graph = CSR::from_endpoints(std::iter::empty::<Endpoints<usize>>());
+        let graph = CSR::from_arcs(std::iter::empty::<Arc<usize>>());
         let mut search = SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(
             &graph,
             std::iter::empty(),
@@ -248,11 +247,7 @@ mod tests {
 
     #[test]
     fn backward_bfs_on_line_visits_all_predecessors() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
         let mut search =
             SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(&graph, [3]);
 
@@ -264,11 +259,7 @@ mod tests {
 
     #[test]
     fn backward_bfs_on_branching_graph_reaches_all_predecessors() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 2),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 2), Arc::new(1, 2), Arc::new(2, 3)]);
         let mut search =
             SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(&graph, [3]);
 
@@ -281,11 +272,7 @@ mod tests {
 
     #[test]
     fn multiple_initials_reach_the_union() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(2, 3),
-            Endpoints::new(3, 4),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3), Arc::new(3, 4)]);
         let mut search =
             SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(&graph, [1, 4]);
 
@@ -298,11 +285,7 @@ mod tests {
 
     #[test]
     fn cycles_terminate() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 1),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 1)]);
         let mut search =
             SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(&graph, [2]);
 
@@ -316,11 +299,11 @@ mod tests {
 
     #[test]
     fn backward_dfs_and_bfs_reach_the_same_set() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 2),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
-            Endpoints::new(3, 4),
+        let graph = CSR::from_arcs([
+            Arc::new(0, 2),
+            Arc::new(1, 2),
+            Arc::new(2, 3),
+            Arc::new(3, 4),
         ]);
 
         let bfs: Set<usize> =
@@ -337,7 +320,7 @@ mod tests {
 
     #[test]
     fn duplicate_initials_are_ignored() {
-        let graph = CSR::from_endpoints([Endpoints::new(0, 1), Endpoints::new(1, 2)]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2)]);
         let visited: Set<usize> =
             SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(&graph, [2, 2, 2])
                 .worklist();
@@ -348,7 +331,9 @@ mod tests {
     proptest! {
         #[test]
         fn prop_worklist_matches_reference((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(edges.clone());
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(from, to)| Arc::new(from, to))
+            );
 
             let actual: Set<usize> =
                 SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(
@@ -364,7 +349,9 @@ mod tests {
 
         #[test]
         fn prop_worklist_contains_initials((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(edges);
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(from, to)| Arc::new(from, to))
+            );
 
             let visited: Set<usize> =
                 SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(
@@ -380,7 +367,9 @@ mod tests {
 
         #[test]
         fn prop_worklist_is_idempotent((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_endpoints(edges);
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(from, to)| Arc::new(from, to))
+            );
 
             let first: Set<usize> =
                 SequentialBackwardSearch::<_, Set<usize>, QueueFrontier<_>>::bfs(

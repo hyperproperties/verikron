@@ -1,8 +1,9 @@
 use std::{ops::Range, slice};
 
 use crate::graphs::{
+    arc::{Arc, FromArcs},
     dbm::{DBM, DbmEdgeIds, DbmEdges},
-    graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph, IndexedDirected},
+    graph::{Directed, FiniteDirected, Graph, IndexedDirected},
     properties::{Properties, PropertyStoreType},
     quotient::{Quotient, QuotientType},
     scc::SCC,
@@ -55,7 +56,7 @@ impl SCCQuotient {
     pub fn tarjan<G>(graph: &G) -> Self
     where
         G: IndexedDirected<Vertex = usize>,
-        <G as Structure>::Vertices: FiniteVertices,
+        <G as Structure>::Vertices: FiniteVertices<Vertex = usize>,
     {
         const UNDISCOVERED: usize = 0;
         const UNASSIGNED: usize = usize::MAX;
@@ -160,7 +161,7 @@ impl SCCQuotient {
         // Build the quotient graph:
         // - inter-component edges come from original edges,
         // - recurrence is encoded by quotient self-loops.
-        let mut quotient = DBM::from_endpoints(
+        let mut quotient = DBM::from_arcs(
             (0..vertex_count)
                 .flat_map(|from| {
                     let classes_ref = &classes;
@@ -169,17 +170,17 @@ impl SCCQuotient {
                         let from_class = classes_ref[from];
                         let to_class = classes_ref[to];
 
-                        (from_class != to_class).then(|| Endpoints::new(from_class, to_class))
+                        (from_class != to_class).then(|| Arc::new(from_class, to_class))
                     })
                 })
                 .chain(
                     (0..component_count)
                         .filter(|&class| recurrent[class])
-                        .map(|class| Endpoints::new(class, class)),
+                        .map(|class| Arc::new(class, class)),
                 ),
         );
 
-        // `from_endpoints` infers vertices from present edges, so isolated SCCs
+        // `from_arcs` infers vertices from present edges, so isolated SCCs
         // would disappear unless they are added explicitly.
         while quotient.vertex_count() < component_count {
             assert!(quotient.insert_vertex().is_some());
@@ -381,7 +382,7 @@ impl Directed for SCCQuotient {
     where
         Self: 'a;
 
-    type Ingoing<'a>
+    type Incoming<'a>
         = DbmEdges<'a>
     where
         Self: 'a;
@@ -409,16 +410,20 @@ impl Directed for SCCQuotient {
         self.graph.outgoing(source)
     }
 
-    /// Returns all quotient edges ingoing to `destination`.
+    /// Returns all quotient edges incoming to `destination`.
     #[inline]
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
-        self.graph.ingoing(destination)
+    fn incoming(&self, destination: Self::Vertex) -> Self::Incoming<'_> {
+        self.graph.incoming(destination)
     }
 
-    /// Returns all quotient edges from `from` to `to`.
+    /// Returns all quotient edges from `source` to `destination`.
     #[inline]
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        self.graph.connections(from, to)
+    fn connections(
+        &self,
+        source: Self::Vertex,
+        destination: Self::Vertex,
+    ) -> Self::Connections<'_> {
+        self.graph.connections(source, destination)
     }
 }
 
@@ -432,25 +437,27 @@ impl FiniteDirected for SCCQuotient {
     /// Returns the number of outgoing quotient edges from `vertex`.
     #[inline]
     fn outgoing_degree(&self, vertex: Self::Vertex) -> usize {
-        self.graph.outgoing(vertex).count()
+        self.graph.outgoing_degree(vertex)
     }
 
-    /// Returns the number of ingoing quotient edges to `vertex`.
+    /// Returns the number of incoming quotient edges to `vertex`.
     #[inline]
-    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
-        self.graph.ingoing(vertex).count()
+    fn incoming_degree(&self, vertex: Self::Vertex) -> usize {
+        self.graph.incoming_degree(vertex)
     }
 
-    /// Returns whether there is a quotient edge from `from` to `to`.
+    /// Returns whether there is a quotient edge from `source` to `destination`.
     #[inline]
-    fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
-        self.graph.connections(from, to).next().is_some()
+    fn is_connected(&self, source: Self::Vertex, destination: Self::Vertex) -> bool {
+        self.graph.is_connected(source, destination)
     }
 
-    /// Returns whether `edge` is a quotient edge from `from` to `to`.
+    /// Returns whether `edge` is a quotient edge from `source` to `destination`.
     #[inline]
-    fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
-        self.graph.connections(from, to).any(|(_, e, _)| e == edge)
+    fn has_edge(&self, source: Self::Vertex, edge: Self::Edge, destination: Self::Vertex) -> bool {
+        self.graph
+            .connections(source, destination)
+            .any(|e| e == edge)
     }
 }
 
@@ -467,16 +474,16 @@ impl IndexedDirected for SCCQuotient {
         self.graph.outgoing_at(vertex, index)
     }
 
-    /// Returns the number of ingoing neighboring SCCs of `vertex`.
+    /// Returns the number of incoming neighboring SCCs of `vertex`.
     #[inline]
-    fn ingoing_count(&self, vertex: Self::Vertex) -> usize {
-        self.graph.ingoing_count(vertex)
+    fn incoming_count(&self, vertex: Self::Vertex) -> usize {
+        self.graph.incoming_count(vertex)
     }
 
-    /// Returns the `index`th ingoing neighboring SCC of `vertex`.
+    /// Returns the `index`th incoming neighboring SCC of `vertex`.
     #[inline]
-    fn ingoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex> {
-        self.graph.ingoing_at(vertex, index)
+    fn incoming_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex> {
+        self.graph.incoming_at(vertex, index)
     }
 
     /// Returns whether `vertex` has a quotient self-loop.
@@ -500,13 +507,13 @@ impl IndexedDirected for SCCQuotient {
         self.graph.outgoing_neighbors(vertex)
     }
 
-    /// Returns the ingoing neighboring SCCs of `vertex`.
+    /// Returns the incoming neighboring SCCs of `vertex`.
     #[inline]
-    fn ingoing_neighbors(&self, vertex: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_
+    fn incoming_neighbors(&self, vertex: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_
     where
         Self: Sized,
     {
-        self.graph.ingoing_neighbors(vertex)
+        self.graph.incoming_neighbors(vertex)
     }
 }
 
@@ -515,8 +522,9 @@ mod tests {
     use super::*;
 
     use crate::graphs::{
+        arc::{Arc, FromArcs},
         dbm::DBM,
-        graph::{Endpoints, FiniteDirected, FromEndpoints},
+        graph::FiniteDirected,
         properties::Properties,
         quotient::{FiniteQuotient, Quotient},
         scc::SCC,
@@ -537,11 +545,7 @@ mod tests {
         SCCQuotient::new(
             vec![1, 0, 1, 2, 0].into_boxed_slice(),
             vec![1, 4, 0, 2, 3].into_boxed_slice(),
-            DBM::from_endpoints([
-                Endpoints::new(0, 0),
-                Endpoints::new(1, 1),
-                Endpoints::new(1, 2),
-            ]),
+            DBM::from_arcs([Arc::new(0, 0), Arc::new(1, 1), Arc::new(1, 2)]),
         )
     }
 
@@ -694,11 +698,11 @@ mod tests {
 
     #[test]
     fn tarjan_on_acyclic_graph_yields_nonrecurrent_singletons() {
-        let graph = DBM::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
+        let graph = DBM::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(1, 2),
+            Arc::new(2, 3),
         ]);
 
         let dscc = SCCQuotient::tarjan(&graph);
@@ -715,13 +719,13 @@ mod tests {
 
     #[test]
     fn tarjan_finds_cyclic_looped_and_isolated_components() {
-        let mut graph = DBM::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 0),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
-            Endpoints::new(3, 2),
-            Endpoints::new(4, 4),
+        let mut graph = DBM::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(1, 0),
+            Arc::new(1, 2),
+            Arc::new(2, 3),
+            Arc::new(3, 2),
+            Arc::new(4, 4),
         ]);
 
         assert_eq!(graph.insert_vertex(), Some(5));
@@ -740,12 +744,12 @@ mod tests {
 
     #[test]
     fn tarjan_builds_quotient_graph() {
-        let graph = DBM::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 0),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 3),
-            Endpoints::new(3, 2),
+        let graph = DBM::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(1, 0),
+            Arc::new(1, 2),
+            Arc::new(2, 3),
+            Arc::new(3, 2),
         ]);
 
         let dscc = SCCQuotient::tarjan(&graph);
@@ -766,8 +770,8 @@ mod tests {
             edges in prop::collection::vec((0usize..12, 0usize..12), 0..48),
             extra_vertices in 0usize..4,
         ) {
-            let mut graph = DBM::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let mut graph = DBM::from_arcs(
+                edges.iter().copied().map(|(from, to)| Arc::new(from, to))
             );
 
             for _ in 0..extra_vertices {

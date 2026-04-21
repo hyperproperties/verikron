@@ -1,3 +1,4 @@
+pub mod arc;
 pub mod attributed;
 pub mod backward;
 pub mod bfs;
@@ -8,11 +9,13 @@ pub mod csr;
 pub mod dbm;
 pub mod dfs;
 pub mod dhcsr;
+pub mod endpoints;
 pub mod forward;
 pub mod frontier;
 pub mod graph;
 pub mod hyper;
 pub mod mcsr;
+pub mod members;
 pub mod parallel_bfs;
 pub mod properties;
 pub mod quotient;

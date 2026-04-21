@@ -2,7 +2,8 @@ use std::ops::Range;
 
 use crate::{
     graphs::{
-        graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph, IndexedDirected},
+        arc::{Arc, FromArcs},
+        graph::{Directed, FiniteDirected, Graph, IndexedDirected},
         structure::{
             EdgeType, Edges, FiniteEdges, FiniteVertices, InsertVertex, Structure, VertexType,
             Vertices,
@@ -61,35 +62,46 @@ impl CSR {
     }
 }
 
-impl FromEndpoints for CSR {
-    /// Builds a CSR graph from directed edge endpoints.
+impl FromArcs for CSR {
+    /// Builds a CSR graph from directed arcs.
     ///
     /// The vertex set is `0..=m`, where `m` is the largest endpoint.
     /// An empty input yields the empty graph.
-    fn from_endpoints<I>(edges: I) -> Self
+    fn from_arcs<I>(arcs: I) -> Self
     where
-        I: IntoIterator<Item = Endpoints<Self::Vertex>>,
+        I: IntoIterator<Item = Arc<Self::Vertex>>,
     {
-        let mut edges: Vec<_> = edges.into_iter().map(|e| (e.from, e.to)).collect();
+        let mut arcs: Vec<_> = arcs
+            .into_iter()
+            .map(|arc| (arc.source, arc.destination))
+            .collect();
 
-        if edges.is_empty() {
+        if arcs.is_empty() {
             return Self::default();
         }
 
-        edges.sort_unstable_by_key(|&(from, _)| from);
+        arcs.sort_unstable_by_key(|&(source, _)| source);
 
-        let vertex_count = edges.iter().map(|&(from, to)| from.max(to)).max().unwrap() + 1;
-        let edge_count = edges.len();
+        let vertex_count = arcs
+            .iter()
+            .map(|&(source, destination)| source.max(destination))
+            .max()
+            .unwrap()
+            + 1;
+        let edge_count = arcs.len();
 
         let mut offsets = vec![0usize; vertex_count + 1];
-        for &(from, _) in &edges {
-            offsets[from + 1] += 1;
+        for &(source, _) in &arcs {
+            offsets[source + 1] += 1;
         }
         for i in 1..=vertex_count {
             offsets[i] += offsets[i - 1];
         }
 
-        let indices = edges.into_iter().map(|(_, to)| to).collect::<Vec<_>>();
+        let indices = arcs
+            .into_iter()
+            .map(|(_, destination)| destination)
+            .collect::<Vec<_>>();
 
         debug_assert_eq!(offsets.len(), vertex_count + 1);
         debug_assert_eq!(offsets[0], 0);
@@ -208,7 +220,7 @@ impl Directed for CSR {
     where
         Self: 'a;
 
-    type Ingoing<'a>
+    type Incoming<'a>
         = CsrEdges<'a>
     where
         Self: 'a;
@@ -243,18 +255,24 @@ impl Directed for CSR {
     ///
     /// This scans the full edge set.
     #[inline]
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
+    fn incoming(&self, destination: Self::Vertex) -> Self::Incoming<'_> {
         if !self.contains(&destination) {
             return CsrEdges::empty(self);
         }
         CsrEdges::new(self, 0, self.edge_count(), Some(destination))
     }
 
-    /// Returns all edges from `from` to `to`.
+    /// Returns all edges from `source` to `destination`.
     #[inline]
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        match self.neighbor_range(from) {
-            Some((start, end)) if self.contains(&to) => CsrEdges::new(self, start, end, Some(to)),
+    fn connections(
+        &self,
+        source: Self::Vertex,
+        destination: Self::Vertex,
+    ) -> Self::Connections<'_> {
+        match self.neighbor_range(source) {
+            Some((start, end)) if self.contains(&destination) => {
+                CsrEdges::new(self, start, end, Some(destination))
+            }
             _ => CsrEdges::empty(self),
         }
     }
@@ -272,7 +290,7 @@ impl FiniteDirected for CSR {
 
     /// Returns the incoming degree of `vertex`.
     #[inline]
-    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
+    fn incoming_degree(&self, vertex: Self::Vertex) -> usize {
         if !self.contains(&vertex) {
             return 0;
         }
@@ -325,26 +343,20 @@ impl IndexedDirected for CSR {
     }
 
     #[inline]
-    fn ingoing_count(&self, vertex: Self::Vertex) -> usize {
+    fn incoming_count(&self, vertex: Self::Vertex) -> usize {
         let n = self.vertex_count();
         if vertex >= n {
             return 0;
         }
 
-        let indices = &self.indices;
-        let mut count = 0;
-        let mut edge = 0;
-
-        while edge < indices.len() {
-            count += (indices[edge] == vertex) as usize;
-            edge += 1;
-        }
-
-        count
+        self.indices
+            .iter()
+            .filter(|&&destination| destination == vertex)
+            .count()
     }
 
     #[inline]
-    fn ingoing_at(&self, vertex: Self::Vertex, mut index: usize) -> Option<Self::Vertex> {
+    fn incoming_at(&self, vertex: Self::Vertex, mut index: usize) -> Option<Self::Vertex> {
         let n = self.vertex_count();
         if vertex >= n {
             return None;
@@ -352,18 +364,18 @@ impl IndexedDirected for CSR {
 
         let offsets = &self.offsets;
         let indices = &self.indices;
-        let mut from = 0;
+        let mut source = 0;
         let mut edge = 0;
         let edge_count = indices.len();
 
         while edge < edge_count {
-            while edge == offsets[from + 1] {
-                from += 1;
+            while edge == offsets[source + 1] {
+                source += 1;
             }
 
             if indices[edge] == vertex {
                 if index == 0 {
-                    return Some(from);
+                    return Some(source);
                 }
                 index -= 1;
             }
@@ -375,9 +387,7 @@ impl IndexedDirected for CSR {
     }
 }
 
-/// Iterator over selected CSR edges.
-///
-/// Yields `(source, edge, destination)`.
+/// Iterator over selected CSR edge identifiers.
 #[derive(Clone, Debug)]
 pub struct CsrEdges<'a> {
     csr: &'a CSR,
@@ -414,7 +424,7 @@ impl<'a> CsrEdges<'a> {
 }
 
 impl<'a> Iterator for CsrEdges<'a> {
-    type Item = (usize, usize, usize);
+    type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.index < self.end {
@@ -426,8 +436,7 @@ impl<'a> Iterator for CsrEdges<'a> {
                 continue;
             }
 
-            let source = self.csr.source_of_edge(edge);
-            return Some((source, edge, destination));
+            return Some(edge);
         }
 
         None
@@ -437,7 +446,6 @@ impl<'a> Iterator for CsrEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::graph::FromEndpoints;
 
     use proptest::prelude::*;
     use std::collections::HashMap;
@@ -477,18 +485,18 @@ mod tests {
         vertex_count: usize,
     ) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, Vec<usize>) {
         let mut outgoing = vec![Vec::new(); vertex_count];
-        let mut ingoing = vec![Vec::new(); vertex_count];
+        let mut incoming = vec![Vec::new(); vertex_count];
         let mut loops = vec![0usize; vertex_count];
 
         for &(from, to) in edges {
             outgoing[from].push(to);
-            ingoing[to].push(from);
+            incoming[to].push(from);
             if from == to {
                 loops[from] += 1;
             }
         }
 
-        (outgoing, ingoing, loops)
+        (outgoing, incoming, loops)
     }
 
     fn arbitrary_csr_instance() -> impl Strategy<Value = Vec<(usize, usize)>> {
@@ -510,8 +518,8 @@ mod tests {
     }
 
     #[test]
-    fn from_endpoints_empty_matches_default() {
-        let graph = CSR::from_endpoints(std::iter::empty::<Endpoints<usize>>());
+    fn from_arcs_empty_matches_default() {
+        let graph = CSR::from_arcs(std::iter::empty::<Arc<usize>>());
 
         assert_eq!(graph, CSR::default());
         assert_csr_invariants(&graph);
@@ -519,7 +527,7 @@ mod tests {
 
     #[test]
     fn single_loop_at_zero_layout_and_queries() {
-        let graph = CSR::from_endpoints([Endpoints::new(0, 0)]);
+        let graph = CSR::from_arcs([Arc::new(0, 0)]);
 
         assert_eq!(graph.vertex_count(), 1);
         assert_eq!(graph.edge_count(), 1);
@@ -532,11 +540,11 @@ mod tests {
         assert_eq!(graph.source(0), 0);
         assert_eq!(graph.destination(0), 0);
 
-        assert_eq!(graph.outgoing(0).collect::<Vec<_>>(), vec![(0, 0, 0)]);
-        assert_eq!(graph.ingoing(0).collect::<Vec<_>>(), vec![(0, 0, 0)]);
+        assert_eq!(graph.outgoing(0).collect::<Vec<_>>(), vec![0]);
+        assert_eq!(graph.incoming(0).collect::<Vec<_>>(), vec![0]);
 
         assert_eq!(graph.outgoing_degree(0), 1);
-        assert_eq!(graph.ingoing_degree(0), 1);
+        assert_eq!(graph.incoming_degree(0), 1);
         assert_eq!(graph.loop_degree(0), 1);
 
         assert_csr_invariants(&graph);
@@ -544,11 +552,7 @@ mod tests {
 
     #[test]
     fn vertex_queries_and_edges_are_consistent() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 0),
-            Endpoints::new(2, 1),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 0), Arc::new(2, 1)]);
 
         assert_eq!(graph.vertex_count(), 3);
         assert_eq!(graph.edge_count(), 3);
@@ -566,33 +570,23 @@ mod tests {
 
     #[test]
     fn directed_queries_match_expected_structure() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 0),
-            Endpoints::new(2, 1),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 0), Arc::new(2, 1)]);
 
-        assert_eq!(graph.outgoing(0).collect::<Vec<_>>(), vec![(0, 0, 1)]);
-        assert_eq!(graph.outgoing(1).collect::<Vec<_>>(), vec![(1, 1, 0)]);
-        assert_eq!(graph.outgoing(2).collect::<Vec<_>>(), vec![(2, 2, 1)]);
+        assert_eq!(graph.outgoing(0).collect::<Vec<_>>(), vec![0]);
+        assert_eq!(graph.outgoing(1).collect::<Vec<_>>(), vec![1]);
+        assert_eq!(graph.outgoing(2).collect::<Vec<_>>(), vec![2]);
 
-        assert_eq!(graph.ingoing(0).collect::<Vec<_>>(), vec![(1, 1, 0)]);
-        assert_eq!(
-            graph.ingoing(1).collect::<Vec<_>>(),
-            vec![(0, 0, 1), (2, 2, 1)]
-        );
-        assert_eq!(
-            graph.ingoing(2).collect::<Vec<_>>(),
-            Vec::<(usize, usize, usize)>::new()
-        );
+        assert_eq!(graph.incoming(0).collect::<Vec<_>>(), vec![1]);
+        assert_eq!(graph.incoming(1).collect::<Vec<_>>(), vec![0, 2]);
+        assert_eq!(graph.incoming(2).collect::<Vec<_>>(), Vec::<usize>::new());
 
         assert_eq!(graph.outgoing_degree(0), 1);
         assert_eq!(graph.outgoing_degree(1), 1);
         assert_eq!(graph.outgoing_degree(2), 1);
 
-        assert_eq!(graph.ingoing_degree(0), 1);
-        assert_eq!(graph.ingoing_degree(1), 2);
-        assert_eq!(graph.ingoing_degree(2), 0);
+        assert_eq!(graph.incoming_degree(0), 1);
+        assert_eq!(graph.incoming_degree(1), 2);
+        assert_eq!(graph.incoming_degree(2), 0);
 
         assert_eq!(graph.loop_degree(0), 0);
         assert_eq!(graph.loop_degree(1), 0);
@@ -606,11 +600,7 @@ mod tests {
 
     #[test]
     fn parallel_edges_and_loops_are_preserved() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 0),
-            Endpoints::new(0, 0),
-            Endpoints::new(1, 0),
-        ]);
+        let graph = CSR::from_arcs([Arc::new(0, 0), Arc::new(0, 0), Arc::new(1, 0)]);
 
         assert_eq!(graph.vertex_count(), 2);
         assert_eq!(graph.edge_count(), 3);
@@ -618,8 +608,8 @@ mod tests {
         assert_eq!(graph.outgoing_degree(0), 2);
         assert_eq!(graph.outgoing_degree(1), 1);
 
-        assert_eq!(graph.ingoing_degree(0), 3);
-        assert_eq!(graph.ingoing_degree(1), 0);
+        assert_eq!(graph.incoming_degree(0), 3);
+        assert_eq!(graph.incoming_degree(1), 0);
 
         assert_eq!(graph.loop_degree(0), 2);
         assert_eq!(graph.loop_degree(1), 0);
@@ -633,7 +623,7 @@ mod tests {
 
     #[test]
     fn insert_vertex_appends_new_isolated_vertex() {
-        let mut graph = CSR::from_endpoints([Endpoints::new(0, 1), Endpoints::new(0, 1)]);
+        let mut graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(0, 1)]);
 
         let old_edges: Vec<_> = graph.edges().collect();
         let old_vertex_count = graph.vertex_count();
@@ -655,11 +645,11 @@ mod tests {
 
     #[test]
     fn indexed_directed_matches_expected() {
-        let graph = CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(2, 1),
-            Endpoints::new(2, 1),
+        let graph = CSR::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(2, 1),
+            Arc::new(2, 1),
         ]);
 
         assert_eq!(graph.outgoing_count(0), 2);
@@ -671,22 +661,22 @@ mod tests {
         assert_eq!(graph.outgoing_at(0, 1), Some(2));
         assert_eq!(graph.outgoing_at(0, 2), None);
 
-        assert_eq!(graph.ingoing_count(0), 0);
-        assert_eq!(graph.ingoing_count(1), 3);
-        assert_eq!(graph.ingoing_count(2), 1);
-        assert_eq!(graph.ingoing_count(3), 0);
+        assert_eq!(graph.incoming_count(0), 0);
+        assert_eq!(graph.incoming_count(1), 3);
+        assert_eq!(graph.incoming_count(2), 1);
+        assert_eq!(graph.incoming_count(3), 0);
 
-        assert_eq!(graph.ingoing_at(1, 0), Some(0));
-        assert_eq!(graph.ingoing_at(1, 1), Some(2));
-        assert_eq!(graph.ingoing_at(1, 2), Some(2));
-        assert_eq!(graph.ingoing_at(1, 3), None);
+        assert_eq!(graph.incoming_at(1, 0), Some(0));
+        assert_eq!(graph.incoming_at(1, 1), Some(2));
+        assert_eq!(graph.incoming_at(1, 2), Some(2));
+        assert_eq!(graph.incoming_at(1, 3), None);
     }
 
     proptest! {
         #[test]
         fn prop_constructor_preserves_edges_and_invariants(edges in arbitrary_csr_instance()) {
-            let graph = CSR::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
 
             if edges.is_empty() {
@@ -696,7 +686,7 @@ mod tests {
                 prop_assert!(graph.indices.is_empty());
             } else {
                 let expected_vertex_count =
-                    edges.iter().map(|&(from, to)| from.max(to)).max().unwrap() + 1;
+                    edges.iter().map(|&(source, destination)| source.max(destination)).max().unwrap() + 1;
 
                 prop_assert_eq!(graph.vertex_count(), expected_vertex_count);
                 prop_assert_eq!(graph.edge_count(), edges.len());
@@ -715,8 +705,8 @@ mod tests {
 
         #[test]
         fn prop_adjacency_and_degrees_match_input(edges in arbitrary_csr_instance()) {
-            let graph = CSR::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
 
             if edges.is_empty() {
@@ -725,12 +715,12 @@ mod tests {
                 return Ok(());
             }
 
-            let (expected_outgoing, expected_ingoing, expected_loops) =
+            let (expected_outgoing, expected_incoming, expected_loops) =
                 expected_adjacency(&edges, graph.vertex_count());
 
             for vertex in 0..graph.vertex_count() {
                 let mut actual_outgoing: Vec<_> =
-                    graph.outgoing(vertex).map(|(_, _, to)| to).collect();
+                    graph.outgoing(vertex).map(|e| graph.destination(e)).collect();
                 let mut want_outgoing = expected_outgoing[vertex].clone();
                 actual_outgoing.sort_unstable();
                 want_outgoing.sort_unstable();
@@ -738,35 +728,35 @@ mod tests {
                 prop_assert_eq!(actual_outgoing, want_outgoing);
                 prop_assert_eq!(graph.outgoing_degree(vertex), expected_outgoing[vertex].len());
 
-                let mut actual_ingoing: Vec<_> =
-                    graph.ingoing(vertex).map(|(from, _, _)| from).collect();
-                let mut want_ingoing = expected_ingoing[vertex].clone();
-                actual_ingoing.sort_unstable();
-                want_ingoing.sort_unstable();
+                let mut actual_incoming: Vec<_> =
+                    graph.incoming(vertex).map(|e| graph.source(e)).collect();
+                let mut want_incoming = expected_incoming[vertex].clone();
+                actual_incoming.sort_unstable();
+                want_incoming.sort_unstable();
 
-                prop_assert_eq!(actual_ingoing, want_ingoing);
-                prop_assert_eq!(graph.ingoing_degree(vertex), expected_ingoing[vertex].len());
+                prop_assert_eq!(actual_incoming, want_incoming);
+                prop_assert_eq!(graph.incoming_degree(vertex), expected_incoming[vertex].len());
 
                 prop_assert_eq!(graph.loop_degree(vertex), expected_loops[vertex]);
             }
 
             let total_outgoing: usize =
                 (0..graph.vertex_count()).map(|vertex| graph.outgoing_degree(vertex)).sum();
-            let total_ingoing: usize =
-                (0..graph.vertex_count()).map(|vertex| graph.ingoing_degree(vertex)).sum();
+            let total_incoming: usize =
+                (0..graph.vertex_count()).map(|vertex| graph.incoming_degree(vertex)).sum();
 
             prop_assert_eq!(total_outgoing, graph.edge_count());
-            prop_assert_eq!(total_ingoing, graph.edge_count());
+            prop_assert_eq!(total_incoming, graph.edge_count());
         }
 
         #[test]
         fn prop_connections_match_input_multiplicity(
             edges in arbitrary_csr_instance(),
-            from_hint in 0usize..32,
-            to_hint in 0usize..32,
+            source_hint in 0usize..32,
+            destination_hint in 0usize..32,
         ) {
-            let graph = CSR::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
 
             if graph.vertex_count() == 0 {
@@ -774,25 +764,25 @@ mod tests {
                 return Ok(());
             }
 
-            let from = from_hint % graph.vertex_count();
-            let to = to_hint % graph.vertex_count();
+            let source = source_hint % graph.vertex_count();
+            let destination = destination_hint % graph.vertex_count();
 
             let expected = edges
                 .iter()
-                .filter(|&&(u, v)| u == from && v == to)
+                .filter(|&&(u, v)| u == source && v == destination)
                 .count();
 
-            prop_assert_eq!(graph.connections(from, to).count(), expected);
+            prop_assert_eq!(graph.connections(source, destination).count(), expected);
         }
 
         #[test]
         fn prop_indexed_directed_matches_iterators(edges in arbitrary_csr_instance()) {
-            let graph = CSR::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
 
             for vertex in 0..graph.vertex_count() {
-                let outgoing: Vec<_> = graph.outgoing(vertex).map(|(_, _, to)| to).collect();
+                let outgoing: Vec<_> = graph.outgoing(vertex).map(|e| graph.destination(e)).collect();
                 prop_assert_eq!(graph.outgoing_count(vertex), outgoing.len());
 
                 for index in 0..outgoing.len() {
@@ -800,21 +790,21 @@ mod tests {
                 }
                 prop_assert_eq!(graph.outgoing_at(vertex, outgoing.len()), None);
 
-                let ingoing: Vec<_> = graph.ingoing(vertex).map(|(from, _, _)| from).collect();
-                prop_assert_eq!(graph.ingoing_count(vertex), ingoing.len());
+                let incoming: Vec<_> = graph.incoming(vertex).map(|e| graph.source(e)).collect();
+                prop_assert_eq!(graph.incoming_count(vertex), incoming.len());
 
-                for index in 0..ingoing.len() {
-                    prop_assert_eq!(graph.ingoing_at(vertex, index), Some(ingoing[index]));
+                for index in 0..incoming.len() {
+                    prop_assert_eq!(graph.incoming_at(vertex, index), Some(incoming[index]));
                 }
-                prop_assert_eq!(graph.ingoing_at(vertex, ingoing.len()), None);
+                prop_assert_eq!(graph.incoming_at(vertex, incoming.len()), None);
             }
 
             let invalid = graph.vertex_count();
 
             prop_assert_eq!(graph.outgoing_count(invalid), 0);
             prop_assert_eq!(graph.outgoing_at(invalid, 0), None);
-            prop_assert_eq!(graph.ingoing_count(invalid), 0);
-            prop_assert_eq!(graph.ingoing_at(invalid, 0), None);
+            prop_assert_eq!(graph.incoming_count(invalid), 0);
+            prop_assert_eq!(graph.incoming_at(invalid, 0), None);
         }
     }
 }

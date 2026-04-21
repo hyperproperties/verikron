@@ -230,8 +230,8 @@ where
         VP: 'a,
         EP: 'a;
 
-    type Ingoing<'a>
-        = G::Ingoing<'a>
+    type Incoming<'a>
+        = G::Incoming<'a>
     where
         Self: 'a,
         G: 'a,
@@ -262,13 +262,17 @@ where
     }
 
     #[inline]
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
-        self.graph.ingoing(destination)
+    fn incoming(&self, destination: Self::Vertex) -> Self::Incoming<'_> {
+        self.graph.incoming(destination)
     }
 
     #[inline]
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        self.graph.connections(from, to)
+    fn connections(
+        &self,
+        source: Self::Vertex,
+        destination: Self::Vertex,
+    ) -> Self::Connections<'_> {
+        self.graph.connections(source, destination)
     }
 }
 
@@ -284,8 +288,8 @@ where
     }
 
     #[inline]
-    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
-        self.graph.ingoing_degree(vertex)
+    fn incoming_degree(&self, vertex: Self::Vertex) -> usize {
+        self.graph.incoming_degree(vertex)
     }
 
     #[inline]
@@ -294,13 +298,13 @@ where
     }
 
     #[inline]
-    fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
-        self.graph.is_connected(from, to)
+    fn is_connected(&self, source: Self::Vertex, destination: Self::Vertex) -> bool {
+        self.graph.is_connected(source, destination)
     }
 
     #[inline]
-    fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
-        self.graph.has_edge(from, edge, to)
+    fn has_edge(&self, source: Self::Vertex, edge: Self::Edge, destination: Self::Vertex) -> bool {
+        self.graph.has_edge(source, edge, destination)
     }
 }
 
@@ -309,19 +313,19 @@ mod tests {
     use super::*;
 
     use crate::graphs::{
+        arc::{Arc, FromArcs},
         csr::CSR,
-        graph::{Endpoints, FromEndpoints},
         mcsr::MCSR,
         structure::{InsertEdge, InsertVertex},
     };
     use proptest::prelude::*;
 
     fn sample_graph() -> CSR {
-        CSR::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(2, 1),
-            Endpoints::new(2, 2),
+        CSR::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(2, 1),
+            Arc::new(2, 2),
         ])
     }
 
@@ -435,9 +439,9 @@ mod tests {
             assert_eq!(attributed.source(edge), graph.source(edge));
             assert_eq!(attributed.destination(edge), graph.destination(edge));
 
-            let from = graph.source(edge);
-            let to = graph.destination(edge);
-            assert!(attributed.has_edge(from, edge, to));
+            let source = graph.source(edge);
+            let destination = graph.destination(edge);
+            assert!(attributed.has_edge(source, edge, destination));
         }
 
         for vertex in graph.vertices() {
@@ -446,8 +450,8 @@ mod tests {
                 graph.outgoing(vertex).collect::<Vec<_>>()
             );
             assert_eq!(
-                attributed.ingoing(vertex).collect::<Vec<_>>(),
-                graph.ingoing(vertex).collect::<Vec<_>>()
+                attributed.incoming(vertex).collect::<Vec<_>>(),
+                graph.incoming(vertex).collect::<Vec<_>>()
             );
 
             assert_eq!(
@@ -455,21 +459,23 @@ mod tests {
                 graph.outgoing_degree(vertex)
             );
             assert_eq!(
-                attributed.ingoing_degree(vertex),
-                graph.ingoing_degree(vertex)
+                attributed.incoming_degree(vertex),
+                graph.incoming_degree(vertex)
             );
             assert_eq!(attributed.loop_degree(vertex), graph.loop_degree(vertex));
         }
 
-        for from in graph.vertices() {
-            for to in graph.vertices() {
+        for source in graph.vertices() {
+            for destination in graph.vertices() {
                 assert_eq!(
-                    attributed.is_connected(from, to),
-                    graph.is_connected(from, to)
+                    attributed.is_connected(source, destination),
+                    graph.is_connected(source, destination)
                 );
                 assert_eq!(
-                    attributed.connections(from, to).collect::<Vec<_>>(),
-                    graph.connections(from, to).collect::<Vec<_>>()
+                    attributed
+                        .connections(source, destination)
+                        .collect::<Vec<_>>(),
+                    graph.connections(source, destination).collect::<Vec<_>>()
                 );
             }
         }
@@ -482,8 +488,8 @@ mod tests {
     proptest! {
         #[test]
         fn prop_wrapper_matches_inner_graph_for_structure(edges in arbitrary_edges()) {
-            let graph = CSR::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
             let attributed = AttributedGraph::new(graph.clone(), vec![0u8; 3], vec![0u8; 5]);
 
@@ -501,8 +507,8 @@ mod tests {
 
         #[test]
         fn prop_wrapper_matches_inner_graph_for_directed_queries(edges in arbitrary_edges()) {
-            let graph = CSR::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
             let attributed = AttributedGraph::new(graph.clone(), (), ());
 
@@ -517,20 +523,23 @@ mod tests {
                     graph.outgoing(vertex).collect::<Vec<_>>()
                 );
                 prop_assert_eq!(
-                    attributed.ingoing(vertex).collect::<Vec<_>>(),
-                    graph.ingoing(vertex).collect::<Vec<_>>()
+                    attributed.incoming(vertex).collect::<Vec<_>>(),
+                    graph.incoming(vertex).collect::<Vec<_>>()
                 );
                 prop_assert_eq!(attributed.outgoing_degree(vertex), graph.outgoing_degree(vertex));
-                prop_assert_eq!(attributed.ingoing_degree(vertex), graph.ingoing_degree(vertex));
+                prop_assert_eq!(attributed.incoming_degree(vertex), graph.incoming_degree(vertex));
                 prop_assert_eq!(attributed.loop_degree(vertex), graph.loop_degree(vertex));
             }
 
-            for from in graph.vertices() {
-                for to in graph.vertices() {
-                    prop_assert_eq!(attributed.is_connected(from, to), graph.is_connected(from, to));
+            for source in graph.vertices() {
+                for destination in graph.vertices() {
                     prop_assert_eq!(
-                        attributed.connections(from, to).collect::<Vec<_>>(),
-                        graph.connections(from, to).collect::<Vec<_>>()
+                        attributed.is_connected(source, destination),
+                        graph.is_connected(source, destination)
+                    );
+                    prop_assert_eq!(
+                        attributed.connections(source, destination).collect::<Vec<_>>(),
+                        graph.connections(source, destination).collect::<Vec<_>>()
                     );
                 }
             }
@@ -542,8 +551,8 @@ mod tests {
             vertex_props in prop::collection::vec(any::<u8>(), 0..16),
             edge_props in prop::collection::vec(any::<u16>(), 0..16),
         ) {
-            let graph = CSR::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = CSR::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
 
             let left = AttributedGraph::new(graph.clone(), vertex_props, edge_props);
@@ -559,9 +568,9 @@ mod tests {
 
             for vertex in graph.vertices() {
                 prop_assert_eq!(left.outgoing(vertex).collect::<Vec<_>>(), right.outgoing(vertex).collect::<Vec<_>>());
-                prop_assert_eq!(left.ingoing(vertex).collect::<Vec<_>>(), right.ingoing(vertex).collect::<Vec<_>>());
+                prop_assert_eq!(left.incoming(vertex).collect::<Vec<_>>(), right.incoming(vertex).collect::<Vec<_>>());
                 prop_assert_eq!(left.outgoing_degree(vertex), right.outgoing_degree(vertex));
-                prop_assert_eq!(left.ingoing_degree(vertex), right.ingoing_degree(vertex));
+                prop_assert_eq!(left.incoming_degree(vertex), right.incoming_degree(vertex));
                 prop_assert_eq!(left.loop_degree(vertex), right.loop_degree(vertex));
             }
         }

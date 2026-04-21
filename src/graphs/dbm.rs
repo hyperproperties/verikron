@@ -3,7 +3,8 @@ use std::ops::Range;
 use bit_vec::BitVec;
 
 use crate::graphs::{
-    graph::{Directed, Endpoints, FiniteDirected, FromEndpoints, Graph, IndexedDirected},
+    arc::{Arc, FromArcs},
+    graph::{Directed, FiniteDirected, Graph, IndexedDirected},
     structure::{
         EdgeType, Edges, FiniteEdges, FiniteVertices, InsertVertex, Structure, VertexType, Vertices,
     },
@@ -13,7 +14,7 @@ use crate::graphs::{
 ///
 /// Vertices are `0..vertex_count()`.
 ///
-/// Edge `(from, to)` is stored as one bit in `matrix`.
+/// Edge `(source, destination)` is stored as one bit in `matrix`.
 /// Loops are allowed; parallel edges are not.
 ///
 /// Edge identifiers are matrix indices. An index identifies a present edge
@@ -74,11 +75,11 @@ impl DBM {
         2 * vertices + 1
     }
 
-    /// Maps `(from, to)` to a matrix index.
+    /// Maps `(source, destination)` to a matrix index.
     #[must_use]
     #[inline]
-    pub fn index(from: usize, to: usize) -> usize {
-        let radius = from.max(to);
+    pub fn index(source: usize, destination: usize) -> usize {
+        let radius = source.max(destination);
 
         if radius == 0 {
             return 0;
@@ -86,10 +87,10 @@ impl DBM {
 
         let base = Self::size(radius);
 
-        if to == radius {
-            base + from
+        if destination == radius {
+            base + source
         } else {
-            base + 2 * radius - to
+            base + 2 * radius - destination
         }
     }
 
@@ -117,27 +118,27 @@ impl DBM {
     }
 }
 
-impl FromEndpoints for DBM {
-    /// Builds a graph from directed edges.
+impl FromArcs for DBM {
+    /// Builds a graph from directed arcs.
     ///
-    /// Duplicate edges are collapsed.
-    fn from_endpoints<I>(edges: I) -> Self
+    /// Duplicate arcs are collapsed.
+    fn from_arcs<I>(arcs: I) -> Self
     where
-        I: IntoIterator<Item = Endpoints<Self::Vertex>>,
+        I: IntoIterator<Item = Arc<Self::Vertex>>,
     {
-        let edges: Vec<_> = edges.into_iter().collect();
+        let arcs: Vec<_> = arcs.into_iter().collect();
 
-        let vertex_count = edges
+        let vertex_count = arcs
             .iter()
-            .map(|edge| edge.from.max(edge.to))
+            .map(|arc| arc.source.max(arc.destination))
             .max()
             .map(|m| m + 1)
             .unwrap_or(0);
 
         let mut dbm = Self::new(vertex_count, false);
 
-        for edge in edges {
-            let index = Self::index(edge.from, edge.to);
+        for arc in arcs {
+            let index = Self::index(arc.source, arc.destination);
             dbm.matrix.set(index, true);
         }
 
@@ -257,7 +258,7 @@ impl Directed for DBM {
     where
         Self: 'a;
 
-    type Ingoing<'a>
+    type Incoming<'a>
         = DbmEdges<'a>
     where
         Self: 'a;
@@ -273,18 +274,18 @@ impl Directed for DBM {
     #[inline]
     fn source(&self, edge: Self::Edge) -> Self::Vertex {
         debug_assert!(self.contains_edge_index(edge));
-        let (from, _) = Self::inverse_index(edge);
-        from
+        let (source, _) = Self::inverse_index(edge);
+        source
     }
 
-    /// Returns the target of `edge`.
+    /// Returns the destination of `edge`.
     ///
     /// The caller is expected to pass the id of a present edge.
     #[inline]
     fn destination(&self, edge: Self::Edge) -> Self::Vertex {
         debug_assert!(self.contains_edge_index(edge));
-        let (_, to) = Self::inverse_index(edge);
-        to
+        let (_, destination) = Self::inverse_index(edge);
+        destination
     }
 
     /// Returns all outgoing edges from `source`.
@@ -298,20 +299,24 @@ impl Directed for DBM {
 
     /// Returns all incoming edges to `destination`.
     #[inline]
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
+    fn incoming(&self, destination: Self::Vertex) -> Self::Incoming<'_> {
         if !self.contains(&destination) {
             return DbmEdges::empty(self);
         }
-        DbmEdges::ingoing(self, destination)
+        DbmEdges::incoming(self, destination)
     }
 
-    /// Returns all edges from `from` to `to`.
+    /// Returns all edges from `source` to `destination`.
     #[inline]
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        if !(self.contains(&from) && self.contains(&to)) {
+    fn connections(
+        &self,
+        source: Self::Vertex,
+        destination: Self::Vertex,
+    ) -> Self::Connections<'_> {
+        if !(self.contains(&source) && self.contains(&destination)) {
             return DbmEdges::empty(self);
         }
-        DbmEdges::between(self, from, to)
+        DbmEdges::between(self, source, destination)
     }
 }
 
@@ -324,19 +329,19 @@ impl FiniteDirected for DBM {
         }
 
         (0..self.vertex_count())
-            .filter(|&to| self.is_connected(vertex, to))
+            .filter(|&destination| self.is_connected(vertex, destination))
             .count()
     }
 
     /// Returns the number of incoming edges to `vertex`.
     #[inline]
-    fn ingoing_degree(&self, vertex: Self::Vertex) -> usize {
+    fn incoming_degree(&self, vertex: Self::Vertex) -> usize {
         if !self.contains(&vertex) {
             return 0;
         }
 
         (0..self.vertex_count())
-            .filter(|&from| self.is_connected(from, vertex))
+            .filter(|&source| self.is_connected(source, vertex))
             .count()
     }
 
@@ -346,20 +351,20 @@ impl FiniteDirected for DBM {
         usize::from(self.is_connected(vertex, vertex))
     }
 
-    /// Returns whether `(from, to)` is present.
+    /// Returns whether `(source, destination)` is present.
     #[inline]
-    fn is_connected(&self, from: Self::Vertex, to: Self::Vertex) -> bool {
-        if !(self.contains(&from) && self.contains(&to)) {
+    fn is_connected(&self, source: Self::Vertex, destination: Self::Vertex) -> bool {
+        if !(self.contains(&source) && self.contains(&destination)) {
             return false;
         }
 
-        self.matrix[Self::index(from, to)]
+        self.matrix[Self::index(source, destination)]
     }
 
-    /// Returns whether `edge` is exactly the edge `(from, to)` and is present.
+    /// Returns whether `edge` is exactly the edge `(source, destination)` and is present.
     #[inline]
-    fn has_edge(&self, from: Self::Vertex, edge: Self::Edge, to: Self::Vertex) -> bool {
-        self.contains_edge_index(edge) && edge == Self::index(from, to)
+    fn has_edge(&self, source: Self::Vertex, edge: Self::Edge, destination: Self::Vertex) -> bool {
+        self.contains_edge_index(edge) && edge == Self::index(source, destination)
     }
 }
 
@@ -371,7 +376,7 @@ impl IndexedDirected for DBM {
         }
 
         (0..self.vertex_count())
-            .filter(|&to| self.is_connected(vertex, to))
+            .filter(|&destination| self.is_connected(vertex, destination))
             .count()
     }
 
@@ -382,10 +387,10 @@ impl IndexedDirected for DBM {
         }
 
         let mut seen = 0usize;
-        for to in 0..self.vertex_count() {
-            if self.is_connected(vertex, to) {
+        for destination in 0..self.vertex_count() {
+            if self.is_connected(vertex, destination) {
                 if seen == index {
-                    return Some(to);
+                    return Some(destination);
                 }
                 seen += 1;
             }
@@ -395,27 +400,27 @@ impl IndexedDirected for DBM {
     }
 
     #[inline]
-    fn ingoing_count(&self, vertex: Self::Vertex) -> usize {
+    fn incoming_count(&self, vertex: Self::Vertex) -> usize {
         if !self.contains(&vertex) {
             return 0;
         }
 
         (0..self.vertex_count())
-            .filter(|&from| self.is_connected(from, vertex))
+            .filter(|&source| self.is_connected(source, vertex))
             .count()
     }
 
     #[inline]
-    fn ingoing_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex> {
+    fn incoming_at(&self, vertex: Self::Vertex, index: usize) -> Option<Self::Vertex> {
         if !self.contains(&vertex) {
             return None;
         }
 
         let mut seen = 0usize;
-        for from in 0..self.vertex_count() {
-            if self.is_connected(from, vertex) {
+        for source in 0..self.vertex_count() {
+            if self.is_connected(source, vertex) {
                 if seen == index {
-                    return Some(from);
+                    return Some(source);
                 }
                 seen += 1;
             }
@@ -457,9 +462,7 @@ impl<'a> Iterator for DbmEdgeIds<'a> {
     }
 }
 
-/// Iterator over selected DBM edges.
-///
-/// Yields `(from, edge, to)`.
+/// Iterator over selected DBM edge identifiers.
 #[derive(Clone, Debug)]
 pub struct DbmEdges<'a> {
     dbm: &'a DBM,
@@ -469,49 +472,55 @@ pub struct DbmEdges<'a> {
 /// Internal iterator mode.
 #[derive(Clone, Debug)]
 enum DbmEdgesKind {
-    All { edge: usize },
-    Outgoing { from: usize, to: usize },
-    Ingoing { from: usize, to: usize },
-    Between { from: usize, to: usize, done: bool },
+    Outgoing {
+        source: usize,
+        destination: usize,
+    },
+    Incoming {
+        source: usize,
+        destination: usize,
+    },
+    Between {
+        source: usize,
+        destination: usize,
+        done: bool,
+    },
     Empty,
 }
 
 impl<'a> DbmEdges<'a> {
-    /// Iterates over all present edges.
+    /// Iterates over edges outgoing from `source`.
     #[must_use]
-    fn all(dbm: &'a DBM) -> Self {
+    fn outgoing(dbm: &'a DBM, source: usize) -> Self {
         Self {
             dbm,
-            kind: DbmEdgesKind::All { edge: 0 },
+            kind: DbmEdgesKind::Outgoing {
+                source,
+                destination: 0,
+            },
         }
     }
 
-    /// Iterates over edges outgoing from `from`.
+    /// Iterates over edges incoming to `destination`.
     #[must_use]
-    fn outgoing(dbm: &'a DBM, from: usize) -> Self {
+    fn incoming(dbm: &'a DBM, destination: usize) -> Self {
         Self {
             dbm,
-            kind: DbmEdgesKind::Outgoing { from, to: 0 },
+            kind: DbmEdgesKind::Incoming {
+                source: 0,
+                destination,
+            },
         }
     }
 
-    /// Iterates over edges incoming to `to`.
+    /// Iterates over the directed edge from `source` to `destination`, if present.
     #[must_use]
-    fn ingoing(dbm: &'a DBM, to: usize) -> Self {
-        Self {
-            dbm,
-            kind: DbmEdgesKind::Ingoing { from: 0, to },
-        }
-    }
-
-    /// Iterates over the directed edge from `from` to `to`, if present.
-    #[must_use]
-    fn between(dbm: &'a DBM, from: usize, to: usize) -> Self {
+    fn between(dbm: &'a DBM, source: usize, destination: usize) -> Self {
         Self {
             dbm,
             kind: DbmEdgesKind::Between {
-                from,
-                to,
+                source,
+                destination,
                 done: false,
             },
         }
@@ -528,57 +537,54 @@ impl<'a> DbmEdges<'a> {
 }
 
 impl<'a> Iterator for DbmEdges<'a> {
-    type Item = (usize, usize, usize);
+    type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.kind {
-            DbmEdgesKind::All { edge } => {
-                while *edge < self.dbm.matrix.len() {
-                    let current = *edge;
-                    *edge += 1;
+            DbmEdgesKind::Outgoing {
+                source,
+                destination,
+            } => {
+                while *destination < self.dbm.vertex_count() {
+                    let current_destination = *destination;
+                    *destination += 1;
 
-                    if self.dbm.matrix[current] {
-                        let (from, to) = DBM::inverse_index(current);
-                        return Some((from, current, to));
-                    }
-                }
-                None
-            }
-
-            DbmEdgesKind::Outgoing { from, to } => {
-                while *to < self.dbm.vertex_count() {
-                    let current_to = *to;
-                    *to += 1;
-
-                    let edge = DBM::index(*from, current_to);
+                    let edge = DBM::index(*source, current_destination);
                     if self.dbm.matrix[edge] {
-                        return Some((*from, edge, current_to));
+                        return Some(edge);
                     }
                 }
                 None
             }
 
-            DbmEdgesKind::Ingoing { from, to } => {
-                while *from < self.dbm.vertex_count() {
-                    let current_from = *from;
-                    *from += 1;
+            DbmEdgesKind::Incoming {
+                source,
+                destination,
+            } => {
+                while *source < self.dbm.vertex_count() {
+                    let current_source = *source;
+                    *source += 1;
 
-                    let edge = DBM::index(current_from, *to);
+                    let edge = DBM::index(current_source, *destination);
                     if self.dbm.matrix[edge] {
-                        return Some((current_from, edge, *to));
+                        return Some(edge);
                     }
                 }
                 None
             }
 
-            DbmEdgesKind::Between { from, to, done } => {
+            DbmEdgesKind::Between {
+                source,
+                destination,
+                done,
+            } => {
                 if *done {
                     return None;
                 }
 
                 *done = true;
-                let edge = DBM::index(*from, *to);
-                self.dbm.matrix[edge].then_some((*from, edge, *to))
+                let edge = DBM::index(*source, *destination);
+                self.dbm.matrix[edge].then_some(edge)
             }
 
             DbmEdgesKind::Empty => None,
@@ -589,7 +595,7 @@ impl<'a> Iterator for DbmEdges<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graphs::graph::FromEndpoints;
+    use crate::graphs::arc::FromArcs;
     use proptest::prelude::*;
     use std::collections::HashSet;
 
@@ -611,20 +617,16 @@ mod tests {
         assert_eq!(complete.vertex_count(), 3);
         assert_eq!(complete.edge_count(), 9);
 
-        for from in 0..3 {
-            for to in 0..3 {
-                assert!(complete.is_connected(from, to));
+        for source in 0..3 {
+            for destination in 0..3 {
+                assert!(complete.is_connected(source, destination));
             }
         }
     }
 
     #[test]
-    fn from_edges_builds_expected_graph() {
-        let graph = DBM::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(1, 2),
-            Endpoints::new(2, 2),
-        ]);
+    fn from_arcs_builds_expected_graph() {
+        let graph = DBM::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 2)]);
 
         assert_eq!(graph.vertex_count(), 3);
         assert_eq!(graph.edge_count(), 3);
@@ -636,12 +638,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_edges_do_not_create_parallel_edges() {
-        let graph = DBM::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 1),
-        ]);
+    fn duplicate_arcs_do_not_create_parallel_edges() {
+        let graph = DBM::from_arcs([Arc::new(0, 1), Arc::new(0, 1), Arc::new(0, 1)]);
 
         assert_eq!(graph.vertex_count(), 2);
         assert_eq!(graph.edge_count(), 1);
@@ -650,10 +648,10 @@ mod tests {
 
     #[test]
     fn index_and_inverse_index_roundtrip_on_documented_grid() {
-        for from in 0..6 {
-            for to in 0..6 {
-                let edge = DBM::index(from, to);
-                assert_eq!(DBM::inverse_index(edge), (from, to));
+        for source in 0..6 {
+            for destination in 0..6 {
+                let edge = DBM::index(source, destination);
+                assert_eq!(DBM::inverse_index(edge), (source, destination));
             }
         }
     }
@@ -669,32 +667,35 @@ mod tests {
             [35, 34, 33, 32, 31, 30],
         ];
 
-        for from in 0..6 {
-            for to in 0..6 {
-                let edge = DBM::index(from, to);
-                assert_eq!(edge, expected[from][to]);
-                assert_eq!(DBM::inverse_index(edge), (from, to));
+        for source in 0..6 {
+            for destination in 0..6 {
+                let edge = DBM::index(source, destination);
+                assert_eq!(edge, expected[source][destination]);
+                assert_eq!(DBM::inverse_index(edge), (source, destination));
             }
         }
     }
 
     #[test]
     fn directed_queries_are_consistent() {
-        let graph = DBM::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(2, 1),
-            Endpoints::new(2, 2),
+        let graph = DBM::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(2, 1),
+            Arc::new(2, 2),
         ]);
 
         assert_eq!(
-            graph.outgoing(0).map(|(_, _, to)| to).collect::<Vec<_>>(),
+            graph
+                .outgoing(0)
+                .map(|edge| graph.destination(edge))
+                .collect::<Vec<_>>(),
             vec![1, 2]
         );
         assert_eq!(
             graph
-                .ingoing(1)
-                .map(|(from, _, _)| from)
+                .incoming(1)
+                .map(|edge| graph.source(edge))
                 .collect::<Vec<_>>(),
             vec![0, 2]
         );
@@ -706,7 +707,7 @@ mod tests {
 
     #[test]
     fn insert_vertex_appends_new_isolated_vertex() {
-        let mut graph = DBM::from_endpoints([Endpoints::new(0, 1), Endpoints::new(1, 1)]);
+        let mut graph = DBM::from_arcs([Arc::new(0, 1), Arc::new(1, 1)]);
 
         let vertex = graph.insert_vertex().unwrap();
 
@@ -722,11 +723,7 @@ mod tests {
 
     #[test]
     fn edge_ids_enumerate_only_present_edges() {
-        let graph = DBM::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(2, 0),
-            Endpoints::new(2, 2),
-        ]);
+        let graph = DBM::from_arcs([Arc::new(0, 1), Arc::new(2, 0), Arc::new(2, 2)]);
 
         let edges: Vec<_> = graph.edges().collect();
 
@@ -746,12 +743,12 @@ mod tests {
 
     #[test]
     fn indexed_directed_queries_are_consistent() {
-        let graph = DBM::from_endpoints([
-            Endpoints::new(0, 1),
-            Endpoints::new(0, 2),
-            Endpoints::new(2, 1),
-            Endpoints::new(2, 2),
-            Endpoints::new(2, 2), // duplicate should still collapse
+        let graph = DBM::from_arcs([
+            Arc::new(0, 1),
+            Arc::new(0, 2),
+            Arc::new(2, 1),
+            Arc::new(2, 2),
+            Arc::new(2, 2),
         ]);
 
         assert_eq!(graph.outgoing_count(0), 2);
@@ -769,25 +766,25 @@ mod tests {
         assert_eq!(graph.outgoing_at(2, 1), Some(2));
         assert_eq!(graph.outgoing_at(2, 2), None);
 
-        assert_eq!(graph.ingoing_count(0), 0);
-        assert_eq!(graph.ingoing_count(1), 2);
-        assert_eq!(graph.ingoing_count(2), 2);
-        assert_eq!(graph.ingoing_count(3), 0);
+        assert_eq!(graph.incoming_count(0), 0);
+        assert_eq!(graph.incoming_count(1), 2);
+        assert_eq!(graph.incoming_count(2), 2);
+        assert_eq!(graph.incoming_count(3), 0);
 
-        assert_eq!(graph.ingoing_at(0, 0), None);
+        assert_eq!(graph.incoming_at(0, 0), None);
 
-        assert_eq!(graph.ingoing_at(1, 0), Some(0));
-        assert_eq!(graph.ingoing_at(1, 1), Some(2));
-        assert_eq!(graph.ingoing_at(1, 2), None);
+        assert_eq!(graph.incoming_at(1, 0), Some(0));
+        assert_eq!(graph.incoming_at(1, 1), Some(2));
+        assert_eq!(graph.incoming_at(1, 2), None);
 
-        assert_eq!(graph.ingoing_at(2, 0), Some(0));
-        assert_eq!(graph.ingoing_at(2, 1), Some(2));
-        assert_eq!(graph.ingoing_at(2, 2), None);
+        assert_eq!(graph.incoming_at(2, 0), Some(0));
+        assert_eq!(graph.incoming_at(2, 1), Some(2));
+        assert_eq!(graph.incoming_at(2, 2), None);
 
         assert_eq!(graph.outgoing_count(99), 0);
         assert_eq!(graph.outgoing_at(99, 0), None);
-        assert_eq!(graph.ingoing_count(99), 0);
-        assert_eq!(graph.ingoing_at(99, 0), None);
+        assert_eq!(graph.incoming_count(99), 0);
+        assert_eq!(graph.incoming_at(99, 0), None);
     }
 
     proptest! {
@@ -802,18 +799,18 @@ mod tests {
         }
 
         #[test]
-        fn prop_index_inverse_roundtrip(from in 0usize..10_000, to in 0usize..10_000) {
-            let edge = DBM::index(from, to);
-            prop_assert_eq!(DBM::inverse_index(edge), (from, to));
+        fn prop_index_inverse_roundtrip(source in 0usize..10_000, destination in 0usize..10_000) {
+            let edge = DBM::index(source, destination);
+            prop_assert_eq!(DBM::inverse_index(edge), (source, destination));
         }
 
         #[test]
         fn prop_index_is_injective_within_bounded_grid(max in 0usize..32) {
             let mut seen = HashSet::new();
 
-            for from in 0..=max {
-                for to in 0..=max {
-                    let edge = DBM::index(from, to);
+            for source in 0..=max {
+                for destination in 0..=max {
+                    let edge = DBM::index(source, destination);
                     prop_assert!(seen.insert(edge));
                 }
             }
@@ -822,11 +819,11 @@ mod tests {
         }
 
         #[test]
-        fn prop_from_edges_matches_expected_adjacency(
+        fn prop_from_arcs_matches_expected_adjacency(
             edges in prop::collection::vec((0usize..16, 0usize..16), 0..64)
         ) {
-            let graph = DBM::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = DBM::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
 
             let expected: HashSet<_> = edges.into_iter().collect();
@@ -837,27 +834,27 @@ mod tests {
         }
 
         #[test]
-        fn prop_outgoing_and_ingoing_match_membership(
+        fn prop_outgoing_and_incoming_match_membership(
             edges in prop::collection::vec((0usize..12, 0usize..12), 0..48)
         ) {
-            let graph = DBM::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = DBM::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
 
             let expected: HashSet<_> = edges.into_iter().collect();
 
             for vertex in 0..graph.vertex_count() {
                 let actual_outgoing: HashSet<_> =
-                    graph.outgoing(vertex).map(|(_, _, to)| (vertex, to)).collect();
+                    graph.outgoing(vertex).map(|edge| (vertex, graph.destination(edge))).collect();
                 let expected_outgoing: HashSet<_> =
-                    expected.iter().copied().filter(|&(from, _)| from == vertex).collect();
+                    expected.iter().copied().filter(|&(source, _)| source == vertex).collect();
                 prop_assert_eq!(actual_outgoing, expected_outgoing);
 
-                let actual_ingoing: HashSet<_> =
-                    graph.ingoing(vertex).map(|(from, _, _)| (from, vertex)).collect();
-                let expected_ingoing: HashSet<_> =
-                    expected.iter().copied().filter(|&(_, to)| to == vertex).collect();
-                prop_assert_eq!(actual_ingoing, expected_ingoing);
+                let actual_incoming: HashSet<_> =
+                    graph.incoming(vertex).map(|edge| (graph.source(edge), vertex)).collect();
+                let expected_incoming: HashSet<_> =
+                    expected.iter().copied().filter(|&(_, destination)| destination == vertex).collect();
+                prop_assert_eq!(actual_incoming, expected_incoming);
             }
         }
 
@@ -865,8 +862,8 @@ mod tests {
         fn prop_edges_enumerate_present_edge_ids_only(
             edges in prop::collection::vec((0usize..12, 0usize..12), 0..48)
         ) {
-            let graph = DBM::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = DBM::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
 
             let enumerated: Vec<_> = graph.edges().collect();
@@ -875,10 +872,10 @@ mod tests {
 
             for edge in enumerated {
                 prop_assert!(graph.contains_edge(&edge));
-                let from = graph.source(edge);
-                let to = graph.destination(edge);
-                prop_assert!(graph.is_connected(from, to));
-                prop_assert_eq!(DBM::index(from, to), edge);
+                let source = graph.source(edge);
+                let destination = graph.destination(edge);
+                prop_assert!(graph.is_connected(source, destination));
+                prop_assert_eq!(DBM::index(source, destination), edge);
             }
         }
 
@@ -886,38 +883,38 @@ mod tests {
         fn prop_indexed_directed_matches_connectivity(
             edges in prop::collection::vec((0usize..12, 0usize..12), 0..48)
         ) {
-            let graph = DBM::from_endpoints(
-                edges.iter().copied().map(|(from, to)| Endpoints::new(from, to))
+            let graph = DBM::from_arcs(
+                edges.iter().copied().map(|(source, destination)| Arc::new(source, destination))
             );
 
             let n = graph.vertex_count();
 
             for vertex in 0..n {
                 let expected_outgoing: Vec<_> =
-                    (0..n).filter(|&to| graph.is_connected(vertex, to)).collect();
+                    (0..n).filter(|&destination| graph.is_connected(vertex, destination)).collect();
                 prop_assert_eq!(graph.outgoing_count(vertex), expected_outgoing.len());
 
-                for (index, &to) in expected_outgoing.iter().enumerate() {
-                    prop_assert_eq!(graph.outgoing_at(vertex, index), Some(to));
+                for (index, &destination) in expected_outgoing.iter().enumerate() {
+                    prop_assert_eq!(graph.outgoing_at(vertex, index), Some(destination));
                 }
                 prop_assert_eq!(graph.outgoing_at(vertex, expected_outgoing.len()), None);
 
-                let expected_ingoing: Vec<_> =
-                    (0..n).filter(|&from| graph.is_connected(from, vertex)).collect();
-                prop_assert_eq!(graph.ingoing_count(vertex), expected_ingoing.len());
+                let expected_incoming: Vec<_> =
+                    (0..n).filter(|&source| graph.is_connected(source, vertex)).collect();
+                prop_assert_eq!(graph.incoming_count(vertex), expected_incoming.len());
 
-                for (index, &from) in expected_ingoing.iter().enumerate() {
-                    prop_assert_eq!(graph.ingoing_at(vertex, index), Some(from));
+                for (index, &source) in expected_incoming.iter().enumerate() {
+                    prop_assert_eq!(graph.incoming_at(vertex, index), Some(source));
                 }
-                prop_assert_eq!(graph.ingoing_at(vertex, expected_ingoing.len()), None);
+                prop_assert_eq!(graph.incoming_at(vertex, expected_incoming.len()), None);
             }
 
             let invalid = n;
 
             prop_assert_eq!(graph.outgoing_count(invalid), 0);
             prop_assert_eq!(graph.outgoing_at(invalid, 0), None);
-            prop_assert_eq!(graph.ingoing_count(invalid), 0);
-            prop_assert_eq!(graph.ingoing_at(invalid, 0), None);
+            prop_assert_eq!(graph.incoming_count(invalid), 0);
+            prop_assert_eq!(graph.incoming_at(invalid, 0), None);
         }
     }
 }

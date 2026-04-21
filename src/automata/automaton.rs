@@ -42,7 +42,7 @@ impl IoLabel {
 #[derive(Clone, PartialEq, Eq)]
 pub struct Automaton<G, VP, EP, A>
 where
-    G: Structure + Forward + Backward + Directed,
+    G: Forward + Backward,
     EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
@@ -54,7 +54,7 @@ where
 
 impl<G, VP, EP, A> Automaton<G, VP, EP, A>
 where
-    G: Structure + Forward + Backward + Directed,
+    G: Forward + Backward,
     EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
@@ -122,7 +122,7 @@ where
 
 impl<G, VP, EP, A> Automaton<G, VP, EP, A>
 where
-    G: Structure + Forward + Backward + Directed,
+    G: Forward + Backward,
     G::Vertices: FiniteVertices<Vertex = VertexOf<G>>,
     EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
@@ -177,7 +177,7 @@ where
 
 impl<G, VP, EP, A> VertexType for Automaton<G, VP, EP, A>
 where
-    G: Structure + Forward + Backward + Directed,
+    G: Forward + Backward,
     EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
@@ -186,7 +186,7 @@ where
 
 impl<G, VP, EP, A> EdgeType for Automaton<G, VP, EP, A>
 where
-    G: Structure + Forward + Backward + Directed,
+    G: Forward + Backward,
     EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
@@ -195,7 +195,7 @@ where
 
 impl<G, VP, EP, A> Structure for Automaton<G, VP, EP, A>
 where
-    G: Structure + Forward + Backward + Directed,
+    G: Forward + Backward,
     EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
@@ -215,7 +215,7 @@ where
 
 impl<G, VP, EP, A> Graph for Automaton<G, VP, EP, A>
 where
-    G: Graph + Forward + Backward + Directed,
+    G: Graph + Forward + Backward,
     EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
@@ -223,7 +223,7 @@ where
 
 impl<G, VP, EP, A> Directed for Automaton<G, VP, EP, A>
 where
-    G: Structure + Forward + Backward + Directed,
+    G: Forward + Backward,
     EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
     A: Acceptor,
 {
@@ -236,8 +236,8 @@ where
         EP: 'a,
         A: 'a;
 
-    type Ingoing<'a>
-        = <G as Directed>::Ingoing<'a>
+    type Incoming<'a>
+        = <G as Directed>::Incoming<'a>
     where
         Self: 'a,
         G: 'a,
@@ -270,12 +270,16 @@ where
     }
 
     #[inline]
-    fn ingoing(&self, destination: Self::Vertex) -> Self::Ingoing<'_> {
-        self.graph.graph().ingoing(destination)
+    fn incoming(&self, destination: Self::Vertex) -> Self::Incoming<'_> {
+        self.graph.graph().incoming(destination)
     }
 
     #[inline]
-    fn connections(&self, from: Self::Vertex, to: Self::Vertex) -> Self::Connections<'_> {
-        self.graph.graph().connections(from, to)
+    fn connections(
+        &self,
+        source: Self::Vertex,
+        destination: Self::Vertex,
+    ) -> Self::Connections<'_> {
+        self.graph.graph().connections(source, destination)
     }
 }
