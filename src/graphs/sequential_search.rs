@@ -4,16 +4,18 @@ use crate::graphs::{
     backward::Backward,
     expansion::{BackwardExpansion, Expansion, ForwardExpansion},
     forward::Forward,
-    frontier::{QueueFrontier, SearchFrontier, StackFrontier},
+    frontier::SearchFrontier,
+    queue_frontier::QueueFrontier,
     reachability::LinearReachability,
     search::VisitedSearch,
+    stack_frontier::StackFrontier,
     structure::VertexOf,
     visited::Visited,
     worklist::ExhaustiveWorklist,
 };
 
 /// Sequential search over a forward graph.
-pub type SequentialGraphSearch<'g, G, V, F> = SequentialSearch<ForwardExpansion<'g, G>, V, F>;
+pub type SequentialForwardSearch<'g, G, V, F> = SequentialSearch<ForwardExpansion<'g, G>, V, F>;
 /// Sequential search over a backward graph.
 pub type SequentialBackwardSearch<'g, G, V, F> = SequentialSearch<BackwardExpansion<'g, G>, V, F>;
 

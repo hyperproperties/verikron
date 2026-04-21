@@ -6,13 +6,19 @@ use crate::graphs::{
     backward::Backward,
     expansion::{BackwardExpansion, Expansion, ExpansionStateOf, ForwardExpansion},
     forward::Forward,
-    frontier::{IncrementalFrontier, LayeredFrontier},
+    frontier::IncrementalFrontier,
+    layered_frontier::LayeredFrontier,
     reachability::LinearReachability,
     search::VisitedSearch,
     structure::VertexOf,
     visited::Visited,
     worklist::ExhaustiveWorklist,
 };
+
+/// Parallel search over a forward graph.
+pub type ParallelForwardSearch<'g, G, V> = ParallelSearch<ForwardExpansion<'g, G>, V>;
+/// Parallel search over a backward graph.
+pub type ParallelBackwardSearch<'g, G, V> = ParallelSearch<BackwardExpansion<'g, G>, V>;
 
 /// Default minimum layer size for parallel expansion.
 pub const DEFAULT_PARALLEL_THRESHOLD: usize = 1024;
@@ -140,7 +146,7 @@ where
     /// Expands one layer sequentially and returns the previous layer.
     #[inline]
     pub fn sequential_step(&mut self) -> Option<Vec<ExpansionStateOf<X>>> {
-        self.frontier.step(|current, next| {
+        self.frontier.increment(|current, next| {
             for &state in current {
                 for successor in self.expansion.successors(state) {
                     if self.visited.visit(successor) {
@@ -197,7 +203,7 @@ where
     /// Expands one layer in parallel and returns the previous layer.
     #[inline]
     pub fn parallel_step(&mut self) -> Option<Vec<ExpansionStateOf<X>>> {
-        self.frontier.step(|current, next| {
+        self.frontier.increment(|current, next| {
             self.scratch.clear();
 
             self.scratch.par_extend(
@@ -288,12 +294,6 @@ where
     V: Visited<ExpansionStateOf<X>>,
 {
 }
-
-/// Parallel breadth-first search over a forward graph.
-pub type ParallelGraphBFS<'g, G, V> = ParallelSearch<ForwardExpansion<'g, G>, V>;
-
-/// Parallel breadth-first backward search over a graph.
-pub type ParallelBackwardBFS<'g, G, V> = ParallelSearch<BackwardExpansion<'g, G>, V>;
 
 impl<'g, G, V> ParallelSearch<ForwardExpansion<'g, G>, V>
 where
@@ -532,7 +532,8 @@ mod tests {
     #[test]
     fn default_parallel_threshold_is_exposed() {
         let graph = CSR::from_arcs([Arc::new(0, 1)]);
-        let bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+        let bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0]);
 
         assert_eq!(bfs.parallel_threshold(), DEFAULT_PARALLEL_THRESHOLD);
     }
@@ -540,7 +541,8 @@ mod tests {
     #[test]
     fn parallel_threshold_can_be_changed() {
         let graph = CSR::from_arcs([Arc::new(0, 1)]);
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0]);
 
         bfs.set_parallel_threshold(7);
 
@@ -550,7 +552,8 @@ mod tests {
     #[test]
     fn initial_layer_is_deduplicated_through_visited() {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
-        let bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0, 0, 2, 2]);
+        let bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0, 0, 2, 2]);
 
         assert_eq!(bfs.layer(), &[0, 2]);
         assert_eq!(bfs.visited(), &[0, 2].into_iter().collect::<Set<_>>());
@@ -559,8 +562,9 @@ mod tests {
     #[test]
     fn forward_bfs_empty_graph_without_initials_is_empty() {
         let graph = CSR::from_arcs(std::iter::empty::<Arc<usize>>());
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> =
-            ParallelGraphBFS::new(&graph, std::iter::empty());
+
+        let mut bfs: ParallelSearch<ForwardExpansion<'_, CSR>, Set<usize>> =
+            ParallelSearch::with_expansion(ForwardExpansion::new(&graph), std::iter::empty());
 
         assert!(bfs.next().is_none());
         assert!(bfs.is_finished());
@@ -570,7 +574,8 @@ mod tests {
     #[test]
     fn forward_bfs_line_graph_visits_vertices_in_layer_order() {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0]);
 
         let order: Vec<_> = bfs.by_ref().collect();
 
@@ -586,7 +591,8 @@ mod tests {
             Arc::new(1, 3),
             Arc::new(2, 3),
         ]);
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0]);
 
         let mut seen: Vec<_> = bfs.by_ref().collect();
         seen.sort_unstable();
@@ -598,7 +604,8 @@ mod tests {
     #[test]
     fn forward_bfs_cycle_graph_terminates() {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 1)]);
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0]);
 
         let mut seen: Vec<_> = bfs.by_ref().collect();
         seen.sort_unstable();
@@ -613,11 +620,11 @@ mod tests {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
 
         let from_left: Set<usize> =
-            ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [0]).worklist();
+            ParallelForwardSearch::<_, Set<usize>>::new(&graph, [0]).worklist();
         let from_right: Set<usize> =
-            ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [2]).worklist();
+            ParallelForwardSearch::<_, Set<usize>>::new(&graph, [2]).worklist();
         let from_both: Set<usize> =
-            ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [0, 2]).worklist();
+            ParallelForwardSearch::<_, Set<usize>>::new(&graph, [0, 2]).worklist();
 
         assert_eq!(from_left, [0, 1].into_iter().collect());
         assert_eq!(from_right, [2, 3].into_iter().collect());
@@ -629,7 +636,7 @@ mod tests {
         let graph = CSR::from_arcs([Arc::new(0, 0), Arc::new(0, 1), Arc::new(1, 1)]);
 
         let reachable: Set<usize> =
-            ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, [0]).worklist();
+            ParallelForwardSearch::<_, Set<usize>>::new(&graph, [0]).worklist();
 
         assert_eq!(reachable, [0, 1].into_iter().collect());
     }
@@ -637,8 +644,8 @@ mod tests {
     #[test]
     fn backward_bfs_empty_graph_without_initials_is_empty() {
         let graph = CSR::from_arcs(std::iter::empty::<Arc<usize>>());
-        let mut bfs: ParallelBackwardBFS<CSR, Set<usize>> =
-            ParallelBackwardBFS::new(&graph, std::iter::empty());
+        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
+            ParallelBackwardSearch::new(&graph, std::iter::empty());
 
         assert!(bfs.next().is_none());
         assert!(bfs.is_finished());
@@ -648,7 +655,8 @@ mod tests {
     #[test]
     fn backward_bfs_line_graph_visits_predecessors_in_layer_order() {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelBackwardBFS<CSR, Set<usize>> = ParallelBackwardBFS::new(&graph, [3]);
+        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
+            ParallelBackwardSearch::new(&graph, [3]);
 
         let order: Vec<_> = bfs.by_ref().collect();
 
@@ -659,7 +667,8 @@ mod tests {
     #[test]
     fn backward_bfs_branching_graph_reaches_all_predecessors() {
         let graph = CSR::from_arcs([Arc::new(0, 2), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelBackwardBFS<CSR, Set<usize>> = ParallelBackwardBFS::new(&graph, [3]);
+        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
+            ParallelBackwardSearch::new(&graph, [3]);
 
         let mut seen: Vec<_> = bfs.by_ref().collect();
         seen.sort_unstable();
@@ -673,11 +682,11 @@ mod tests {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
 
         let from_left: Set<usize> =
-            ParallelBackwardBFS::<CSR, Set<usize>>::new(&graph, [1]).worklist();
+            ParallelBackwardSearch::<_, Set<usize>>::new(&graph, [1]).worklist();
         let from_right: Set<usize> =
-            ParallelBackwardBFS::<CSR, Set<usize>>::new(&graph, [3]).worklist();
+            ParallelBackwardSearch::<_, Set<usize>>::new(&graph, [3]).worklist();
         let from_both: Set<usize> =
-            ParallelBackwardBFS::<CSR, Set<usize>>::new(&graph, [1, 3]).worklist();
+            ParallelBackwardSearch::<_, Set<usize>>::new(&graph, [1, 3]).worklist();
 
         assert_eq!(from_left, [0, 1].into_iter().collect());
         assert_eq!(from_right, [2, 3].into_iter().collect());
@@ -696,8 +705,10 @@ mod tests {
             Arc::new(5, 3),
         ]);
 
-        let mut sequential: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
-        let mut parallel: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+        let mut sequential: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0]);
+        let mut parallel: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0]);
 
         loop {
             let left = sequential.sequential_step();
@@ -728,10 +739,10 @@ mod tests {
             Arc::new(5, 3),
         ]);
 
-        let mut sequential: ParallelBackwardBFS<CSR, Set<usize>> =
-            ParallelBackwardBFS::new(&graph, [5]);
-        let mut parallel: ParallelBackwardBFS<CSR, Set<usize>> =
-            ParallelBackwardBFS::new(&graph, [5]);
+        let mut sequential: ParallelBackwardSearch<'_, CSR, Set<usize>> =
+            ParallelBackwardSearch::new(&graph, [5]);
+        let mut parallel: ParallelBackwardSearch<'_, CSR, Set<usize>> =
+            ParallelBackwardSearch::new(&graph, [5]);
 
         loop {
             let left = sequential.sequential_step();
@@ -754,7 +765,8 @@ mod tests {
     #[test]
     fn forward_reachability_finds_present_goal() {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0]);
 
         assert!(bfs.reachable(3));
     }
@@ -762,7 +774,8 @@ mod tests {
     #[test]
     fn forward_reachability_rejects_absent_goal() {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
-        let mut bfs: ParallelGraphBFS<CSR, Set<usize>> = ParallelGraphBFS::new(&graph, [0]);
+        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
+            ParallelForwardSearch::new(&graph, [0]);
 
         assert!(!bfs.reachable(3));
     }
@@ -770,7 +783,8 @@ mod tests {
     #[test]
     fn backward_reachability_finds_present_goal() {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelBackwardBFS<CSR, Set<usize>> = ParallelBackwardBFS::new(&graph, [3]);
+        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
+            ParallelBackwardSearch::new(&graph, [3]);
 
         assert!(bfs.reachable(0));
     }
@@ -778,7 +792,8 @@ mod tests {
     #[test]
     fn backward_reachability_rejects_absent_goal() {
         let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
-        let mut bfs: ParallelBackwardBFS<CSR, Set<usize>> = ParallelBackwardBFS::new(&graph, [1]);
+        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
+            ParallelBackwardSearch::new(&graph, [1]);
 
         assert!(!bfs.reachable(3));
     }
@@ -793,7 +808,7 @@ mod tests {
             );
 
             let actual: Set<usize> =
-                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
+                ParallelForwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
 
             let expected = reference_reachable(&graph, &initials);
 
@@ -809,7 +824,7 @@ mod tests {
             );
 
             let actual: Set<usize> =
-                ParallelBackwardBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
+                ParallelBackwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
 
             let expected = reference_backward_reachable(&graph, &initials);
 
@@ -825,10 +840,10 @@ mod tests {
             );
 
             let set_result: Set<usize> =
-                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
+                ParallelForwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
 
             let bit_result: BitVector =
-                ParallelGraphBFS::<CSR, BitVector>::new(&graph, initials.iter().copied()).worklist();
+                ParallelForwardSearch::<_, BitVector>::new(&graph, initials.iter().copied()).worklist();
 
             let mut from_bits = Set::default();
             for vertex in 0..graph.vertex_count() {
@@ -849,7 +864,7 @@ mod tests {
             );
 
             let reachable: Set<usize> =
-                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
+                ParallelForwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
 
             for &initial in &initials {
                 prop_assert!(reachable.contains(&initial));
@@ -865,7 +880,7 @@ mod tests {
             );
 
             let reachable: Set<usize> =
-                ParallelBackwardBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
+                ParallelBackwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
 
             for &initial in &initials {
                 prop_assert!(reachable.contains(&initial));
@@ -881,10 +896,12 @@ mod tests {
             );
 
             let first: Set<usize> =
-                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
+                ParallelForwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
+
+            let first_initials: Vec<_> = first.iter().copied().collect();
 
             let second: Set<usize> =
-                ParallelGraphBFS::<CSR, Set<usize>>::new(&graph, first.iter().copied()).worklist();
+                ParallelForwardSearch::<_, Set<usize>>::new(&graph, first_initials).worklist();
 
             prop_assert_eq!(first, second);
         }
@@ -898,10 +915,12 @@ mod tests {
             );
 
             let first: Set<usize> =
-                ParallelBackwardBFS::<CSR, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
+                ParallelBackwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
+
+            let first_initials: Vec<_> = first.iter().copied().collect();
 
             let second: Set<usize> =
-                ParallelBackwardBFS::<CSR, Set<usize>>::new(&graph, first.iter().copied()).worklist();
+                ParallelBackwardSearch::<_, Set<usize>>::new(&graph, first_initials).worklist();
 
             prop_assert_eq!(first, second);
         }
