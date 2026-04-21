@@ -1,16 +1,27 @@
 use crate::graphs::visited::Visited;
 
-/// Iterator-based graph search.
+/// Iterator-based search.
 ///
 /// This is a domain marker over [`Iterator`].
-pub trait Search: Iterator {}
+///
+/// The searched state may be a graph vertex, a hyperedge, an automaton state,
+/// or any other search state.
+pub trait Search: Iterator<Item = Self::State> {
+    /// State yielded by the search.
+    type State;
+}
 
-impl<I> Search for I where I: Iterator {}
+impl<I> Search for I
+where
+    I: Iterator,
+{
+    type State = I::Item;
+}
 
 /// A search that owns a visited structure and can be exhausted into it.
 pub trait VisitedSearch: Search {
     /// The visited structure maintained by this search.
-    type Visited: Visited<Self::Item>;
+    type Visited: Visited<Self::State>;
 
     /// Consumes the search state and returns the visited structure.
     #[must_use]
