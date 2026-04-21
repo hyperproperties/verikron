@@ -1,5 +1,7 @@
 use crate::graphs::{backward::Backward, forward::Forward, structure::VertexOf};
 
+pub type ExpansionStateOf<X> = <X as Expansion>::State;
+
 /// Local expansion relation for a search.
 ///
 /// This abstracts over the underlying structure being searched.

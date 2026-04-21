@@ -15,6 +15,7 @@ pub mod graph;
 pub mod hyper;
 pub mod mcsr;
 pub mod members;
+pub mod parallel_search;
 pub mod properties;
 pub mod quotient;
 pub mod reachability;

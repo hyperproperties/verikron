@@ -12,7 +12,7 @@ pub trait IncrementalFrontier<T> {
 }
 
 /// Layered frontier with separate current and next layers.
-#[derive(Default)]
+#[derive(Debug, Clone)]
 pub struct LayeredFrontier<T> {
     current: Vec<T>,
     next: Vec<T>,

@@ -1,5 +1,8 @@
 use crate::graphs::visited::Visited;
 
+pub type StateOf<S> = <S as Search>::State;
+pub type VisitedOf<S> = <S as VisitedSearch>::Visited;
+
 /// Iterator-based search.
 ///
 /// This is a domain marker over [`Iterator`].
