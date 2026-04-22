@@ -1,6 +1,6 @@
 use crate::automata::{
     acceptors::OmegaAcceptor, alphabet::Alphabet, omega::OmegaAutomaton,
-    transition_relation::TransitionRelation,
+    transition_relation::{BackwardTransitionRelation, TransitionRelation},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,5 +77,19 @@ where
     #[inline]
     fn acceptor(&self) -> &Self::Acceptor {
         &self.acceptor
+    }
+}
+
+impl<R, A> Automaton<R, A>
+where
+    R: BackwardTransitionRelation,
+    A: OmegaAcceptor,
+{
+    pub fn incoming_transitions(
+        &self,
+        target: R::State,
+        label: &R::Label,
+    ) -> R::IncomingTransitions<'_> {
+        self.transition_relation.incoming_transitions(target, label)
     }
 }
