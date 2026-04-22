@@ -1,267 +1,77 @@
-use symbol_table::Symbol;
-
-use crate::{
-    automata::{acceptors::Acceptor, alphabet::Alphabet, label::IoLabel},
-    graphs::{
-        attributed::AttributedGraph,
-        backward::Backward,
-        forward::Forward,
-        graph::{Directed, Graph},
-        properties::Properties,
-        structure::{EdgeOf, EdgeType, FiniteVertices, Structure, VertexOf, VertexType},
-    },
-    lattices::set::Set,
+use crate::automata::{
+    acceptors::{Acceptor, StateSummary},
+    alphabet::Alphabet,
+    omega::OmegaAutomaton,
+    transition_relation::TransitionRelation,
 };
 
-/// Automaton over a directed transition structure with edge labels stored as
-/// edge properties in an attributed graph.
-///
-/// The underlying graph provides the transition structure.
-/// The edge-property store provides [`IoLabel`] values.
-/// The alphabet is declared explicitly, so it is available even when the
-/// transition structure is infinite.
-/// The acceptor decides acceptance from its own summary type.
 #[derive(Clone, PartialEq, Eq)]
-pub struct Automaton<G, VP, EP, A>
+pub struct Automaton<R, A>
 where
-    G: Forward + Backward,
-    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
-    A: Acceptor,
+    R: TransitionRelation,
+    A: Acceptor<Summary = StateSummary<R::State>>,
 {
-    initial: VertexOf<G>,
-    graph: AttributedGraph<G, VP, EP>,
-    alphabet: Alphabet,
+    initial: R::State,
+    transition_relation: R,
+    alphabet: Alphabet<R::Label>,
     acceptor: A,
 }
 
-impl<G, VP, EP, A> Automaton<G, VP, EP, A>
+impl<R, A> Automaton<R, A>
 where
-    G: Forward + Backward,
-    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
-    A: Acceptor,
+    R: TransitionRelation,
+    A: Acceptor<Summary = StateSummary<R::State>>,
 {
-    /// Creates an automaton without checking that `initial` belongs to `graph`.
-    ///
-    /// This works for both finite and infinite structures.
     #[must_use]
     #[inline]
     pub fn new(
-        initial: VertexOf<G>,
-        graph: AttributedGraph<G, VP, EP>,
-        alphabet: Set<IoLabel>,
+        initial: R::State,
+        transition_relation: R,
+        alphabet: Alphabet<R::Label>,
         acceptor: A,
     ) -> Self {
         Self {
             initial,
-            graph,
+            transition_relation,
             alphabet,
             acceptor,
         }
     }
 
-    /// Returns the initial vertex.
     #[must_use]
     #[inline]
-    pub fn initial(&self) -> VertexOf<G> {
-        self.initial
+    pub fn transition_relation(&self) -> &R {
+        &self.transition_relation
     }
 
-    /// Returns the declared label alphabet.
     #[must_use]
     #[inline]
-    pub fn alphabet(&self) -> &Set<IoLabel> {
+    pub fn into_transition_relation(self) -> R {
+        self.transition_relation
+    }
+}
+
+impl<R, A> OmegaAutomaton for Automaton<R, A>
+where
+    R: TransitionRelation,
+    A: Acceptor<Summary = StateSummary<R::State>>,
+{
+    type State = R::State;
+    type Label = R::Label;
+    type Acceptor = A;
+
+    #[inline]
+    fn initial(&self) -> Self::State {
+        self.initial.clone()
+    }
+
+    #[inline]
+    fn alphabet(&self) -> &Alphabet<Self::Label> {
         &self.alphabet
     }
 
-    /// Returns the declared input alphabet.
-    #[must_use]
     #[inline]
-    pub fn input_alphabet(&self) -> Set<Symbol> {
-        self.alphabet.iter().map(|label| label.input).collect()
-    }
-
-    /// Returns the declared output alphabet.
-    #[must_use]
-    #[inline]
-    pub fn output_alphabet(&self) -> Set<Symbol> {
-        self.alphabet.iter().map(|label| label.output).collect()
-    }
-
-    /// Delegates acceptance of `summary` to the underlying acceptor.
-    #[must_use]
-    #[inline]
-    pub fn accepts(&self, summary: &A::Summary) -> bool {
-        self.acceptor.accept(summary)
-    }
-
-    /// Returns the label of `edge`, if present.
-    #[must_use]
-    #[inline]
-    pub fn label(&self, edge: EdgeOf<G>) -> Option<&IoLabel> {
-        self.graph.edge_properties().property(edge)
-    }
-}
-
-impl<G, VP, EP, A> Automaton<G, VP, EP, A>
-where
-    G: Forward + Backward,
-    G::Vertices: FiniteVertices<Vertex = VertexOf<G>>,
-    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
-    A: Acceptor,
-{
-    /// Creates an automaton and checks that `initial` belongs to `graph`.
-    ///
-    /// Panics if `initial` is not a vertex of `graph`.
-    #[must_use]
-    #[inline]
-    pub fn new_checked(
-        initial: VertexOf<G>,
-        graph: AttributedGraph<G, VP, EP>,
-        alphabet: Set<IoLabel>,
-        acceptor: A,
-    ) -> Self {
-        assert!(
-            graph.vertex_store().contains(&initial),
-            "initial vertex must belong to the graph",
-        );
-        Self::new(initial, graph, alphabet, acceptor)
-    }
-
-    /// Creates an automaton if `initial` belongs to `graph`.
-    #[must_use]
-    #[inline]
-    pub fn try_checked(
-        initial: VertexOf<G>,
-        graph: AttributedGraph<G, VP, EP>,
-        alphabet: Set<IoLabel>,
-        acceptor: A,
-    ) -> Option<Self> {
-        graph
-            .vertex_store()
-            .contains(&initial)
-            .then(|| Self::new(initial, graph, alphabet, acceptor))
-    }
-
-    /// Returns whether `vertex` belongs to the transition structure.
-    #[must_use]
-    #[inline]
-    pub fn contains_vertex(&self, vertex: VertexOf<G>) -> bool {
-        self.graph.vertex_store().contains(&vertex)
-    }
-
-    /// Returns whether the initial vertex belongs to the transition structure.
-    #[must_use]
-    #[inline]
-    pub fn has_valid_initial(&self) -> bool {
-        self.contains_vertex(self.initial)
-    }
-}
-
-impl<G, VP, EP, A> VertexType for Automaton<G, VP, EP, A>
-where
-    G: Forward + Backward,
-    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
-    A: Acceptor,
-{
-    type Vertex = VertexOf<G>;
-}
-
-impl<G, VP, EP, A> EdgeType for Automaton<G, VP, EP, A>
-where
-    G: Forward + Backward,
-    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
-    A: Acceptor,
-{
-    type Edge = EdgeOf<G>;
-}
-
-impl<G, VP, EP, A> Structure for Automaton<G, VP, EP, A>
-where
-    G: Forward + Backward,
-    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
-    A: Acceptor,
-{
-    type Vertices = G::Vertices;
-    type Edges = G::Edges;
-
-    #[inline]
-    fn vertex_store(&self) -> &Self::Vertices {
-        self.graph.vertex_store()
-    }
-
-    #[inline]
-    fn edge_store(&self) -> &Self::Edges {
-        self.graph.edge_store()
-    }
-}
-
-impl<G, VP, EP, A> Graph for Automaton<G, VP, EP, A>
-where
-    G: Graph + Forward + Backward,
-    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
-    A: Acceptor,
-{
-}
-
-impl<G, VP, EP, A> Directed for Automaton<G, VP, EP, A>
-where
-    G: Forward + Backward,
-    EP: Properties<Key = EdgeOf<G>, Property = IoLabel>,
-    A: Acceptor,
-{
-    type Outgoing<'a>
-        = <G as Directed>::Outgoing<'a>
-    where
-        Self: 'a,
-        G: 'a,
-        VP: 'a,
-        EP: 'a,
-        A: 'a;
-
-    type Incoming<'a>
-        = <G as Directed>::Incoming<'a>
-    where
-        Self: 'a,
-        G: 'a,
-        VP: 'a,
-        EP: 'a,
-        A: 'a;
-
-    type Connections<'a>
-        = <G as Directed>::Connections<'a>
-    where
-        Self: 'a,
-        G: 'a,
-        VP: 'a,
-        EP: 'a,
-        A: 'a;
-
-    #[inline]
-    fn source(&self, edge: Self::Edge) -> Self::Vertex {
-        self.graph.graph().source(edge)
-    }
-
-    #[inline]
-    fn destination(&self, edge: Self::Edge) -> Self::Vertex {
-        self.graph.graph().destination(edge)
-    }
-
-    #[inline]
-    fn outgoing(&self, source: Self::Vertex) -> Self::Outgoing<'_> {
-        self.graph.graph().outgoing(source)
-    }
-
-    #[inline]
-    fn incoming(&self, destination: Self::Vertex) -> Self::Incoming<'_> {
-        self.graph.graph().incoming(destination)
-    }
-
-    #[inline]
-    fn connections(
-        &self,
-        source: Self::Vertex,
-        destination: Self::Vertex,
-    ) -> Self::Connections<'_> {
-        self.graph.graph().connections(source, destination)
+    fn acceptor(&self) -> &Self::Acceptor {
+        &self.acceptor
     }
 }

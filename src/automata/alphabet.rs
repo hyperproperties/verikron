@@ -1,3 +1,4 @@
-use crate::{automata::label::IoLabel, lattices::set::Set};
+use crate::{automata::io::IoLabel, lattices::set::Set};
 
-pub type Alphabet = Set<IoLabel>;
+pub type Alphabet<L> = Set<L>;
+pub type IoAlphabet = Alphabet<IoLabel>;
