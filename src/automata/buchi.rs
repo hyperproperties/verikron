@@ -91,10 +91,7 @@ mod tests {
             infinite_summary::InfiniteStateSummary,
         },
         graphs::{
-            arc::FromArcs,
-            attributed::AttributedGraph,
-            csr::CSR,
-            properties::IndexedProperties,
+            arc::FromArcs, attributed::AttributedGraph, csr::CSR, properties::IndexedProperties,
         },
         lattices::set::Set,
     };
