@@ -1,7 +1,7 @@
 use symbol_table::Symbol;
 
 use crate::{
-    automata::acceptors::Acceptor,
+    automata::{acceptors::Acceptor, alphabet::Alphabet, label::IoLabel},
     graphs::{
         attributed::AttributedGraph,
         backward::Backward,
@@ -12,24 +12,6 @@ use crate::{
     },
     lattices::set::Set,
 };
-
-/// Input/output label carried by an edge.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct IoLabel {
-    /// Consumed input symbol.
-    pub input: Symbol,
-    /// Produced output symbol.
-    pub output: Symbol,
-}
-
-impl IoLabel {
-    /// Creates a new input/output label.
-    #[must_use]
-    #[inline]
-    pub const fn new(input: Symbol, output: Symbol) -> Self {
-        Self { input, output }
-    }
-}
 
 /// Automaton over a directed transition structure with edge labels stored as
 /// edge properties in an attributed graph.
@@ -48,7 +30,7 @@ where
 {
     initial: VertexOf<G>,
     graph: AttributedGraph<G, VP, EP>,
-    alphabet: Set<IoLabel>,
+    alphabet: Alphabet,
     acceptor: A,
 }
 

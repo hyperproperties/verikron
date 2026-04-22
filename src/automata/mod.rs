@@ -1,9 +1,11 @@
 pub mod acceptors;
+pub mod alphabet;
 pub mod alternating;
 pub mod automaton;
 pub mod buchi;
 pub mod co_buchi;
 pub mod r#final;
+pub mod label;
 pub mod muller;
 pub mod parity;
 pub mod rabin;
