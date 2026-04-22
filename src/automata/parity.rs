@@ -2,9 +2,21 @@ use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
 
-use crate::automata::{
-    acceptors::{Acceptor, OmegaAcceptor},
-    infinite_summary::InfiniteStateSummary,
+use crate::{
+    automata::{
+        acceptors::{Acceptor, OmegaAcceptor},
+        automaton::Automaton,
+        emptiness::Emptiness,
+        infinite_summary::InfiniteStateSummary,
+        transition_relation::{
+            BackwardExplicitTransitionRelation, FiniteExplicitTransitionRelation,
+        },
+    },
+    graphs::{
+        parallel_search::ParallelForwardSearch, quotient::Quotient, scc::SCC,
+        scc_quotient::SCCQuotient, worklist::Worklist,
+    },
+    lattices::set::Set,
 };
 
 /// Parity acceptance convention.
@@ -122,6 +134,28 @@ where
     pub fn convention(&self) -> ParityConvention {
         self.convention
     }
+
+    #[must_use]
+    pub fn accepts_states<'a>(&self, states: impl IntoIterator<Item = &'a S>) -> bool
+    where
+        S: 'a,
+    {
+        let mut priorities = states
+            .into_iter()
+            .map(|state| self.priorities.get(state).copied());
+
+        let Some(first) = priorities.next().flatten() else {
+            return false;
+        };
+
+        let extremal = if self.convention.uses_min() {
+            priorities.try_fold(first, |best, p| Some(best.min(p?)))
+        } else {
+            priorities.try_fold(first, |best, p| Some(best.max(p?)))
+        };
+
+        extremal.is_some_and(|p| self.convention.accepts_priority(p))
+    }
 }
 
 impl<S> Acceptor for Parity<S>
@@ -139,3 +173,330 @@ where
 }
 
 impl<S> OmegaAcceptor for Parity<S> where S: Eq + Hash {}
+
+impl<R> Emptiness for Automaton<R, Parity<usize>>
+where
+    R: BackwardExplicitTransitionRelation + FiniteExplicitTransitionRelation<State = usize>,
+{
+    fn is_empty(&self) -> bool {
+        let quotient = SCCQuotient::tarjan(self.transition_relation());
+        let initial = quotient.class(*self.initial());
+        let search = ParallelForwardSearch::<_, Set<usize>>::new(&quotient, vec![initial]);
+        let reachable = search.worklist();
+
+        !reachable.into_iter().any(|class| {
+            quotient.is_recurrent(class)
+                && self
+                    .acceptor()
+                    .accepts_states(quotient.members_slice(class).iter())
+        })
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::{
+        automata::{
+            acceptors::Acceptor, alphabet::Alphabet, automaton::Automaton,
+            infinite_summary::InfiniteStateSummary,
+        },
+        graphs::{
+            arc::FromArcs, attributed::AttributedGraph, csr::CSR, properties::IndexedProperties,
+        },
+    };
+
+    fn priorities_of(items: impl IntoIterator<Item = (usize, usize)>) -> FxHashMap<usize, usize> {
+        items.into_iter().collect()
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct InfStates<S> {
+        states: Vec<S>,
+    }
+
+    impl<S> InfStates<S> {
+        fn new(states: Vec<S>) -> Self {
+            Self { states }
+        }
+    }
+
+    impl<S> InfiniteStateSummary for InfStates<S>
+    where
+        S: Eq + Hash,
+    {
+        type State = S;
+
+        type InfinitelyOften<'a>
+            = std::slice::Iter<'a, S>
+        where
+            Self: 'a,
+            S: 'a;
+
+        fn infinitely_often(&self) -> Self::InfinitelyOften<'_> {
+            self.states.iter()
+        }
+    }
+
+    fn sample_automaton()
+    -> Automaton<AttributedGraph<CSR, (), IndexedProperties<char>>, Parity<usize>> {
+        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 2)]);
+        let relation = AttributedGraph::with_edge_properties(
+            graph,
+            IndexedProperties::<char>::from(vec!['a', 'b', 'a']),
+        );
+        let alphabet: Alphabet<char> = ['a', 'b'].into();
+        let acceptor = Parity::new(
+            priorities_of([(0, 3), (1, 2), (2, 0)]),
+            ParityConvention::MinEven,
+        );
+
+        Automaton::new(0, relation, alphabet, acceptor)
+    }
+
+    #[test]
+    fn convention_uses_min_matches_variants() {
+        assert!(ParityConvention::MinEven.uses_min());
+        assert!(ParityConvention::MinOdd.uses_min());
+        assert!(!ParityConvention::MaxEven.uses_min());
+        assert!(!ParityConvention::MaxOdd.uses_min());
+    }
+
+    #[test]
+    fn convention_accepts_priority_matches_parity() {
+        assert!(ParityConvention::MinEven.accepts_priority(2));
+        assert!(!ParityConvention::MinEven.accepts_priority(3));
+
+        assert!(ParityConvention::MinOdd.accepts_priority(3));
+        assert!(!ParityConvention::MinOdd.accepts_priority(2));
+
+        assert!(ParityConvention::MaxEven.accepts_priority(4));
+        assert!(!ParityConvention::MaxEven.accepts_priority(5));
+
+        assert!(ParityConvention::MaxOdd.accepts_priority(5));
+        assert!(!ParityConvention::MaxOdd.accepts_priority(4));
+    }
+
+    #[test]
+    fn new_exposes_priorities_and_convention() {
+        let priorities = priorities_of([(1, 2), (2, 5)]);
+        let parity = Parity::new(priorities.clone(), ParityConvention::MaxOdd);
+
+        assert_eq!(parity.priorities(), &priorities);
+        assert_eq!(parity.convention(), ParityConvention::MaxOdd);
+    }
+
+    #[test]
+    fn parity_summary_uses_minimum_priority_for_min_conventions() {
+        let summary = InfStates::new(vec![1usize, 2, 3]);
+        let priorities = priorities_of([(1, 4), (2, 1), (3, 6)]);
+
+        assert_eq!(
+            summary.extremal_priority(&priorities, ParityConvention::MinEven),
+            Some(1)
+        );
+        assert_eq!(
+            summary.extremal_priority(&priorities, ParityConvention::MinOdd),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn parity_summary_uses_maximum_priority_for_max_conventions() {
+        let summary = InfStates::new(vec![1usize, 2, 3]);
+        let priorities = priorities_of([(1, 4), (2, 1), (3, 6)]);
+
+        assert_eq!(
+            summary.extremal_priority(&priorities, ParityConvention::MaxEven),
+            Some(6)
+        );
+        assert_eq!(
+            summary.extremal_priority(&priorities, ParityConvention::MaxOdd),
+            Some(6)
+        );
+    }
+
+    #[test]
+    fn parity_summary_rejects_when_some_infinitely_often_state_has_no_priority() {
+        let summary = InfStates::new(vec![1usize, 2, 3]);
+        let priorities = priorities_of([(1, 4), (3, 6)]);
+
+        assert_eq!(
+            summary.extremal_priority(&priorities, ParityConvention::MinEven),
+            None
+        );
+        assert_eq!(
+            summary.extremal_priority(&priorities, ParityConvention::MaxOdd),
+            None
+        );
+    }
+
+    #[test]
+    fn parity_accepts_when_extremal_priority_is_accepting() {
+        let parity = Parity::new(
+            priorities_of([(1, 4), (2, 1), (3, 6)]),
+            ParityConvention::MinOdd,
+        );
+        let summary = InfStates::new(vec![1usize, 2, 3]);
+
+        assert!(Acceptor::accept(&parity, &summary));
+    }
+
+    #[test]
+    fn parity_rejects_when_extremal_priority_is_rejecting() {
+        let parity = Parity::new(
+            priorities_of([(1, 4), (2, 1), (3, 6)]),
+            ParityConvention::MinEven,
+        );
+        let summary = InfStates::new(vec![1usize, 2, 3]);
+
+        assert!(!Acceptor::accept(&parity, &summary));
+    }
+
+    #[test]
+    fn accepts_states_checks_min_even_correctly() {
+        let parity = Parity::new(
+            priorities_of([(0, 3), (1, 2), (2, 4)]),
+            ParityConvention::MinEven,
+        );
+
+        assert!(parity.accepts_states([&1usize, &2usize]));
+        assert!(parity.accepts_states([&0usize, &1usize]));
+        assert!(!parity.accepts_states([&0usize]));
+    }
+
+    #[test]
+    fn accepts_states_checks_max_odd_correctly() {
+        let parity = Parity::new(
+            priorities_of([(0, 3), (1, 2), (2, 4)]),
+            ParityConvention::MaxOdd,
+        );
+
+        assert!(!parity.accepts_states([&1usize, &2usize]));
+        assert!(parity.accepts_states([&0usize, &1usize]));
+    }
+
+    #[test]
+    fn accepts_states_rejects_empty_state_set() {
+        let parity = Parity::new(priorities_of([(0, 2)]), ParityConvention::MinEven);
+
+        assert!(!parity.accepts_states(std::iter::empty::<&usize>()));
+    }
+
+    #[test]
+    fn accepts_states_rejects_missing_priority() {
+        let parity = Parity::new(priorities_of([(0, 2)]), ParityConvention::MinEven);
+
+        assert!(!parity.accepts_states([&0usize, &1usize]));
+    }
+
+    #[test]
+    fn automaton_with_attributed_graph_transition_relation_accepts_accepting_summary() {
+        let automaton = sample_automaton();
+        let summary = InfStates::new(vec![2usize]);
+
+        assert!(automaton.accepts(&summary));
+    }
+
+    #[test]
+    fn automaton_with_attributed_graph_transition_relation_rejects_rejecting_summary() {
+        let automaton = sample_automaton();
+        let summary = InfStates::new(vec![0usize]);
+
+        assert!(!automaton.accepts(&summary));
+    }
+
+    #[test]
+    fn emptiness_rejects_automaton_with_reachable_accepting_recurrent_scc_for_min_even() {
+        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 1)]);
+        let relation = AttributedGraph::with_edge_properties(
+            graph,
+            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
+        );
+        let alphabet: Alphabet<char> = ['a', 'b'].into();
+        let acceptor = Parity::new(
+            priorities_of([(0, 5), (1, 4), (2, 2)]),
+            ParityConvention::MinEven,
+        );
+
+        let automaton = Automaton::new(0, relation, alphabet, acceptor);
+
+        assert!(!automaton.is_empty());
+    }
+
+    #[test]
+    fn emptiness_accepts_automaton_when_reachable_recurrent_scc_is_rejecting_for_min_even() {
+        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 1)]);
+        let relation = AttributedGraph::with_edge_properties(
+            graph,
+            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
+        );
+        let alphabet: Alphabet<char> = ['a', 'b'].into();
+        let acceptor = Parity::new(
+            priorities_of([(0, 4), (1, 3), (2, 5)]),
+            ParityConvention::MinEven,
+        );
+
+        let automaton = Automaton::new(0, relation, alphabet, acceptor);
+
+        assert!(automaton.is_empty());
+    }
+
+    #[test]
+    fn emptiness_rejects_automaton_with_reachable_accepting_recurrent_scc_for_max_odd() {
+        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 1)]);
+        let relation = AttributedGraph::with_edge_properties(
+            graph,
+            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
+        );
+        let alphabet: Alphabet<char> = ['a', 'b'].into();
+        let acceptor = Parity::new(
+            priorities_of([(0, 0), (1, 2), (2, 5)]),
+            ParityConvention::MaxOdd,
+        );
+
+        let automaton = Automaton::new(0, relation, alphabet, acceptor);
+
+        assert!(!automaton.is_empty());
+    }
+
+    #[test]
+    fn emptiness_ignores_unreachable_accepting_recurrent_scc() {
+        let graph = CSR::from_arcs([(0, 1), (1, 1), (2, 3), (3, 2)]);
+        let relation = AttributedGraph::with_edge_properties(
+            graph,
+            IndexedProperties::<char>::from(vec!['a', 'a', 'b', 'b']),
+        );
+        let alphabet: Alphabet<char> = ['a', 'b'].into();
+        let acceptor = Parity::new(
+            priorities_of([(0, 4), (1, 2), (2, 0), (3, 1)]),
+            ParityConvention::MaxOdd,
+        );
+
+        let automaton = Automaton::new(0, relation, alphabet, acceptor);
+
+        assert!(automaton.is_empty());
+    }
+
+    #[test]
+    fn emptiness_accepts_automaton_when_reachable_recurrent_scc_has_missing_priority() {
+        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 1)]);
+        let relation = AttributedGraph::with_edge_properties(
+            graph,
+            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
+        );
+        let alphabet: Alphabet<char> = ['a', 'b'].into();
+        let acceptor = Parity::new(priorities_of([(0, 2), (1, 4)]), ParityConvention::MinEven);
+
+        let automaton = Automaton::new(0, relation, alphabet, acceptor);
+
+        assert!(automaton.is_empty());
+    }
+
+    #[test]
+    fn sample_automaton_is_not_empty() {
+        let automaton = sample_automaton();
+
+        assert!(!automaton.is_empty());
+    }
+}
