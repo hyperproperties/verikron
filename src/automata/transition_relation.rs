@@ -1,8 +1,13 @@
 use std::hash::Hash;
 
 use crate::graphs::{
+    attributed::AttributedGraph,
     graph::{Directed, FiniteDirected, Graph, IndexedDirected},
-    structure::{EdgeType, Edges, FiniteEdges, FiniteVertices, Structure, VertexType, Vertices},
+    properties::Properties,
+    structure::{
+        EdgeOf, EdgeType, Edges, FiniteEdges, FiniteVertices, Structure, VertexOf, VertexType,
+        Vertices,
+    },
 };
 
 /// A labeled transition relation for ordinary automata.
@@ -44,10 +49,6 @@ pub trait TransitionRelation {
 }
 
 /// An explicit, enumerable transition relation.
-///
-/// In addition to local adjacency queries, this trait exposes the full state
-/// space and the full transition set as explicit iterators. This is the form
-/// most directly suited to graph algorithms such as SCC decomposition.
 pub trait ExplicitTransitionRelation: TransitionRelation {
     /// All states of the transition relation.
     type States<'a>: Iterator<Item = Self::State>
@@ -64,6 +65,15 @@ pub trait ExplicitTransitionRelation: TransitionRelation {
 
     /// Returns all transitions.
     fn transitions(&self) -> Self::Transitions<'_>;
+}
+
+/// A finite explicit transition relation.
+pub trait FiniteExplicitTransitionRelation: ExplicitTransitionRelation {
+    /// Returns the number of states.
+    fn state_count(&self) -> usize;
+
+    /// Returns the number of transitions.
+    fn transition_count(&self) -> usize;
 }
 
 /// A transition relation that also supports backward exploration.
@@ -150,13 +160,6 @@ where
     }
 }
 
-impl<R> FiniteVertices for R
-where
-    R: ExplicitTransitionRelation,
-    R::State: Copy,
-{
-}
-
 impl<R> EdgeType for R
 where
     R: ExplicitTransitionRelation,
@@ -181,13 +184,6 @@ where
     }
 }
 
-impl<R> FiniteEdges for R
-where
-    R: ExplicitTransitionRelation,
-    R::State: Copy,
-{
-}
-
 impl<R> Structure for R
 where
     R: ExplicitTransitionRelation,
@@ -204,6 +200,28 @@ where
     #[inline]
     fn vertex_store(&self) -> &Self::Vertices {
         self
+    }
+}
+
+impl<R> FiniteVertices for R
+where
+    R: FiniteExplicitTransitionRelation,
+    R::State: Copy,
+{
+    #[inline]
+    fn vertex_count(&self) -> usize {
+        FiniteExplicitTransitionRelation::state_count(self)
+    }
+}
+
+impl<R> FiniteEdges for R
+where
+    R: FiniteExplicitTransitionRelation,
+    R::State: Copy,
+{
+    #[inline]
+    fn edge_count(&self) -> usize {
+        FiniteExplicitTransitionRelation::transition_count(self)
     }
 }
 
@@ -270,7 +288,7 @@ where
 
 impl<R> FiniteDirected for R
 where
-    R: BackwardTransitionRelation + ExplicitTransitionRelation,
+    R: BackwardTransitionRelation + FiniteExplicitTransitionRelation,
     R::State: Copy,
 {
     #[inline]
@@ -308,5 +326,156 @@ where
         self.incoming(vertex)
             .nth(index)
             .map(|edge| self.source(edge))
+    }
+}
+
+impl<G, VP, LP> TransitionRelation for AttributedGraph<G, VP, LP>
+where
+    G: Directed,
+    VertexOf<G>: Eq + Hash,
+    LP: Properties<Key = EdgeOf<G>>,
+    LP::Property: Eq + Hash,
+{
+    type State = VertexOf<G>;
+    type Alphabet = LP::Property;
+    type Transition = EdgeOf<G>;
+
+    type ReadTransitions<'a>
+        = std::vec::IntoIter<EdgeOf<G>>
+    where
+        Self: 'a;
+
+    type OutgoingTransitions<'a>
+        = G::Outgoing<'a>
+    where
+        Self: 'a;
+
+    #[inline]
+    fn transitions_under_letter(
+        &self,
+        source: &Self::State,
+        letter: &Self::Alphabet,
+    ) -> Self::ReadTransitions<'_> {
+        self.graph()
+            .outgoing(*source)
+            .filter(|edge| {
+                self.edge_properties()
+                    .property(*edge)
+                    .is_some_and(|l| l == letter)
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    #[inline]
+    fn outgoing_transitions(&self, source: &Self::State) -> Self::OutgoingTransitions<'_> {
+        self.graph().outgoing(*source)
+    }
+
+    #[inline]
+    fn source(&self, transition: Self::Transition) -> Self::State {
+        self.graph().source(transition)
+    }
+
+    #[inline]
+    fn destination(&self, transition: Self::Transition) -> Self::State {
+        self.graph().destination(transition)
+    }
+
+    #[inline]
+    fn letter(&self, transition: Self::Transition) -> &Self::Alphabet {
+        self.edge_properties()
+            .property(transition)
+            .expect("every transition must have a letter")
+    }
+}
+
+impl<G, VP, LP> BackwardTransitionRelation for AttributedGraph<G, VP, LP>
+where
+    G: Directed,
+    VertexOf<G>: Eq + Hash,
+    LP: Properties<Key = EdgeOf<G>>,
+    LP::Property: Eq + Hash,
+{
+    type IncomingTransitions<'a>
+        = G::Incoming<'a>
+    where
+        Self: 'a;
+
+    type WrittenTransitions<'a>
+        = std::vec::IntoIter<EdgeOf<G>>
+    where
+        Self: 'a;
+
+    #[inline]
+    fn incoming_transitions(&self, target: &Self::State) -> Self::IncomingTransitions<'_> {
+        self.graph().incoming(*target)
+    }
+
+    #[inline]
+    fn incoming_transitions_under_letter(
+        &self,
+        target: &Self::State,
+        letter: &Self::Alphabet,
+    ) -> Self::WrittenTransitions<'_> {
+        self.graph()
+            .incoming(*target)
+            .filter(|edge| {
+                self.edge_properties()
+                    .property(*edge)
+                    .is_some_and(|l| l == letter)
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+}
+
+impl<G, VP, LP> ExplicitTransitionRelation for AttributedGraph<G, VP, LP>
+where
+    G: Directed + Structure,
+    VertexOf<G>: Eq + Hash,
+    LP: Properties<Key = EdgeOf<G>>,
+    LP::Property: Eq + Hash,
+    G::Vertices: Vertices<Vertex = VertexOf<G>>,
+    G::Edges: Edges<Vertex = VertexOf<G>, Edge = EdgeOf<G>>,
+{
+    type States<'a>
+        = <G::Vertices as Vertices>::Vertices<'a>
+    where
+        Self: 'a;
+
+    type Transitions<'a>
+        = <G::Edges as Edges>::Edges<'a>
+    where
+        Self: 'a;
+
+    #[inline]
+    fn states(&self) -> Self::States<'_> {
+        self.vertex_store().vertices()
+    }
+
+    #[inline]
+    fn transitions(&self) -> Self::Transitions<'_> {
+        self.edge_store().edges()
+    }
+}
+
+impl<G, VP, LP> FiniteExplicitTransitionRelation for AttributedGraph<G, VP, LP>
+where
+    G: Directed + Structure,
+    VertexOf<G>: Eq + Hash,
+    LP: Properties<Key = EdgeOf<G>>,
+    LP::Property: Eq + Hash,
+    G::Vertices: FiniteVertices<Vertex = VertexOf<G>>,
+    G::Edges: FiniteEdges<Vertex = VertexOf<G>, Edge = EdgeOf<G>>,
+{
+    #[inline]
+    fn state_count(&self) -> usize {
+        self.vertex_store().vertex_count()
+    }
+
+    #[inline]
+    fn transition_count(&self) -> usize {
+        self.edge_store().edge_count()
     }
 }
