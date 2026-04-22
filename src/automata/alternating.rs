@@ -28,11 +28,11 @@ where
     T: TransitionRelation,
 {
     type State = T::State;
-    type Label = T::Label;
+    type Label = T::Alphabet;
 
     type Clause = T::Transition;
     type Clauses<'a>
-        = T::Transitions<'a>
+        = T::ReadTransitions<'a>
     where
         Self: 'a;
 
@@ -43,12 +43,12 @@ where
 
     #[inline]
     fn clauses(&self, source: &Self::State, label: &Self::Label) -> Self::Clauses<'_> {
-        self.transitions(source, label)
+        self.transitions_under_letter(source, label)
     }
 
     #[inline]
     fn successors(&self, clause: Self::Clause) -> Self::Successors<'_> {
-        std::iter::once(self.target(clause))
+        std::iter::once(self.destination(clause))
     }
 }
 

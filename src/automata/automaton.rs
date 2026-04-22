@@ -13,7 +13,7 @@ where
 {
     initial: R::State,
     transition_relation: R,
-    alphabet: Alphabet<R::Label>,
+    alphabet: Alphabet<R::Alphabet>,
     acceptor: A,
 }
 
@@ -27,7 +27,7 @@ where
     pub fn new(
         initial: R::State,
         transition_relation: R,
-        alphabet: Alphabet<R::Label>,
+        alphabet: Alphabet<R::Alphabet>,
         acceptor: A,
     ) -> Self {
         Self {
@@ -73,10 +73,10 @@ where
     pub fn incoming_transitions_under_label(
         &self,
         target: &R::State,
-        label: &R::Label,
-    ) -> R::IncomingTransitionsUnderLabel<'_> {
+        label: &R::Alphabet,
+    ) -> R::WrittenTransitions<'_> {
         self.transition_relation
-            .incoming_transitions_under_label(target, label)
+            .incoming_transitions_under_letter(target, label)
     }
 }
 
@@ -85,10 +85,10 @@ where
     R: TransitionRelation,
     A: OmegaAcceptor,
     <R as TransitionRelation>::State: Clone,
-    <R as TransitionRelation>::Label: Clone,
+    <R as TransitionRelation>::Alphabet: Clone,
 {
     type State = R::State;
-    type Label = R::Label;
+    type Label = R::Alphabet;
     type Acceptor = A;
 
     #[inline]
