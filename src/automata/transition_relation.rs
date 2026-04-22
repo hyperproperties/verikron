@@ -451,12 +451,12 @@ where
 
     #[inline]
     fn states(&self) -> Self::States<'_> {
-        self.vertex_store().vertices()
+        self.graph().vertex_store().vertices()
     }
 
     #[inline]
     fn transitions(&self) -> Self::Transitions<'_> {
-        self.edge_store().edges()
+        self.graph().edge_store().edges()
     }
 }
 
@@ -471,11 +471,11 @@ where
 {
     #[inline]
     fn state_count(&self) -> usize {
-        self.vertex_store().vertex_count()
+        self.graph().vertex_store().vertex_count()
     }
 
     #[inline]
     fn transition_count(&self) -> usize {
-        self.edge_store().edge_count()
+        self.graph().edge_store().edge_count()
     }
 }
