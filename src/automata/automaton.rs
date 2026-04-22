@@ -1,5 +1,7 @@
 use crate::automata::{
-    acceptors::OmegaAcceptor, alphabet::Alphabet, omega::OmegaAutomaton,
+    acceptors::OmegaAcceptor,
+    alphabet::Alphabet,
+    omega::OmegaAutomaton,
     transition_relation::{BackwardTransitionRelation, TransitionRelation},
 };
 
