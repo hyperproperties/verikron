@@ -1,7 +1,10 @@
-use std::hash::Hash;
+use std::{collections::HashSet, hash::Hash};
 
 use crate::{
-    automata::acceptors::{Acceptor, StateSummary},
+    automata::{
+        acceptors::{Acceptor, OmegaAcceptor},
+        infinite_summary::InfiniteStateSummary,
+    },
     lattices::set::Set,
 };
 
@@ -48,6 +51,28 @@ where
     #[inline]
     pub fn accepts(&self, states: &Set<S>) -> bool {
         self.forbidden.is_disjoint(states) && !self.required.is_disjoint(states)
+    }
+}
+
+/// A summary that is sufficient to evaluate Rabin acceptance.
+pub trait RabinSummary {
+    type State: Eq + Hash;
+
+    fn satisfies_rabin_pair(&self, pair: &RabinPair<Self::State>) -> bool;
+}
+
+impl<T> RabinSummary for T
+where
+    T: InfiniteStateSummary,
+{
+    type State = T::State;
+
+    #[inline]
+    fn satisfies_rabin_pair(&self, pair: &RabinPair<Self::State>) -> bool {
+        let inf: HashSet<_> = self.infinitely_often().into_iter().collect();
+
+        pair.forbidden().iter().all(|state| !inf.contains(state))
+            && pair.required().iter().any(|state| inf.contains(state))
     }
 }
 
@@ -100,13 +125,14 @@ impl<S> Acceptor for Rabin<S>
 where
     S: Eq + Hash,
 {
-    type Summary = StateSummary<S>;
+    type Summary = dyn RabinSummary<State = S>;
 
     #[inline]
     fn accept(&self, summary: &Self::Summary) -> bool {
-        match summary {
-            StateSummary::Finite { .. } => false,
-            StateSummary::Infinite { states } => self.pairs.iter().any(|pair| pair.accepts(states)),
-        }
+        self.pairs
+            .iter()
+            .any(|pair| summary.satisfies_rabin_pair(pair))
     }
 }
+
+impl<S> OmegaAcceptor for Rabin<S> where S: Eq + Hash {}

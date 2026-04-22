@@ -1,9 +1,33 @@
 use std::hash::Hash;
 
 use crate::{
-    automata::acceptors::{Acceptor, StateSummary},
+    automata::{
+        acceptors::{Acceptor, OmegaAcceptor},
+        infinite_summary::InfiniteStateSummary,
+    },
     lattices::set::Set,
 };
+
+/// A summary that is sufficient to evaluate co-Büchi acceptance.
+pub trait CoBuchiSummary {
+    type State: Eq + Hash;
+
+    fn visits_no_rejecting_state_infinitely_often(&self, rejecting: &Set<Self::State>) -> bool;
+}
+
+impl<T> CoBuchiSummary for T
+where
+    T: InfiniteStateSummary,
+{
+    type State = T::State;
+
+    #[inline]
+    fn visits_no_rejecting_state_infinitely_often(&self, rejecting: &Set<Self::State>) -> bool {
+        self.infinitely_often()
+            .into_iter()
+            .all(|state| !rejecting.contains(state))
+    }
+}
 
 /// Co-Büchi acceptance condition.
 ///
@@ -47,13 +71,12 @@ impl<S> Acceptor for CoBuchi<S>
 where
     S: Eq + Hash,
 {
-    type Summary = StateSummary<S>;
+    type Summary = dyn CoBuchiSummary<State = S>;
 
     #[inline]
     fn accept(&self, summary: &Self::Summary) -> bool {
-        match summary {
-            StateSummary::Finite { .. } => false,
-            StateSummary::Infinite { states } => self.rejecting.is_disjoint(states),
-        }
+        summary.visits_no_rejecting_state_infinitely_often(&self.rejecting)
     }
 }
+
+impl<S> OmegaAcceptor for CoBuchi<S> where S: Eq + Hash {}

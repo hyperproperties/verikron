@@ -1,9 +1,34 @@
-use std::hash::Hash;
+use std::{collections::HashSet, hash::Hash};
 
 use crate::{
-    automata::acceptors::{Acceptor, StateSummary},
+    automata::{
+        acceptors::{Acceptor, OmegaAcceptor},
+        infinite_summary::InfiniteStateSummary,
+    },
     lattices::set::Set,
 };
+
+/// A summary that is sufficient to evaluate Muller acceptance.
+pub trait MullerSummary {
+    type State: Eq + Hash;
+
+    fn infinitely_often_equals(&self, family: &Set<Self::State>) -> bool;
+}
+
+impl<T> MullerSummary for T
+where
+    T: InfiniteStateSummary,
+{
+    type State = T::State;
+
+    #[inline]
+    fn infinitely_often_equals(&self, family: &Set<Self::State>) -> bool {
+        let inf: HashSet<_> = self.infinitely_often().into_iter().collect();
+
+        family.iter().all(|state| inf.contains(state))
+            && inf.iter().all(|state| family.contains(*state))
+    }
+}
 
 /// Muller acceptance condition.
 ///
@@ -47,15 +72,14 @@ impl<S> Acceptor for Muller<S>
 where
     S: Eq + Hash,
 {
-    type Summary = StateSummary<S>;
+    type Summary = dyn MullerSummary<State = S>;
 
     #[inline]
     fn accept(&self, summary: &Self::Summary) -> bool {
-        match summary {
-            StateSummary::Finite { .. } => false,
-            StateSummary::Infinite { states } => {
-                self.families.iter().any(|family| family == states)
-            }
-        }
+        self.families
+            .iter()
+            .any(|family| summary.infinitely_often_equals(family))
     }
 }
+
+impl<S> OmegaAcceptor for Muller<S> where S: Eq + Hash {}

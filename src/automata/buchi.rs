@@ -1,9 +1,33 @@
 use std::hash::Hash;
 
 use crate::{
-    automata::acceptors::{Acceptor, StateSummary},
+    automata::{
+        acceptors::{Acceptor, OmegaAcceptor},
+        infinite_summary::InfiniteStateSummary,
+    },
     lattices::set::Set,
 };
+
+/// A summary that is sufficient to evaluate Büchi acceptance.
+pub trait BuchiSummary {
+    type State: Eq + Hash;
+
+    fn visits_accepting_infinitely_often(&self, accepting: &Set<Self::State>) -> bool;
+}
+
+impl<T> BuchiSummary for T
+where
+    T: InfiniteStateSummary,
+{
+    type State = T::State;
+
+    #[inline]
+    fn visits_accepting_infinitely_often(&self, accepting: &Set<Self::State>) -> bool {
+        self.infinitely_often()
+            .into_iter()
+            .any(|state| accepting.contains(state))
+    }
+}
 
 /// Büchi acceptance condition.
 ///
@@ -47,13 +71,12 @@ impl<S> Acceptor for Buchi<S>
 where
     S: Eq + Hash,
 {
-    type Summary = StateSummary<S>;
+    type Summary = dyn BuchiSummary<State = S>;
 
     #[inline]
     fn accept(&self, summary: &Self::Summary) -> bool {
-        match summary {
-            StateSummary::Finite { .. } => false,
-            StateSummary::Infinite { states } => !self.accepting.is_disjoint(states),
-        }
+        summary.visits_accepting_infinitely_often(&self.accepting)
     }
 }
+
+impl<S> OmegaAcceptor for Buchi<S> where S: Eq + Hash {}

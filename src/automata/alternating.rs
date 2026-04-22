@@ -1,9 +1,7 @@
 use std::hash::Hash;
 
 use crate::automata::{
-    acceptors::{Acceptor, StateSummary},
-    alphabet::Alphabet,
-    omega::OmegaAutomaton,
+    acceptors::OmegaAcceptor, alphabet::Alphabet, omega::OmegaAutomaton,
     transition_relation::TransitionRelation,
 };
 
@@ -49,16 +47,16 @@ where
     }
 
     #[inline]
-    fn successors(&self, transition: T::Transition) -> Self::Successors<'_> {
-        std::iter::once(self.target(transition))
+    fn successors(&self, clause: Self::Clause) -> Self::Successors<'_> {
+        std::iter::once(self.target(clause))
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AlternatingAutomaton<R, A>
 where
     R: AlternatingTransitionRelation,
-    A: Acceptor<Summary = StateSummary<R::State>>,
+    A: OmegaAcceptor,
 {
     initial: R::State,
     transition_relation: R,
@@ -69,7 +67,7 @@ where
 impl<R, A> AlternatingAutomaton<R, A>
 where
     R: AlternatingTransitionRelation,
-    A: Acceptor<Summary = StateSummary<R::State>>,
+    A: OmegaAcceptor,
 {
     #[must_use]
     #[inline]
@@ -98,12 +96,18 @@ where
     pub fn into_transition_relation(self) -> R {
         self.transition_relation
     }
+
+    #[must_use]
+    #[inline]
+    pub fn accepts(&self, summary: &A::Summary) -> bool {
+        self.acceptor.accept(summary)
+    }
 }
 
 impl<R, A> OmegaAutomaton for AlternatingAutomaton<R, A>
 where
     R: AlternatingTransitionRelation,
-    A: Acceptor<Summary = StateSummary<R::State>>,
+    A: OmegaAcceptor,
 {
     type State = R::State;
     type Label = R::Label;

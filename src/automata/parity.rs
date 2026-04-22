@@ -2,9 +2,9 @@ use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
 
-use crate::{
-    automata::acceptors::{Acceptor, StateSummary},
-    lattices::set::Set,
+use crate::automata::{
+    acceptors::{Acceptor, OmegaAcceptor},
+    infinite_summary::InfiniteStateSummary,
 };
 
 /// Parity acceptance convention.
@@ -36,6 +36,48 @@ impl ParityConvention {
         match self {
             Self::MinEven | Self::MaxEven => priority.is_multiple_of(2),
             Self::MinOdd | Self::MaxOdd => !priority.is_multiple_of(2),
+        }
+    }
+}
+
+/// A summary that is sufficient to evaluate parity acceptance.
+pub trait ParitySummary {
+    type State: Eq + Hash;
+
+    /// Returns the extremal priority seen infinitely often under `convention`.
+    ///
+    /// Returns `None` if no state is seen infinitely often or if some
+    /// infinitely-often state has no assigned priority.
+    fn extremal_priority(
+        &self,
+        priorities: &FxHashMap<Self::State, usize>,
+        convention: ParityConvention,
+    ) -> Option<usize>;
+}
+
+impl<T> ParitySummary for T
+where
+    T: InfiniteStateSummary,
+{
+    type State = T::State;
+
+    #[inline]
+    fn extremal_priority(
+        &self,
+        priorities: &FxHashMap<Self::State, usize>,
+        convention: ParityConvention,
+    ) -> Option<usize> {
+        let mut inf = self
+            .infinitely_often()
+            .into_iter()
+            .map(|state| priorities.get(state).copied());
+
+        let first = inf.next()??;
+
+        if convention.uses_min() {
+            inf.try_fold(first, |best, priority| Some(best.min(priority?)))
+        } else {
+            inf.try_fold(first, |best, priority| Some(best.max(priority?)))
         }
     }
 }
@@ -80,39 +122,20 @@ where
     pub fn convention(&self) -> ParityConvention {
         self.convention
     }
-
-    /// Returns the extremal priority of `states` under this convention.
-    ///
-    /// Returns `None` if `states` is empty or if some state has no priority.
-    #[must_use]
-    fn extremal_priority(&self, states: &Set<S>) -> Option<usize> {
-        let mut priorities = states
-            .iter()
-            .map(|state| self.priorities.get(state).copied());
-
-        let first = priorities.next()??;
-
-        if self.convention.uses_min() {
-            priorities.try_fold(first, |best, priority| Some(best.min(priority?)))
-        } else {
-            priorities.try_fold(first, |best, priority| Some(best.max(priority?)))
-        }
-    }
 }
 
 impl<S> Acceptor for Parity<S>
 where
     S: Eq + Hash,
 {
-    type Summary = StateSummary<S>;
+    type Summary = dyn ParitySummary<State = S>;
 
     #[inline]
     fn accept(&self, summary: &Self::Summary) -> bool {
-        match summary {
-            StateSummary::Finite { .. } => false,
-            StateSummary::Infinite { states } => self
-                .extremal_priority(states)
-                .is_some_and(|priority| self.convention.accepts_priority(priority)),
-        }
+        summary
+            .extremal_priority(&self.priorities, self.convention)
+            .is_some_and(|priority| self.convention.accepts_priority(priority))
     }
 }
+
+impl<S> OmegaAcceptor for Parity<S> where S: Eq + Hash {}

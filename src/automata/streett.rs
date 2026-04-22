@@ -1,7 +1,10 @@
-use std::hash::Hash;
+use std::{collections::HashSet, hash::Hash};
 
 use crate::{
-    automata::acceptors::{Acceptor, StateSummary},
+    automata::{
+        acceptors::{Acceptor, OmegaAcceptor},
+        infinite_summary::InfiniteStateSummary,
+    },
     lattices::set::Set,
 };
 
@@ -49,6 +52,28 @@ where
     }
 }
 
+/// A summary that is sufficient to evaluate Streett acceptance.
+pub trait StreettSummary {
+    type State: Eq + Hash;
+
+    fn satisfies_streett_pair(&self, pair: &StreettPair<Self::State>) -> bool;
+}
+
+impl<T> StreettSummary for T
+where
+    T: InfiniteStateSummary,
+{
+    type State = T::State;
+
+    #[inline]
+    fn satisfies_streett_pair(&self, pair: &StreettPair<Self::State>) -> bool {
+        let inf: HashSet<_> = self.infinitely_often().into_iter().collect();
+
+        pair.trigger().iter().all(|state| !inf.contains(state))
+            || pair.guarantee().iter().any(|state| inf.contains(state))
+    }
+}
+
 /// Streett acceptance condition.
 ///
 /// A run is accepting iff it is infinite and every Streett pair is satisfied
@@ -91,13 +116,14 @@ impl<S> Acceptor for Streett<S>
 where
     S: Eq + Hash,
 {
-    type Summary = StateSummary<S>;
+    type Summary = dyn StreettSummary<State = S>;
 
     #[inline]
     fn accept(&self, summary: &Self::Summary) -> bool {
-        match summary {
-            StateSummary::Finite { .. } => false,
-            StateSummary::Infinite { states } => self.pairs.iter().all(|pair| pair.accepts(states)),
-        }
+        self.pairs
+            .iter()
+            .all(|pair| summary.satisfies_streett_pair(pair))
     }
 }
+
+impl<S> OmegaAcceptor for Streett<S> where S: Eq + Hash {}
