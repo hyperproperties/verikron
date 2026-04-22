@@ -46,8 +46,20 @@ where
 
     #[must_use]
     #[inline]
+    pub fn initial(&self) -> &R::State {
+        &self.initial
+    }
+
+    #[must_use]
+    #[inline]
     pub fn into_transition_relation(self) -> R {
         self.transition_relation
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn acceptor(&self) -> &A {
+        &self.acceptor
     }
 
     #[must_use]
