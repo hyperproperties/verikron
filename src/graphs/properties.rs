@@ -63,6 +63,20 @@ impl<P> IndexedProperties<P> {
     }
 }
 
+impl<P> FromIterator<P> for IndexedProperties<P> {
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = P>>(iter: T) -> Self {
+        Self::with_properties(iter.into_iter().collect())
+    }
+}
+
+impl<P> From<Vec<P>> for IndexedProperties<P> {
+    #[inline]
+    fn from(properties: Vec<P>) -> Self {
+        Self::with_properties(properties)
+    }
+}
+
 impl<P> PropertyStoreType for IndexedProperties<P> {
     type Key = usize;
     type Property = P;

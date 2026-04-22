@@ -1,4 +1,4 @@
-use crate::graphs::graph::Graph;
+use crate::graphs::{graph::Graph, structure::VertexType};
 
 /// Directed incidence descriptor.
 ///
@@ -47,12 +47,27 @@ impl<T> Arc<T> {
     }
 }
 
+impl<V> From<(V, V)> for Arc<V> {
+    #[inline]
+    fn from((source, destination): (V, V)) -> Self {
+        Self::new(source, destination)
+    }
+}
+
+impl<V> From<[V; 2]> for Arc<V> {
+    #[inline]
+    fn from([source, destination]: [V; 2]) -> Self {
+        Self::new(source, destination)
+    }
+}
+
 /// Directed graph constructible from owned arcs.
-pub trait FromArcs: Sized + Graph {
-    /// Creates a directed graph from owned arcs.
-    fn from_arcs<I>(arcs: I) -> Self
+pub trait FromArcs: Sized + VertexType {
+    /// Builds a structure from directed arcs.
+    fn from_arcs<I, A>(arcs: I) -> Self
     where
-        I: IntoIterator<Item = Arc<Self::Vertex>>;
+        I: IntoIterator<Item = A>,
+        A: Into<Arc<Self::Vertex>>;
 }
 
 /// Directed hypergraph constructible from owned hyperarcs.

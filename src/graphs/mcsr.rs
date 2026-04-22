@@ -70,11 +70,12 @@ impl MCSR {
 
 impl FromArcs for MCSR {
     /// Builds a graph from owned directed arcs.
-    fn from_arcs<I>(arcs: I) -> Self
+    fn from_arcs<I, A>(arcs: I) -> Self
     where
-        I: IntoIterator<Item = Arc<Self::Vertex>>,
+        I: IntoIterator<Item = A>,
+        A: Into<Arc<Self::Vertex>>,
     {
-        let mut arcs: Vec<_> = arcs.into_iter().collect();
+        let mut arcs: Vec<_> = arcs.into_iter().map(Into::into).collect();
 
         if arcs.is_empty() {
             return Self::new();

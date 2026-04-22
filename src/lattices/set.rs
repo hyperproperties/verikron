@@ -361,6 +361,34 @@ impl<T: Eq + Hash + Clone> MembershipLattice<T> for Set<T> {
     }
 }
 
+impl<T: Eq + Hash> From<FxHashSet<T>> for Set<T> {
+    #[inline]
+    fn from(hash_set: FxHashSet<T>) -> Self {
+        Self::new(hash_set)
+    }
+}
+
+impl<T: Eq + Hash> From<Set<T>> for FxHashSet<T> {
+    #[inline]
+    fn from(set: Set<T>) -> Self {
+        set.0
+    }
+}
+
+impl<T: Eq + Hash> From<Vec<T>> for Set<T> {
+    #[inline]
+    fn from(values: Vec<T>) -> Self {
+        values.into_iter().collect()
+    }
+}
+
+impl<T: Eq + Hash, const N: usize> From<[T; N]> for Set<T> {
+    #[inline]
+    fn from(values: [T; N]) -> Self {
+        values.into_iter().collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Set;

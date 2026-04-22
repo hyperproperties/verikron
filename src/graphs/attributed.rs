@@ -81,6 +81,45 @@ impl<G, VP, EP> AttributedGraph<G, VP, EP> {
     }
 }
 
+impl<G, EP> AttributedGraph<G, (), EP> {
+    /// Creates an attributed graph with no vertex properties.
+    #[must_use]
+    #[inline]
+    pub fn with_edge_properties(graph: G, edge_properties: EP) -> Self {
+        Self {
+            graph,
+            vertex_properties: (),
+            edge_properties,
+        }
+    }
+}
+
+impl<G, VP> AttributedGraph<G, VP, ()> {
+    /// Creates an attributed graph with no edge properties.
+    #[must_use]
+    #[inline]
+    pub fn with_vertex_properties(graph: G, vertex_properties: VP) -> Self {
+        Self {
+            graph,
+            vertex_properties,
+            edge_properties: (),
+        }
+    }
+}
+
+impl<G> AttributedGraph<G, (), ()> {
+    /// Creates an attributed graph with no vertex or edge properties.
+    #[must_use]
+    #[inline]
+    pub fn from_graph(graph: G) -> Self {
+        Self {
+            graph,
+            vertex_properties: (),
+            edge_properties: (),
+        }
+    }
+}
+
 impl<G, VP, EP> AttributedGraph<G, VP, EP>
 where
     VP: Default,

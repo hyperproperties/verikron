@@ -67,12 +67,14 @@ impl FromArcs for CSR {
     ///
     /// The vertex set is `0..=m`, where `m` is the largest endpoint.
     /// An empty input yields the empty graph.
-    fn from_arcs<I>(arcs: I) -> Self
+    fn from_arcs<I, A>(arcs: I) -> Self
     where
-        I: IntoIterator<Item = Arc<Self::Vertex>>,
+        I: IntoIterator<Item = A>,
+        A: Into<Arc<Self::Vertex>>,
     {
         let mut arcs: Vec<_> = arcs
             .into_iter()
+            .map(Into::into)
             .map(|arc| (arc.source, arc.destination))
             .collect();
 

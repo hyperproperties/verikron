@@ -122,11 +122,12 @@ impl FromArcs for DBM {
     /// Builds a graph from directed arcs.
     ///
     /// Duplicate arcs are collapsed.
-    fn from_arcs<I>(arcs: I) -> Self
+    fn from_arcs<I, A>(arcs: I) -> Self
     where
-        I: IntoIterator<Item = Arc<Self::Vertex>>,
+        I: IntoIterator<Item = A>,
+        A: Into<Arc<Self::Vertex>>,
     {
-        let arcs: Vec<_> = arcs.into_iter().collect();
+        let arcs: Vec<_> = arcs.into_iter().map(Into::into).collect();
 
         let vertex_count = arcs
             .iter()
