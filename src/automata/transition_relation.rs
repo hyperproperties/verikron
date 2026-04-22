@@ -10,6 +10,7 @@ pub trait TransitionRelation {
         Self: 'a;
 
     fn transitions(&self, source: Self::State, label: &Self::Label) -> Self::Transitions<'_>;
+
     fn target(&self, transition: Self::Transition) -> Self::State;
 }
 

@@ -57,6 +57,22 @@ where
     }
 }
 
+impl<R, A> Automaton<R, A>
+where
+    R: BackwardTransitionRelation,
+    A: OmegaAcceptor,
+{
+    #[must_use]
+    #[inline]
+    pub fn incoming_transitions(
+        &self,
+        target: R::State,
+        label: &R::Label,
+    ) -> R::IncomingTransitions<'_> {
+        self.transition_relation.incoming_transitions(target, label)
+    }
+}
+
 impl<R, A> OmegaAutomaton for Automaton<R, A>
 where
     R: TransitionRelation,
@@ -79,19 +95,5 @@ where
     #[inline]
     fn acceptor(&self) -> &Self::Acceptor {
         &self.acceptor
-    }
-}
-
-impl<R, A> Automaton<R, A>
-where
-    R: BackwardTransitionRelation,
-    A: OmegaAcceptor,
-{
-    pub fn incoming_transitions(
-        &self,
-        target: R::State,
-        label: &R::Label,
-    ) -> R::IncomingTransitions<'_> {
-        self.transition_relation.incoming_transitions(target, label)
     }
 }
