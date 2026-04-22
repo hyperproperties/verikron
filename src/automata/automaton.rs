@@ -9,7 +9,7 @@ use crate::automata::{
 pub struct Automaton<R, A>
 where
     R: TransitionRelation,
-    A: OmegaAcceptor,
+    A: Acceptor,
 {
     initial: R::State,
     transition_relation: R,
@@ -20,7 +20,7 @@ where
 impl<R, A> Automaton<R, A>
 where
     R: TransitionRelation,
-    A: OmegaAcceptor,
+    A: Acceptor,
 {
     #[must_use]
     #[inline]
@@ -60,7 +60,7 @@ where
 impl<R, A> Automaton<R, A>
 where
     R: BackwardTransitionRelation,
-    A: OmegaAcceptor,
+    A: Acceptor,
 {
     #[must_use]
     #[inline]
