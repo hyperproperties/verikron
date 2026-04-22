@@ -3,7 +3,7 @@ use crate::{
     lattices::lattice::{BoundedLattice, DistributiveLattice, JoinSemiLattice, MeetSemiLattice},
 };
 
-type PositiveBooleanFormula<A> = PositiveZeroOrder<bool, A>;
+pub type PositiveBooleanFormula<A> = PositiveZeroOrder<bool, A>;
 
 impl JoinSemiLattice for bool {
     #[inline]
