@@ -1,5 +1,5 @@
 use crate::automata::{
-    acceptors::OmegaAcceptor,
+    acceptors::{Acceptor, OmegaAcceptor},
     alphabet::Alphabet,
     omega::OmegaAutomaton,
     transition_relation::{BackwardTransitionRelation, TransitionRelation},
@@ -64,12 +64,19 @@ where
 {
     #[must_use]
     #[inline]
-    pub fn incoming_transitions(
+    pub fn incoming_transitions(&self, target: &R::State) -> R::IncomingTransitions<'_> {
+        self.transition_relation.incoming_transitions(target)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn incoming_transitions_under_label(
         &self,
-        target: R::State,
+        target: &R::State,
         label: &R::Label,
-    ) -> R::IncomingTransitions<'_> {
-        self.transition_relation.incoming_transitions(target, label)
+    ) -> R::IncomingTransitionsUnderLabel<'_> {
+        self.transition_relation
+            .incoming_transitions_under_label(target, label)
     }
 }
 
@@ -77,6 +84,8 @@ impl<R, A> OmegaAutomaton for Automaton<R, A>
 where
     R: TransitionRelation,
     A: OmegaAcceptor,
+    <R as TransitionRelation>::State: Clone,
+    <R as TransitionRelation>::Label: Clone,
 {
     type State = R::State;
     type Label = R::Label;

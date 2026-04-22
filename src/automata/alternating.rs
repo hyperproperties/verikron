@@ -6,8 +6,8 @@ use crate::automata::{
 };
 
 pub trait AlternatingTransitionRelation {
-    type State: Eq + Hash + Clone;
-    type Label: Eq + Hash + Clone;
+    type State: Eq + Hash;
+    type Label: Eq + Hash;
 
     type Clause: Copy + Eq;
     type Clauses<'a>: Iterator<Item = Self::Clause>
@@ -18,7 +18,7 @@ pub trait AlternatingTransitionRelation {
     where
         Self: 'a;
 
-    fn clauses(&self, source: Self::State, label: &Self::Label) -> Self::Clauses<'_>;
+    fn clauses(&self, source: &Self::State, label: &Self::Label) -> Self::Clauses<'_>;
 
     fn successors(&self, clause: Self::Clause) -> Self::Successors<'_>;
 }
@@ -42,7 +42,7 @@ where
         Self: 'a;
 
     #[inline]
-    fn clauses(&self, source: Self::State, label: &Self::Label) -> Self::Clauses<'_> {
+    fn clauses(&self, source: &Self::State, label: &Self::Label) -> Self::Clauses<'_> {
         self.transitions(source, label)
     }
 
@@ -108,6 +108,8 @@ impl<R, A> OmegaAutomaton for AlternatingAutomaton<R, A>
 where
     R: AlternatingTransitionRelation,
     A: OmegaAcceptor,
+    <R as AlternatingTransitionRelation>::State: Clone,
+    <R as AlternatingTransitionRelation>::Label: Clone,
 {
     type State = R::State;
     type Label = R::Label;
