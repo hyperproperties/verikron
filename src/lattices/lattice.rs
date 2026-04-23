@@ -57,6 +57,18 @@ pub trait Lattice: JoinSemiLattice + MeetSemiLattice {}
 
 impl<T: JoinSemiLattice + MeetSemiLattice> Lattice for T {}
 
+/// Carrier with a least element.
+pub trait Bottom {
+    /// Returns the least element (⊥) of the lattice.
+    fn bottom() -> Self;
+}
+
+/// Carrier with a greatest element.
+pub trait Top {
+    /// Returns the greatest element (⊤) of the lattice.
+    fn top() -> Self;
+}
+
 /// A bounded lattice: a lattice with both a bottom and a top element.
 ///
 /// * `bottom()` (⊥) is the least element: for all `x`, `bottom() ⊑ x`.
@@ -68,13 +80,7 @@ impl<T: JoinSemiLattice + MeetSemiLattice> Lattice for T {}
 ///
 /// * `bottom().leq(&x)`
 /// * `x.leq(&top())`
-pub trait BoundedLattice: Lattice {
-    /// Returns the least element (⊥) of the lattice.
-    fn bottom() -> Self;
-
-    /// Returns the greatest element (⊤) of the lattice.
-    fn top() -> Self;
-}
+pub trait BoundedLattice: Lattice + Top + Bottom {}
 
 /// A complete lattice: a bounded lattice that supports finite joins and meets
 /// over arbitrary collections of elements.

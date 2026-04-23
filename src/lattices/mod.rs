@@ -1,4 +1,5 @@
 pub mod bit_vector;
+pub mod fixpoint;
 pub mod kleene;
 pub mod lattice;
 pub mod membership_lattice;

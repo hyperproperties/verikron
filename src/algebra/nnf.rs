@@ -1,7 +1,7 @@
 use crate::algebra::algebra::{
     Addition, Additive, Complemented, DeMorgan, Embed, Multiplication, Multiplicative,
 };
-use crate::lattices::lattice::BoundedLattice;
+use crate::lattices::lattice::{Bottom, Top};
 
 pub trait NNF {
     fn nnf(self) -> Self;

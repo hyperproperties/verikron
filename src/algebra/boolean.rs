@@ -1,6 +1,8 @@
 use crate::{
     algebra::positive_zero_order::PositiveZeroOrder,
-    lattices::lattice::{BoundedLattice, DistributiveLattice, JoinSemiLattice, MeetSemiLattice},
+    lattices::lattice::{
+        Bottom, BoundedLattice, DistributiveLattice, JoinSemiLattice, MeetSemiLattice, Top,
+    },
 };
 
 pub type PositiveBooleanFormula<A> = PositiveZeroOrder<bool, A>;
@@ -19,24 +21,28 @@ impl MeetSemiLattice for bool {
     }
 }
 
-impl BoundedLattice for bool {
+impl Bottom for bool {
     #[inline]
     fn bottom() -> Self {
         false
     }
+}
 
+impl Top for bool {
     #[inline]
     fn top() -> Self {
         true
     }
 }
 
+impl BoundedLattice for bool {}
+
 impl DistributiveLattice for bool {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lattices::lattice::{BoundedLattice, JoinSemiLattice, MeetSemiLattice};
+    use crate::lattices::lattice::{JoinSemiLattice, MeetSemiLattice};
 
     #[test]
     fn join_truth_table() {

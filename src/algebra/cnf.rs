@@ -2,7 +2,7 @@ use crate::algebra::{
     algebra::{Addition, Additive, Distributive, Embed, Multiplication, Multiplicative},
     nnf::NNF,
 };
-use crate::lattices::lattice::BoundedLattice;
+use crate::lattices::lattice::{Bottom, Top};
 
 pub trait CNF
 where

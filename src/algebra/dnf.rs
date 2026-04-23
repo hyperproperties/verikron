@@ -3,7 +3,7 @@ use crate::algebra::{
     nnf::NNF,
     positive::Positive,
 };
-use crate::lattices::lattice::BoundedLattice;
+use crate::lattices::lattice::{Bottom, Top};
 
 pub trait DNF
 where
