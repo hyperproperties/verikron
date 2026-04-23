@@ -3,4 +3,5 @@ pub mod automata;
 pub mod graphs;
 pub mod lattices;
 pub mod mem;
+pub mod systems;
 pub mod zones;
