@@ -3,9 +3,9 @@ use crate::graphs::search::Search;
 /// Extension trait for searches that can test whether a goal is reachable.
 pub trait Reachability: Search {
     /// Returns whether `goal` appears in the remaining search.
-    fn reachable(&mut self, goal: Self::State) -> bool
+    fn reachable(&mut self, goal: Self::Vertex) -> bool
     where
-        Self::State: PartialEq;
+        Self::Vertex: PartialEq;
 }
 
 /// Opt-in marker for the default linear reachability implementation.
@@ -19,9 +19,9 @@ where
     T: LinearReachability,
 {
     #[inline]
-    fn reachable(&mut self, goal: Self::State) -> bool
+    fn reachable(&mut self, goal: Self::Vertex) -> bool
     where
-        Self::State: PartialEq,
+        Self::Vertex: PartialEq,
     {
         self.any(|state| state == goal)
     }

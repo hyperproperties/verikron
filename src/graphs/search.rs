@@ -1,6 +1,6 @@
 use crate::graphs::visited::Visited;
 
-pub type StateOf<S> = <S as Search>::State;
+pub type StateOf<S> = <S as Search>::Vertex;
 pub type VisitedOf<S> = <S as VisitedSearch>::Visited;
 
 /// Iterator-based search.
@@ -9,22 +9,22 @@ pub type VisitedOf<S> = <S as VisitedSearch>::Visited;
 ///
 /// The searched state may be a graph vertex, a hyperedge, an automaton state,
 /// or any other search state.
-pub trait Search: Iterator<Item = Self::State> {
+pub trait Search: Iterator<Item = Self::Vertex> {
     /// State yielded by the search.
-    type State;
+    type Vertex;
 }
 
 impl<I> Search for I
 where
     I: Iterator,
 {
-    type State = I::Item;
+    type Vertex = I::Item;
 }
 
 /// A search that owns a visited structure and can be exhausted into it.
 pub trait VisitedSearch: Search {
     /// The visited structure maintained by this search.
-    type Visited: Visited<Self::State>;
+    type Visited: Visited<Self::Vertex>;
 
     /// Consumes the search state and returns the visited structure.
     #[must_use]
