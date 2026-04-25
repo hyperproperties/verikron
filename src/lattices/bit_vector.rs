@@ -23,6 +23,14 @@ impl BitVector {
         Self(BitVec::from_elem(len, false))
     }
 
+    pub fn zeros(len: usize) -> Self {
+        Self::new(len)
+    }
+
+    pub fn ones(len: usize) -> Self {
+        Self(BitVec::from_elem(len, true))
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -44,6 +52,16 @@ impl BitVector {
             self.0.grow(grow_by, false);
         }
         self.0.set(idx, value);
+    }
+
+    #[inline]
+    pub fn count_zeros(&self) -> usize {
+        self.0.count_zeros() as usize
+    }
+
+    #[inline]
+    pub fn count_ones(&self) -> usize {
+        self.0.count_ones() as usize
     }
 }
 
