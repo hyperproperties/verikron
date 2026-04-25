@@ -8,7 +8,7 @@ use std::{
 use rustc_hash::{FxBuildHasher, FxHashSet};
 
 use crate::lattices::{
-    lattice::{JoinSemiLattice, MeetSemiLattice},
+    lattice::{Bottom, JoinSemiLattice, MeetSemiLattice},
     membership_lattice::MembershipLattice,
 };
 
@@ -328,6 +328,12 @@ impl<T: Eq + Hash> PartialOrd for Set<T> {
     /// Returns `true` if `self` is a superset of `other`.
     fn ge(&self, other: &Self) -> bool {
         self.0.is_superset(&other.0)
+    }
+}
+
+impl<T: Eq + Hash> Bottom for Set<T> {
+    fn bottom() -> Self {
+        Self::default()
     }
 }
 
