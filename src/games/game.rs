@@ -50,7 +50,7 @@ pub trait SolvableGame: Game {
 /// A game whose whole winning regions can be computed.
 pub trait RegionSolvableGame: Game {
     /// Region type used for winning regions.
-    type Region: Region;
+    type Region: Region<<Self::Arena as Arena>::Position>;
 
     /// Returns the winning region of `player`.
     fn winning_region(&self, player: <Self::Arena as Arena>::Player) -> Self::Region;

@@ -1,15 +1,15 @@
-use std::{fmt::Debug, hash::Hash};
+use std::{fmt::Debug, hash::Hash, iter};
 
 use crate::{
     games::{
         arena::{Arena, FiniteArena},
-        attractor::{Attractor, AttractorPredecessor},
-        dense_region::DenseRegion,
+        attractor::{Attractor, WorklistAttractor},
+        controllable_predecessors::ControllablePredecessors,
         game::{Game, RegionSolvableGame, SolvableGame},
         play::Play,
         play_sequence::PlaySequence,
         positional_map_strategy::PositionalMapStrategy,
-        region::{Region, RegionInsertion},
+        region::{DenseRegion, Region},
         strategic_play::StrategicPlay,
     },
     graphs::{
@@ -45,83 +45,6 @@ where
     }
 }
 
-impl<'a, A> SolvableGame for ReachabilityGame<'a, A>
-where
-    A: FiniteArena<Position = usize> + FiniteDirected + 'a,
-    A::Player: AttractorPredecessor + Debug,
-    <A as Structure>::Vertices: FiniteVertices<Vertex = A::Position>,
-    <A as Structure>::Edges: FiniteEdges<Vertex = A::Position, Edge = A::Edge>,
-    for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = usize>,
-    for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = usize>,
-{
-    type Strategy = PositionalMapStrategy<A, PlaySequence<usize>>;
-
-    fn winning_strategy_from(
-        &self,
-        player: <Self::Arena as Arena>::Player,
-        start: <Self::Arena as Arena>::Position,
-    ) -> Option<Self::Strategy> {
-        let mut region = DenseRegion::new(player, self.arena);
-        region.insert(self.goal);
-
-        let mut strategy = PositionalMapStrategy::empty(player);
-
-        let backward = BackwardExpansion::new(self.arena);
-        let mut queue: Vec<_> = region.positions().collect();
-
-        while let Some(position) = queue.pop() {
-            for predecessor in backward.successors(position) {
-                if region.contains(&predecessor) {
-                    continue;
-                }
-
-                let Some(successor) = player.attractor_successor(self.arena, &region, predecessor)
-                else {
-                    continue;
-                };
-
-                if region.insert(predecessor) {
-                    if self.arena.owner(predecessor) == player {
-                        strategy.insert_choice(predecessor, successor);
-                    }
-
-                    if predecessor == start {
-                        return Some(strategy);
-                    }
-
-                    queue.push(predecessor);
-                }
-            }
-        }
-
-        if region.contains(&start) {
-            Some(strategy)
-        } else {
-            None
-        }
-    }
-
-    fn has_winning_strategy_from(
-        &self,
-        player: <Self::Arena as Arena>::Player,
-        start: <Self::Arena as Arena>::Position,
-    ) -> bool {
-        let region = self.winning_region(player);
-        region.contains(&start)
-    }
-
-    fn is_winning_strategy_from(
-        &self,
-        _player: <Self::Arena as Arena>::Player,
-        strategy: &Self::Strategy,
-        start: <Self::Arena as Arena>::Position,
-    ) -> bool {
-        StrategicPlay::new(strategy, start)
-            .visited()
-            .any(|position| position == self.goal)
-    }
-}
-
 impl<'a, A> Game for ReachabilityGame<'a, A>
 where
     A: Arena,
@@ -136,7 +59,7 @@ where
     }
 
     #[inline]
-    fn is_winning(&self, _player: <Self::Arena as Arena>::Player, play: &Self::Play) -> bool {
+    fn is_winning(&self, _player: A::Player, play: &Self::Play) -> bool {
         play.visited().any(|position| position == self.goal)
     }
 }
@@ -144,21 +67,103 @@ where
 impl<'a, A> RegionSolvableGame for ReachabilityGame<'a, A>
 where
     A: FiniteArena<Position = usize> + FiniteDirected + 'a,
-    A::Player: AttractorPredecessor + Debug,
-    <A as Structure>::Vertices: FiniteVertices<Vertex = A::Position>,
-    <A as Structure>::Edges: FiniteEdges<Vertex = A::Position, Edge = A::Edge>,
+    A::Player: ControllablePredecessors<A, DenseRegion> + Debug,
+    <A as Structure>::Vertices: FiniteVertices<Vertex = usize>,
+    <A as Structure>::Edges: FiniteEdges<Vertex = usize, Edge = A::Edge>,
     for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = usize>,
     for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = usize>,
 {
-    type Region = DenseRegion<'a, A>;
+    type Region = DenseRegion;
 
     #[inline]
-    fn winning_region(&self, player: <Self::Arena as Arena>::Player) -> Self::Region {
-        let mut region = DenseRegion::new(player, self.arena);
+    fn winning_region(&self, player: A::Player) -> Self::Region {
+        let vertex_count = self.arena.vertex_store().vertex_count();
 
-        region.insert(self.goal);
-        region.attractor_closure();
+        WorklistAttractor::new().attractor_from(
+            self.arena,
+            player,
+            DenseRegion::new(vertex_count),
+            iter::once(self.goal),
+        )
+    }
+}
 
-        region
+impl<'a, A> SolvableGame for ReachabilityGame<'a, A>
+where
+    A: FiniteArena<Position = usize> + FiniteDirected + 'a,
+    A::Player: ControllablePredecessors<A, DenseRegion> + Debug,
+    <A as Structure>::Vertices: FiniteVertices<Vertex = usize>,
+    <A as Structure>::Edges: FiniteEdges<Vertex = usize, Edge = A::Edge>,
+    for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = usize>,
+    for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = usize>,
+{
+    type Strategy = PositionalMapStrategy<A, PlaySequence<usize>>;
+
+    fn winning_strategy_from(
+        &self,
+        player: A::Player,
+        start: A::Position,
+    ) -> Option<Self::Strategy> {
+        let vertex_count = self.arena.vertex_store().vertex_count();
+
+        let mut region = DenseRegion::new(vertex_count);
+        region.expand(self.goal);
+
+        let mut strategy = PositionalMapStrategy::empty(player);
+
+        if start == self.goal {
+            return Some(strategy);
+        }
+
+        let backward = BackwardExpansion::new(self.arena);
+        let mut queue = vec![self.goal];
+
+        while let Some(position) = queue.pop() {
+            for predecessor in backward.successors(position) {
+                if region.includes(predecessor) {
+                    continue;
+                }
+
+                if !player.is_controllable_predecessor(self.arena, &region, predecessor)
+                {
+                    continue;
+                }
+
+                let choice = player.strategy_successor(self.arena, &region, predecessor);
+
+                if region.expand(predecessor) {
+                    if let Some(successor) = choice {
+                        strategy.insert_choice(predecessor, successor);
+                    }
+
+                    if predecessor == start {
+                        return Some(strategy);
+                    }
+
+                    queue.push(predecessor);
+                }
+            }
+        }
+
+        if region.includes(start) {
+            Some(strategy)
+        } else {
+            None
+        }
+    }
+
+    fn has_winning_strategy_from(&self, player: A::Player, start: A::Position) -> bool {
+        self.winning_region(player).includes(start)
+    }
+
+    fn is_winning_strategy_from(
+        &self,
+        _player: A::Player,
+        strategy: &Self::Strategy,
+        start: A::Position,
+    ) -> bool {
+        StrategicPlay::new(strategy, start)
+            .visited()
+            .any(|position| position == self.goal)
     }
 }

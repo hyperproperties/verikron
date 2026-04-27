@@ -1,78 +1,82 @@
 use crate::{
-    games::{
-        arena::Arena,
-        players::Player,
-        region::{ArenaRegion, Region, RegionInsertion},
-    },
-    graphs::expansion::{BackwardExpansion, Expansion, ForwardExpansion},
+    games::{arena::Arena, controllable_predecessors::ControllablePredecessors, region::Region},
+    graphs::expansion::{BackwardExpansion, Expansion},
 };
 
-/// A region that can compute its own attractor using its attached arena.
-pub trait Attractor<'arena>: ArenaRegion<'arena> + RegionInsertion {
-    /// Performs one attractor expansion step:
-    ///
-    /// self := self ∪ Pre_attr(self)
-    ///
-    /// Returns whether `self` changed.
-    fn expand_attractor(&mut self) -> bool
+/// A strategy for computing reachability attractors.
+pub trait Attractor<A, R>
+where
+    A: Arena,
+    R: Region<A::Position>,
+    A::Player: ControllablePredecessors<A, R>,
+{
+    fn attractor_closure_from<I>(
+        &self,
+        arena: &A,
+        player: A::Player,
+        region: &mut R,
+        frontier: I,
+    ) -> bool
     where
-        Self::Player: AttractorPredecessor,
-        for<'g> BackwardExpansion<'g, Self::Arena>: Expansion<Vertex = Self::Position>,
-        for<'g> ForwardExpansion<'g, Self::Arena>: Expansion<Vertex = Self::Position>,
+        I: IntoIterator<Item = A::Position>;
+
+    fn attractor_from<I>(&self, arena: &A, player: A::Player, mut region: R, target: I) -> R
+    where
+        I: IntoIterator<Item = A::Position>,
     {
-        let arena = self.arena();
-        let player = self.owner();
-        let backward = BackwardExpansion::new(arena);
+        let target: Vec<A::Position> = target.into_iter().collect();
 
-        let mut predecessors = Vec::new();
-
-        for position in self.positions() {
-            for predecessor in backward.successors(position) {
-                if self.contains(&predecessor) {
-                    continue;
-                }
-
-                if player.is_attractor_predecessor(arena, self, predecessor) {
-                    predecessors.push(predecessor);
-                }
-            }
+        for position in target.iter().copied() {
+            region.expand(position);
         }
 
-        let mut changed = false;
+        self.attractor_closure_from(arena, player, &mut region, target);
 
-        for predecessor in predecessors {
-            changed |= self.insert(predecessor);
-        }
-
-        changed
+        region
     }
+}
 
-    /// Computes the full reachability attractor:
-    ///
-    /// self := μY. self ∪ Pre_attr(Y)
-    ///
-    /// Returns whether `self` changed.
-    fn attractor_closure(&mut self) -> bool
+/// Worklist-based attractor computation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WorklistAttractor;
+
+impl WorklistAttractor {
+    #[inline]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl<A, R> Attractor<A, R> for WorklistAttractor
+where
+    A: Arena,
+    R: Region<A::Position>,
+    A::Player: ControllablePredecessors<A, R>,
+    for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = A::Position>,
+{
+    fn attractor_closure_from<I>(
+        &self,
+        arena: &A,
+        player: A::Player,
+        region: &mut R,
+        frontier: I,
+    ) -> bool
     where
-        Self::Player: AttractorPredecessor,
-        for<'g> BackwardExpansion<'g, Self::Arena>: Expansion<Vertex = Self::Position>,
-        for<'g> ForwardExpansion<'g, Self::Arena>: Expansion<Vertex = Self::Position>,
+        I: IntoIterator<Item = A::Position>,
     {
-        let arena = self.arena();
-        let player = self.owner();
         let backward = BackwardExpansion::new(arena);
 
-        let mut queue: Vec<_> = self.positions().collect();
+        let mut queue: Vec<A::Position> = frontier.into_iter().collect();
         let mut changed = false;
 
         while let Some(position) = queue.pop() {
             for predecessor in backward.successors(position) {
-                if self.contains(&predecessor) {
+                if region.includes(predecessor) {
                     continue;
                 }
 
-                if player.is_attractor_predecessor(arena, self, predecessor)
-                    && self.insert(predecessor)
+                if player.is_controllable_predecessor(arena, region, predecessor)
+                    && region.expand(predecessor)
                 {
                     changed = true;
                     queue.push(predecessor);
@@ -81,30 +85,5 @@ pub trait Attractor<'arena>: ArenaRegion<'arena> + RegionInsertion {
         }
 
         changed
-    }
-}
-
-impl<'arena, R> Attractor<'arena> for R where R: ArenaRegion<'arena> + RegionInsertion {}
-
-pub trait AttractorPredecessor: Player {
-    fn attractor_successor<A, R>(
-        self,
-        arena: &A,
-        target: &R,
-        position: R::Position,
-    ) -> Option<R::Position>
-    where
-        A: Arena<Player = Self, Position = R::Position>,
-        R: Region<Player = Self>,
-        for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = R::Position>;
-
-    #[inline]
-    fn is_attractor_predecessor<A, R>(self, arena: &A, target: &R, position: R::Position) -> bool
-    where
-        A: Arena<Player = Self, Position = R::Position>,
-        R: Region<Player = Self>,
-        for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = R::Position>,
-    {
-        self.attractor_successor(arena, target, position).is_some()
     }
 }

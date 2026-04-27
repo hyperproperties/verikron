@@ -1,6 +1,6 @@
 pub mod arena;
 pub mod attractor;
-pub mod dense_region;
+pub mod controllable_predecessors;
 pub mod game;
 pub mod lasso_play;
 pub mod looping_play;
