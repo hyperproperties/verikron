@@ -21,13 +21,12 @@ impl<'a, A, S> Clone for StrategicPlay<'a, A, S>
 where
     A: Arena,
     S: Strategy<Arena = A>,
-    S::Memory: Clone,
 {
     #[inline]
     fn clone(&self) -> Self {
         Self {
             strategy: self.strategy,
-            memory: self.memory.clone(),
+            memory: self.memory,
             current: self.current,
         }
     }
@@ -54,7 +53,6 @@ where
     A: Arena,
     A::Position: Eq + Hash + Copy,
     S: Strategy<Arena = A>,
-    S::Memory: Clone + Debug,
 {
     type Position = A::Position;
 
@@ -74,7 +72,7 @@ where
     A: Arena,
     A::Position: Eq + Hash + Copy,
     S: Strategy<Arena = A>,
-    S::Memory: Clone + Debug,
+    <S as Strategy>::Memory: Debug,
 {
     type Visited<'a>
         = VisitedStrategicPlay<'a, A, S>
@@ -97,13 +95,15 @@ where
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let current = self.current?;
-        let next = self.strategy.choice(&self.memory, current);
 
-        if let Some(successor) = next {
-            self.memory = self.strategy.update(&self.memory, successor);
-            self.current = Some(successor);
-        } else {
-            self.current = None;
+        match self.strategy.choice(self.memory, current) {
+            Some(successor) => {
+                self.memory = self.strategy.update(self.memory, successor);
+                self.current = Some(successor);
+            }
+            None => {
+                self.current = None;
+            }
         }
 
         Some(current)
@@ -121,7 +121,7 @@ where
     A: Arena,
     A::Position: Eq + Hash + Copy,
     S: Strategy<Arena = A>,
-    S::Memory: Clone + Debug,
+    <S as Strategy>::Memory: Debug,
 {
     play: StrategicPlay<'a, A, S>,
     seen: HashSet<A::Position>,
@@ -132,7 +132,7 @@ where
     A: Arena,
     A::Position: Eq + Hash + Copy,
     S: Strategy<Arena = A>,
-    S::Memory: Clone + Debug,
+    <S as Strategy>::Memory: Debug,
 {
     #[must_use]
     #[inline]
@@ -149,7 +149,7 @@ where
     A: Arena,
     A::Position: Eq + Hash + Copy,
     S: Strategy<Arena = A>,
-    S::Memory: Clone + Debug,
+    <S as Strategy>::Memory: Debug,
 {
     type Item = A::Position;
 
