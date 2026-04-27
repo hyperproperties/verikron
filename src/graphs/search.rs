@@ -1,38 +1,79 @@
-use crate::graphs::visited::Visited;
+use crate::graphs::structure::VertexType;
 
-pub type StateOf<S> = <S as Search>::Vertex;
-pub type VisitedOf<S> = <S as VisitedSearch>::Visited;
-
-/// Iterator-based search.
+/// A discovery event produced by a search.
 ///
-/// This is a domain marker over [`Iterator`].
-///
-/// The searched state may be a graph vertex, a hyperedge, an automaton state,
-/// or any other search state.
-pub trait Search: Iterator<Item = Self::Vertex> {
-    /// State yielded by the search.
-    type Vertex;
+/// Each event reports a newly discovered vertex together with the parent from
+/// which it was first discovered. Roots have no parent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Discovery<V> {
+    parent: Option<V>,
+    vertex: V,
 }
 
-impl<I> Search for I
-where
-    I: Iterator,
-{
-    type Vertex = I::Item;
-}
-
-/// A search that owns a visited structure and can be exhausted into it.
-pub trait VisitedSearch: Search {
-    /// The visited structure maintained by this search.
-    type Visited: Visited<Self::Vertex>;
-
-    /// Consumes the search state and returns the visited structure.
+impl<V> Discovery<V> {
+    /// Creates a root discovery.
     #[must_use]
-    fn into_visited(self) -> Self::Visited
+    #[inline]
+    pub fn root(vertex: V) -> Self {
+        Self {
+            parent: None,
+            vertex,
+        }
+    }
+
+    /// Creates a non-root discovery.
+    #[must_use]
+    #[inline]
+    pub fn child(source: V, destination: V) -> Self {
+        Self {
+            parent: Some(source),
+            vertex: destination,
+        }
+    }
+
+    /// Returns the source, if any.
+    #[must_use]
+    #[inline]
+    pub fn parent(&self) -> Option<V>
     where
-        Self: Sized;
+        V: Copy,
+    {
+        self.parent
+    }
 
-    /// Borrows the visited structure while the search is still running.
+    /// Returns the discovered vertex.
     #[must_use]
-    fn visited(&self) -> &Self::Visited;
+    #[inline]
+    pub fn vertex(&self) -> V
+    where
+        V: Copy,
+    {
+        self.vertex
+    }
+
+    /// Returns whether this is a root discovery.
+    #[must_use]
+    #[inline]
+    pub fn is_root(&self) -> bool {
+        self.parent.is_none()
+    }
+}
+
+/// A search that exposes discovery events.
+pub trait Search: VertexType {
+    fn discover(&mut self) -> Option<Discovery<Self::Vertex>>;
+
+    /// Advances the search until `goal` is discovered.
+    fn find(&mut self, goal: Self::Vertex) -> bool
+    where
+        Self::Vertex: Eq,
+    {
+        while let Some(current) = self.discover() {
+            if current.vertex() == goal {
+                return true;
+            }
+        }
+
+        false
+    }
 }

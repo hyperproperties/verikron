@@ -9,23 +9,23 @@ use crate::graphs::{
     forward::Forward,
     frontier::SearchFrontier,
     queue_frontier::QueueFrontier,
-    reachability::LinearReachability,
-    search::VisitedSearch,
+    search::{Discovery, Search},
     stack_frontier::StackFrontier,
-    structure::VertexOf,
+    structure::{VertexOf, VertexType},
     visited::Visited,
-    worklist::ExhaustiveWorklist,
 };
 
 /// Sequential search over a forward graph.
 pub type SequentialForwardSearch<'g, G, V, F> = SequentialSearch<ForwardExpansion<'g, G>, V, F>;
+
 /// Sequential search over a backward graph.
 pub type SequentialBackwardSearch<'g, G, V, F> = SequentialSearch<BackwardExpansion<'g, G>, V, F>;
 
-/// Sequential search over a forward hypergraphs.
+/// Sequential search over a forward hypergraph.
 pub type SequentialHyperForwardSearch<'g, G, V, F> =
     SequentialSearch<HyperForwardExpansion<'g, G>, V, F>;
-/// Sequential search over a backward hypergraphs.
+
+/// Sequential search over a backward hypergraph.
 pub type SequentialHyperBackwardSearch<'g, G, V, F> =
     SequentialSearch<HyperBackwardExpansion<'g, G>, V, F>;
 
@@ -37,9 +37,9 @@ pub type SequentialHyperBackwardSearch<'g, G, V, F> =
 pub struct SequentialSearch<X, V, F>
 where
     X: Expansion,
-    X::State: Eq + Hash + Copy,
-    V: Visited<X::State>,
-    F: SearchFrontier<X::State>,
+    X::Vertex: Eq + Hash + Copy,
+    V: Visited<X::Vertex>,
+    F: SearchFrontier<Discovery<X::Vertex>>,
 {
     expansion: X,
     visited: V,
@@ -49,22 +49,22 @@ where
 impl<X, V, F> SequentialSearch<X, V, F>
 where
     X: Expansion,
-    X::State: Eq + Hash + Copy,
-    V: Visited<X::State>,
-    F: SearchFrontier<X::State>,
+    X::Vertex: Eq + Hash + Copy,
+    V: Visited<X::Vertex>,
+    F: SearchFrontier<Discovery<X::Vertex>>,
 {
     /// Creates a search from an expansion relation, an explicit visited
     /// structure, and initial states.
     #[must_use]
     pub fn with_expansion_and_visited(
         expansion: X,
-        initials: impl IntoIterator<Item = X::State>,
+        initials: impl IntoIterator<Item = X::Vertex>,
         mut visited: V,
         mut frontier: F,
     ) -> Self {
         for state in initials {
             if visited.visit(state) {
-                frontier.push(state);
+                frontier.push(Discovery::root(state));
             }
         }
 
@@ -107,80 +107,52 @@ where
 impl<X, V, F> SequentialSearch<X, V, F>
 where
     X: Expansion,
-    X::State: Eq + Hash + Copy,
-    V: Visited<X::State> + Default,
-    F: SearchFrontier<X::State>,
+    X::Vertex: Eq + Hash + Copy,
+    V: Visited<X::Vertex> + Default,
+    F: SearchFrontier<Discovery<X::Vertex>>,
 {
     /// Creates a search from an expansion relation and initial states.
     #[must_use]
     #[inline]
     pub fn with_expansion(
         expansion: X,
-        initials: impl IntoIterator<Item = X::State>,
+        initials: impl IntoIterator<Item = X::Vertex>,
         frontier: F,
     ) -> Self {
         Self::with_expansion_and_visited(expansion, initials, V::default(), frontier)
     }
 }
 
-impl<X, V, F> Iterator for SequentialSearch<X, V, F>
+impl<X, V, F> VertexType for SequentialSearch<X, V, F>
 where
     X: Expansion,
-    X::State: Eq + Hash + Copy,
-    V: Visited<X::State>,
-    F: SearchFrontier<X::State>,
+    X::Vertex: Eq + Hash + Copy,
+    V: Visited<X::Vertex>,
+    F: SearchFrontier<Discovery<X::Vertex>>,
 {
-    type Item = X::State;
+    type Vertex = X::Vertex;
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let state = self.frontier.pop()?;
+impl<X, V, F> Search for SequentialSearch<X, V, F>
+where
+    X: Expansion,
+    X::Vertex: Eq + Hash + Copy,
+    V: Visited<X::Vertex>,
+    F: SearchFrontier<Discovery<X::Vertex>>,
+{
+    #[inline]
+    fn discover(&mut self) -> Option<Discovery<Self::Vertex>> {
+        let discovery = self.frontier.pop()?;
+        let vertex = discovery.vertex();
 
-        for successor in self.expansion.successors(state) {
+        for successor in self.expansion.successors(vertex) {
             if self.visited.visit(successor) {
-                self.frontier.push(successor);
+                self.frontier.push(Discovery::child(vertex, successor));
             }
         }
 
-        Some(state)
+        Some(discovery)
     }
-}
-
-impl<X, V, F> VisitedSearch for SequentialSearch<X, V, F>
-where
-    X: Expansion,
-    X::State: Eq + Hash + Copy,
-    V: Visited<X::State>,
-    F: SearchFrontier<X::State>,
-{
-    type Visited = V;
-
-    #[inline]
-    fn into_visited(self) -> Self::Visited {
-        self.visited
-    }
-
-    #[inline]
-    fn visited(&self) -> &Self::Visited {
-        &self.visited
-    }
-}
-
-impl<X, V, F> LinearReachability for SequentialSearch<X, V, F>
-where
-    X: Expansion,
-    X::State: Eq + Hash + Copy,
-    V: Visited<X::State>,
-    F: SearchFrontier<X::State>,
-{
-}
-
-impl<X, V, F> ExhaustiveWorklist for SequentialSearch<X, V, F>
-where
-    X: Expansion,
-    X::State: Eq + Hash + Copy,
-    V: Visited<X::State>,
-    F: SearchFrontier<X::State>,
-{
 }
 
 impl<'g, G, V, F> SequentialSearch<ForwardExpansion<'g, G>, V, F>
@@ -188,7 +160,7 @@ where
     G: Forward,
     VertexOf<G>: Eq + Hash + Copy,
     V: Visited<VertexOf<G>>,
-    F: SearchFrontier<VertexOf<G>>,
+    F: SearchFrontier<Discovery<VertexOf<G>>>,
 {
     /// Creates a search from a graph, a frontier, an explicit visited
     /// structure, and initial vertices.
@@ -216,7 +188,7 @@ where
     G: Forward,
     VertexOf<G>: Eq + Hash + Copy,
     V: Visited<VertexOf<G>> + Default,
-    F: SearchFrontier<VertexOf<G>>,
+    F: SearchFrontier<Discovery<VertexOf<G>>>,
 {
     /// Creates a search from a graph, a frontier, and initial vertices.
     #[must_use]
@@ -230,7 +202,7 @@ where
     }
 }
 
-impl<'g, G, V> SequentialSearch<ForwardExpansion<'g, G>, V, StackFrontier<VertexOf<G>>>
+impl<'g, G, V> SequentialSearch<ForwardExpansion<'g, G>, V, StackFrontier<Discovery<VertexOf<G>>>>
 where
     G: Forward,
     VertexOf<G>: Eq + Hash + Copy,
@@ -244,7 +216,7 @@ where
     }
 }
 
-impl<'g, G, V> SequentialSearch<ForwardExpansion<'g, G>, V, QueueFrontier<VertexOf<G>>>
+impl<'g, G, V> SequentialSearch<ForwardExpansion<'g, G>, V, QueueFrontier<Discovery<VertexOf<G>>>>
 where
     G: Forward,
     VertexOf<G>: Eq + Hash + Copy,
@@ -263,7 +235,7 @@ where
     G: Backward,
     VertexOf<G>: Eq + Hash + Copy,
     V: Visited<VertexOf<G>>,
-    F: SearchFrontier<VertexOf<G>>,
+    F: SearchFrontier<Discovery<VertexOf<G>>>,
 {
     /// Creates a backward search from a graph, a frontier, an explicit visited
     /// structure, and initial vertices.
@@ -291,7 +263,7 @@ where
     G: Backward,
     VertexOf<G>: Eq + Hash + Copy,
     V: Visited<VertexOf<G>> + Default,
-    F: SearchFrontier<VertexOf<G>>,
+    F: SearchFrontier<Discovery<VertexOf<G>>>,
 {
     /// Creates a backward search from a graph, a frontier, and initial vertices.
     #[must_use]
@@ -305,7 +277,7 @@ where
     }
 }
 
-impl<'g, G, V> SequentialSearch<BackwardExpansion<'g, G>, V, StackFrontier<VertexOf<G>>>
+impl<'g, G, V> SequentialSearch<BackwardExpansion<'g, G>, V, StackFrontier<Discovery<VertexOf<G>>>>
 where
     G: Backward,
     VertexOf<G>: Eq + Hash + Copy,
@@ -319,7 +291,7 @@ where
     }
 }
 
-impl<'g, G, V> SequentialSearch<BackwardExpansion<'g, G>, V, QueueFrontier<VertexOf<G>>>
+impl<'g, G, V> SequentialSearch<BackwardExpansion<'g, G>, V, QueueFrontier<Discovery<VertexOf<G>>>>
 where
     G: Backward,
     VertexOf<G>: Eq + Hash + Copy,

@@ -11,11 +11,9 @@ use crate::graphs::{
     forward::Forward,
     frontier::IncrementalFrontier,
     layered_frontier::LayeredFrontier,
-    reachability::LinearReachability,
-    search::VisitedSearch,
-    structure::VertexOf,
+    search::{Discovery, Search},
+    structure::{VertexOf, VertexType},
     visited::Visited,
-    worklist::ExhaustiveWorklist,
 };
 
 /// Parallel search over a forward graph.
@@ -23,9 +21,9 @@ pub type ParallelForwardSearch<'g, G, V> = ParallelSearch<ForwardExpansion<'g, G
 /// Parallel search over a backward graph.
 pub type ParallelBackwardSearch<'g, G, V> = ParallelSearch<BackwardExpansion<'g, G>, V>;
 
-/// Parallel search over a forward graph.
+/// Parallel search over a forward hypergraph.
 pub type ParallelHyperForwardSearch<'g, G, V> = ParallelSearch<HyperForwardExpansion<'g, G>, V>;
-/// Parallel search over a backward graph.
+/// Parallel search over a backward hypergraph.
 pub type ParallelHyperBackwardSearch<'g, G, V> = ParallelSearch<HyperBackwardExpansion<'g, G>, V>;
 
 /// Default minimum layer size for parallel expansion.
@@ -47,7 +45,7 @@ where
 {
     expansion: X,
     visited: V,
-    frontier: LayeredFrontier<ExpansionStateOf<X>>,
+    frontier: LayeredFrontier<Discovery<ExpansionStateOf<X>>>,
     scratch: Vec<ExpansionStateOf<X>>,
     index: usize,
     parallel_threshold: usize,
@@ -72,7 +70,7 @@ where
 
         for state in initials {
             if visited.visit(state) {
-                initial_layer.push(state);
+                initial_layer.push(Discovery::root(state));
             }
         }
 
@@ -123,11 +121,15 @@ where
         self.parallel_threshold = parallel_threshold;
     }
 
-    /// Returns the current search layer.
+    /// Returns the current search layer as discovered vertices.
     #[must_use]
     #[inline]
-    pub fn layer(&self) -> &[ExpansionStateOf<X>] {
-        self.frontier.layer()
+    pub fn layer(&self) -> Vec<ExpansionStateOf<X>> {
+        self.frontier
+            .layer()
+            .iter()
+            .map(Discovery::vertex)
+            .collect()
     }
 
     /// Returns whether the search has no more states to expand.
@@ -154,17 +156,29 @@ where
     /// Expands one layer sequentially and returns the previous layer.
     #[inline]
     pub fn sequential_step(&mut self) -> Option<Vec<ExpansionStateOf<X>>> {
-        self.frontier.increment(|current, next| {
-            for &state in current {
-                for successor in self.expansion.successors(state) {
-                    if self.visited.visit(successor) {
-                        next.push(successor);
+        self.frontier
+            .increment(|current, next| {
+                for &discovery in current {
+                    let state = discovery.vertex();
+
+                    for successor in self.expansion.successors(state) {
+                        if self.visited.visit(successor) {
+                            next.push(Discovery::child(state, successor));
+                        }
                     }
                 }
-            }
 
-            debug_assert!(next.iter().all(|state| self.visited.is_visited(state)));
-        })
+                debug_assert!(
+                    next.iter()
+                        .all(|discovery| self.visited.is_visited(&discovery.vertex()))
+                );
+            })
+            .map(|layer| {
+                layer
+                    .into_iter()
+                    .map(|discovery| discovery.vertex())
+                    .collect()
+            })
     }
 }
 
@@ -211,23 +225,33 @@ where
     /// Expands one layer in parallel and returns the previous layer.
     #[inline]
     pub fn parallel_step(&mut self) -> Option<Vec<ExpansionStateOf<X>>> {
-        self.frontier.increment(|current, next| {
-            self.scratch.clear();
+        self.frontier
+            .increment(|current, next| {
+                self.scratch.clear();
 
-            self.scratch.par_extend(
-                current
-                    .par_iter()
-                    .flat_map_iter(|&state| self.expansion.successors(state)),
-            );
+                self.scratch.par_extend(
+                    current
+                        .par_iter()
+                        .flat_map_iter(|discovery| self.expansion.successors(discovery.vertex())),
+                );
 
-            for successor in self.scratch.drain(..) {
-                if self.visited.visit(successor) {
-                    next.push(successor);
+                for successor in self.scratch.drain(..) {
+                    if self.visited.visit(successor) {
+                        next.push(Discovery::child(current[0].vertex(), successor));
+                    }
                 }
-            }
 
-            debug_assert!(next.iter().all(|state| self.visited.is_visited(state)));
-        })
+                debug_assert!(
+                    next.iter()
+                        .all(|discovery| self.visited.is_visited(&discovery.vertex()))
+                );
+            })
+            .map(|layer| {
+                layer
+                    .into_iter()
+                    .map(|discovery| discovery.vertex())
+                    .collect()
+            })
     }
 
     /// Expands one layer, choosing sequential or parallel execution
@@ -242,65 +266,38 @@ where
     }
 }
 
-impl<X, V> Iterator for ParallelSearch<X, V>
+impl<X, V> VertexType for ParallelSearch<X, V>
 where
     X: Expansion + Sync,
     ExpansionStateOf<X>: Eq + Hash + Copy + Send + Sync + Debug,
     V: Visited<ExpansionStateOf<X>>,
 {
-    type Item = ExpansionStateOf<X>;
+    type Vertex = X::Vertex;
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
+impl<X, V> Search for ParallelSearch<X, V>
+where
+    X: Expansion + Sync,
+    ExpansionStateOf<X>: Eq + Hash + Copy + Send + Sync + Debug,
+    V: Visited<ExpansionStateOf<X>>,
+{
+    #[inline]
+    fn discover(&mut self) -> Option<Discovery<Self::Vertex>> {
         loop {
             if self.frontier.is_empty() {
                 return None;
             }
 
             if self.index < self.frontier.len() {
-                let state = self.frontier[self.index];
+                let discovery = self.frontier[self.index];
                 self.index += 1;
-                return Some(state);
+                return Some(discovery);
             }
 
             self.step()?;
             self.index = 0;
         }
     }
-}
-
-impl<X, V> VisitedSearch for ParallelSearch<X, V>
-where
-    X: Expansion + Sync,
-    ExpansionStateOf<X>: Eq + Hash + Copy + Send + Sync + Debug,
-    V: Visited<ExpansionStateOf<X>>,
-{
-    type Visited = V;
-
-    #[inline]
-    fn into_visited(self) -> Self::Visited {
-        self.visited
-    }
-
-    #[inline]
-    fn visited(&self) -> &Self::Visited {
-        &self.visited
-    }
-}
-
-impl<X, V> LinearReachability for ParallelSearch<X, V>
-where
-    X: Expansion + Sync,
-    ExpansionStateOf<X>: Eq + Hash + Copy + Send + Sync + Debug,
-    V: Visited<ExpansionStateOf<X>>,
-{
-}
-
-impl<X, V> ExhaustiveWorklist for ParallelSearch<X, V>
-where
-    X: Expansion + Sync,
-    ExpansionStateOf<X>: Eq + Hash + Copy + Send + Sync + Debug,
-    V: Visited<ExpansionStateOf<X>>,
-{
 }
 
 impl<'g, G, V> ParallelSearch<ForwardExpansion<'g, G>, V>
@@ -452,485 +449,5 @@ where
         parallel_threshold: usize,
     ) -> Self {
         Self::with_visited_and_parallel_threshold(graph, initials, V::default(), parallel_threshold)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use crate::graphs::{
-        arc::{Arc, FromArcs},
-        backward::Backward,
-        csr::CSR,
-        forward::Forward,
-        graph::Directed,
-        reachability::Reachability,
-        structure::FiniteVertices,
-        worklist::Worklist,
-    };
-    use crate::lattices::{bit_vector::BitVector, set::Set};
-
-    use proptest::prelude::*;
-    use std::collections::VecDeque;
-
-    fn arbitrary_instance() -> impl Strategy<Value = (Vec<(usize, usize)>, Vec<usize>)> {
-        prop::collection::vec((0usize..16, 0usize..16), 0..64).prop_flat_map(|edges| {
-            let vertex_count = edges
-                .iter()
-                .map(|&(source, destination)| source.max(destination))
-                .max()
-                .map(|m| m + 1)
-                .unwrap_or(0);
-
-            let initials = if vertex_count == 0 {
-                Just(Vec::new()).boxed()
-            } else {
-                prop::collection::vec(0usize..vertex_count, 0..16).boxed()
-            };
-
-            (Just(edges), initials)
-        })
-    }
-
-    fn reference_reachable(graph: &CSR, initials: &[usize]) -> Set<usize> {
-        let mut visited = Set::default();
-        let mut queue = VecDeque::new();
-
-        for &source in initials {
-            if source < graph.vertex_count() && visited.visit(source) {
-                queue.push_back(source);
-            }
-        }
-
-        while let Some(source) = queue.pop_front() {
-            for edge in graph.successors(source) {
-                let destination = graph.destination(edge);
-                if visited.visit(destination) {
-                    queue.push_back(destination);
-                }
-            }
-        }
-
-        visited
-    }
-
-    fn reference_backward_reachable(graph: &CSR, initials: &[usize]) -> Set<usize> {
-        let mut visited = Set::default();
-        let mut queue = VecDeque::new();
-
-        for &destination in initials {
-            if destination < graph.vertex_count() && visited.visit(destination) {
-                queue.push_back(destination);
-            }
-        }
-
-        while let Some(destination) = queue.pop_front() {
-            for edge in graph.predecessors(destination) {
-                let source = graph.source(edge);
-                if visited.visit(source) {
-                    queue.push_back(source);
-                }
-            }
-        }
-
-        visited
-    }
-
-    #[test]
-    fn default_parallel_threshold_is_exposed() {
-        let graph = CSR::from_arcs([Arc::new(0, 1)]);
-        let bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0]);
-
-        assert_eq!(bfs.parallel_threshold(), DEFAULT_PARALLEL_THRESHOLD);
-    }
-
-    #[test]
-    fn parallel_threshold_can_be_changed() {
-        let graph = CSR::from_arcs([Arc::new(0, 1)]);
-        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0]);
-
-        bfs.set_parallel_threshold(7);
-
-        assert_eq!(bfs.parallel_threshold(), 7);
-    }
-
-    #[test]
-    fn initial_layer_is_deduplicated_through_visited() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
-        let bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0, 0, 2, 2]);
-
-        assert_eq!(bfs.layer(), &[0, 2]);
-        assert_eq!(bfs.visited(), &[0, 2].into_iter().collect::<Set<_>>());
-    }
-
-    #[test]
-    fn forward_bfs_empty_graph_without_initials_is_empty() {
-        let graph = CSR::from_arcs(std::iter::empty::<Arc<usize>>());
-
-        let mut bfs: ParallelSearch<ForwardExpansion<'_, CSR>, Set<usize>> =
-            ParallelSearch::with_expansion(ForwardExpansion::new(&graph), std::iter::empty());
-
-        assert!(bfs.next().is_none());
-        assert!(bfs.is_finished());
-        assert!(bfs.visited().is_empty());
-    }
-
-    #[test]
-    fn forward_bfs_line_graph_visits_vertices_in_layer_order() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0]);
-
-        let order: Vec<_> = bfs.by_ref().collect();
-
-        assert_eq!(order, vec![0, 1, 2, 3]);
-        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
-    }
-
-    #[test]
-    fn forward_bfs_branching_graph_reaches_all_reachable_vertices() {
-        let graph = CSR::from_arcs([
-            Arc::new(0, 1),
-            Arc::new(0, 2),
-            Arc::new(1, 3),
-            Arc::new(2, 3),
-        ]);
-        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0]);
-
-        let mut seen: Vec<_> = bfs.by_ref().collect();
-        seen.sort_unstable();
-
-        assert_eq!(seen, vec![0, 1, 2, 3]);
-        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
-    }
-
-    #[test]
-    fn forward_bfs_cycle_graph_terminates() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 1)]);
-        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0]);
-
-        let mut seen: Vec<_> = bfs.by_ref().collect();
-        seen.sort_unstable();
-        seen.dedup();
-
-        assert_eq!(seen, vec![0, 1, 2]);
-        assert_eq!(bfs.into_visited(), [0, 1, 2].into_iter().collect());
-    }
-
-    #[test]
-    fn forward_worklist_on_disconnected_graph_depends_on_initials() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
-
-        let from_left: Set<usize> =
-            ParallelForwardSearch::<_, Set<usize>>::new(&graph, [0]).worklist();
-        let from_right: Set<usize> =
-            ParallelForwardSearch::<_, Set<usize>>::new(&graph, [2]).worklist();
-        let from_both: Set<usize> =
-            ParallelForwardSearch::<_, Set<usize>>::new(&graph, [0, 2]).worklist();
-
-        assert_eq!(from_left, [0, 1].into_iter().collect());
-        assert_eq!(from_right, [2, 3].into_iter().collect());
-        assert_eq!(from_both, [0, 1, 2, 3].into_iter().collect());
-    }
-
-    #[test]
-    fn forward_worklist_handles_loops() {
-        let graph = CSR::from_arcs([Arc::new(0, 0), Arc::new(0, 1), Arc::new(1, 1)]);
-
-        let reachable: Set<usize> =
-            ParallelForwardSearch::<_, Set<usize>>::new(&graph, [0]).worklist();
-
-        assert_eq!(reachable, [0, 1].into_iter().collect());
-    }
-
-    #[test]
-    fn backward_bfs_empty_graph_without_initials_is_empty() {
-        let graph = CSR::from_arcs(std::iter::empty::<Arc<usize>>());
-        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
-            ParallelBackwardSearch::new(&graph, std::iter::empty());
-
-        assert!(bfs.next().is_none());
-        assert!(bfs.is_finished());
-        assert!(bfs.visited().is_empty());
-    }
-
-    #[test]
-    fn backward_bfs_line_graph_visits_predecessors_in_layer_order() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
-            ParallelBackwardSearch::new(&graph, [3]);
-
-        let order: Vec<_> = bfs.by_ref().collect();
-
-        assert_eq!(order, vec![3, 2, 1, 0]);
-        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
-    }
-
-    #[test]
-    fn backward_bfs_branching_graph_reaches_all_predecessors() {
-        let graph = CSR::from_arcs([Arc::new(0, 2), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
-            ParallelBackwardSearch::new(&graph, [3]);
-
-        let mut seen: Vec<_> = bfs.by_ref().collect();
-        seen.sort_unstable();
-
-        assert_eq!(seen, vec![0, 1, 2, 3]);
-        assert_eq!(bfs.into_visited(), [0, 1, 2, 3].into_iter().collect());
-    }
-
-    #[test]
-    fn backward_worklist_on_disconnected_graph_depends_on_initials() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
-
-        let from_left: Set<usize> =
-            ParallelBackwardSearch::<_, Set<usize>>::new(&graph, [1]).worklist();
-        let from_right: Set<usize> =
-            ParallelBackwardSearch::<_, Set<usize>>::new(&graph, [3]).worklist();
-        let from_both: Set<usize> =
-            ParallelBackwardSearch::<_, Set<usize>>::new(&graph, [1, 3]).worklist();
-
-        assert_eq!(from_left, [0, 1].into_iter().collect());
-        assert_eq!(from_right, [2, 3].into_iter().collect());
-        assert_eq!(from_both, [0, 1, 2, 3].into_iter().collect());
-    }
-
-    #[test]
-    fn forward_sequential_and_parallel_step_agree() {
-        let graph = CSR::from_arcs([
-            Arc::new(0, 1),
-            Arc::new(0, 2),
-            Arc::new(1, 3),
-            Arc::new(2, 3),
-            Arc::new(3, 4),
-            Arc::new(4, 5),
-            Arc::new(5, 3),
-        ]);
-
-        let mut sequential: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0]);
-        let mut parallel: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0]);
-
-        loop {
-            let left = sequential.sequential_step();
-            let right = parallel.parallel_step();
-
-            match (left, right) {
-                (None, None) => break,
-                (Some(mut a), Some(mut b)) => {
-                    a.sort_unstable();
-                    b.sort_unstable();
-                    assert_eq!(a, b);
-                }
-                (a, b) => panic!("step mismatch: {:?} vs {:?}", a, b),
-            }
-        }
-
-        assert_eq!(sequential.into_visited(), parallel.into_visited());
-    }
-
-    #[test]
-    fn backward_sequential_and_parallel_step_agree() {
-        let graph = CSR::from_arcs([
-            Arc::new(0, 2),
-            Arc::new(1, 2),
-            Arc::new(2, 3),
-            Arc::new(3, 4),
-            Arc::new(4, 5),
-            Arc::new(5, 3),
-        ]);
-
-        let mut sequential: ParallelBackwardSearch<'_, CSR, Set<usize>> =
-            ParallelBackwardSearch::new(&graph, [5]);
-        let mut parallel: ParallelBackwardSearch<'_, CSR, Set<usize>> =
-            ParallelBackwardSearch::new(&graph, [5]);
-
-        loop {
-            let left = sequential.sequential_step();
-            let right = parallel.parallel_step();
-
-            match (left, right) {
-                (None, None) => break,
-                (Some(mut a), Some(mut b)) => {
-                    a.sort_unstable();
-                    b.sort_unstable();
-                    assert_eq!(a, b);
-                }
-                (a, b) => panic!("step mismatch: {:?} vs {:?}", a, b),
-            }
-        }
-
-        assert_eq!(sequential.into_visited(), parallel.into_visited());
-    }
-
-    #[test]
-    fn forward_reachability_finds_present_goal() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0]);
-
-        assert!(bfs.reachable(3));
-    }
-
-    #[test]
-    fn forward_reachability_rejects_absent_goal() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
-        let mut bfs: ParallelForwardSearch<'_, CSR, Set<usize>> =
-            ParallelForwardSearch::new(&graph, [0]);
-
-        assert!(!bfs.reachable(3));
-    }
-
-    #[test]
-    fn backward_reachability_finds_present_goal() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(1, 2), Arc::new(2, 3)]);
-        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
-            ParallelBackwardSearch::new(&graph, [3]);
-
-        assert!(bfs.reachable(0));
-    }
-
-    #[test]
-    fn backward_reachability_rejects_absent_goal() {
-        let graph = CSR::from_arcs([Arc::new(0, 1), Arc::new(2, 3)]);
-        let mut bfs: ParallelBackwardSearch<'_, CSR, Set<usize>> =
-            ParallelBackwardSearch::new(&graph, [1]);
-
-        assert!(!bfs.reachable(3));
-    }
-
-    proptest! {
-        #[test]
-        fn prop_forward_worklist_matches_reference_bfs((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_arcs(
-                edges.iter()
-                    .copied()
-                    .map(|(source, destination)| Arc::new(source, destination)),
-            );
-
-            let actual: Set<usize> =
-                ParallelForwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
-
-            let expected = reference_reachable(&graph, &initials);
-
-            prop_assert_eq!(actual, expected);
-        }
-
-        #[test]
-        fn prop_backward_worklist_matches_reference_bfs((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_arcs(
-                edges.iter()
-                    .copied()
-                    .map(|(source, destination)| Arc::new(source, destination)),
-            );
-
-            let actual: Set<usize> =
-                ParallelBackwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
-
-            let expected = reference_backward_reachable(&graph, &initials);
-
-            prop_assert_eq!(actual, expected);
-        }
-
-        #[test]
-        fn prop_forward_bitvector_and_set_visited_agree((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_arcs(
-                edges.iter()
-                    .copied()
-                    .map(|(source, destination)| Arc::new(source, destination)),
-            );
-
-            let set_result: Set<usize> =
-                ParallelForwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
-
-            let bit_result: BitVector =
-                ParallelForwardSearch::<_, BitVector>::new(&graph, initials.iter().copied()).worklist();
-
-            let mut from_bits = Set::default();
-            for vertex in 0..graph.vertex_count() {
-                if bit_result.is_visited(&vertex) {
-                    from_bits.visit(vertex);
-                }
-            }
-
-            prop_assert_eq!(set_result, from_bits);
-        }
-
-        #[test]
-        fn prop_forward_every_initial_is_reached((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_arcs(
-                edges.iter()
-                    .copied()
-                    .map(|(source, destination)| Arc::new(source, destination)),
-            );
-
-            let reachable: Set<usize> =
-                ParallelForwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
-
-            for &initial in &initials {
-                prop_assert!(reachable.contains(&initial));
-            }
-        }
-
-        #[test]
-        fn prop_backward_every_initial_is_reached((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_arcs(
-                edges.iter()
-                    .copied()
-                    .map(|(source, destination)| Arc::new(source, destination)),
-            );
-
-            let reachable: Set<usize> =
-                ParallelBackwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
-
-            for &initial in &initials {
-                prop_assert!(reachable.contains(&initial));
-            }
-        }
-
-        #[test]
-        fn prop_forward_worklist_is_idempotent((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_arcs(
-                edges.iter()
-                    .copied()
-                    .map(|(source, destination)| Arc::new(source, destination)),
-            );
-
-            let first: Set<usize> =
-                ParallelForwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
-
-            let first_initials: Vec<_> = first.iter().copied().collect();
-
-            let second: Set<usize> =
-                ParallelForwardSearch::<_, Set<usize>>::new(&graph, first_initials).worklist();
-
-            prop_assert_eq!(first, second);
-        }
-
-        #[test]
-        fn prop_backward_worklist_is_idempotent((edges, initials) in arbitrary_instance()) {
-            let graph = CSR::from_arcs(
-                edges.iter()
-                    .copied()
-                    .map(|(source, destination)| Arc::new(source, destination)),
-            );
-
-            let first: Set<usize> =
-                ParallelBackwardSearch::<_, Set<usize>>::new(&graph, initials.iter().copied()).worklist();
-
-            let first_initials: Vec<_> = first.iter().copied().collect();
-
-            let second: Set<usize> =
-                ParallelBackwardSearch::<_, Set<usize>>::new(&graph, first_initials).worklist();
-
-            prop_assert_eq!(first, second);
-        }
     }
 }

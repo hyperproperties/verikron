@@ -4,22 +4,22 @@ use crate::graphs::{
     structure::VertexOf,
 };
 
-pub type ExpansionStateOf<X> = <X as Expansion>::State;
+pub type ExpansionStateOf<X> = <X as Expansion>::Vertex;
 
 /// Local expansion relation for a search.
 ///
 /// This abstracts over the underlying structure being searched.
 pub trait Expansion {
     /// State yielded by the search.
-    type State;
+    type Vertex;
 
     /// Iterator over successor states.
-    type Successors<'a>: Iterator<Item = Self::State>
+    type Successors<'a>: Iterator<Item = Self::Vertex>
     where
         Self: 'a;
 
     /// Returns the successor states of `state`.
-    fn successors(&self, state: Self::State) -> Self::Successors<'_>;
+    fn successors(&self, state: Self::Vertex) -> Self::Successors<'_>;
 }
 
 /// Forward graph expansion yielding successor vertices.
@@ -48,7 +48,7 @@ impl<'g, G> Expansion for ForwardExpansion<'g, G>
 where
     G: Forward,
 {
-    type State = VertexOf<G>;
+    type Vertex = VertexOf<G>;
 
     type Successors<'a>
         = SuccessorVertices<'a, G>
@@ -56,7 +56,7 @@ where
         Self: 'a;
 
     #[inline]
-    fn successors(&self, state: Self::State) -> Self::Successors<'_> {
+    fn successors(&self, state: Self::Vertex) -> Self::Successors<'_> {
         SuccessorVertices {
             graph: self.graph,
             edges: self.graph.successors(state),
@@ -112,7 +112,7 @@ impl<'g, G> Expansion for BackwardExpansion<'g, G>
 where
     G: Backward,
 {
-    type State = VertexOf<G>;
+    type Vertex = VertexOf<G>;
 
     type Successors<'a>
         = PredecessorVertices<'a, G>
@@ -120,7 +120,7 @@ where
         Self: 'a;
 
     #[inline]
-    fn successors(&self, state: Self::State) -> Self::Successors<'_> {
+    fn successors(&self, state: Self::Vertex) -> Self::Successors<'_> {
         PredecessorVertices {
             graph: self.graph,
             edges: self.graph.predecessors(state),
@@ -179,7 +179,7 @@ impl<'h, H> Expansion for HyperForwardExpansion<'h, H>
 where
     H: HyperForward,
 {
-    type State = VertexOf<H>;
+    type Vertex = VertexOf<H>;
 
     type Successors<'a>
         = HyperSuccessorVertices<'a, H>
@@ -187,7 +187,7 @@ where
         Self: 'a;
 
     #[inline]
-    fn successors(&self, state: Self::State) -> Self::Successors<'_> {
+    fn successors(&self, state: Self::Vertex) -> Self::Successors<'_> {
         HyperSuccessorVertices {
             hypergraph: self.hypergraph,
             hyperedges: self.hypergraph.successors(state),
@@ -260,7 +260,7 @@ impl<'h, H> Expansion for HyperBackwardExpansion<'h, H>
 where
     H: HyperBackward,
 {
-    type State = VertexOf<H>;
+    type Vertex = VertexOf<H>;
 
     type Successors<'a>
         = HyperPredecessorVertices<'a, H>
@@ -268,7 +268,7 @@ where
         Self: 'a;
 
     #[inline]
-    fn successors(&self, state: Self::State) -> Self::Successors<'_> {
+    fn successors(&self, state: Self::Vertex) -> Self::Successors<'_> {
         HyperPredecessorVertices {
             hypergraph: self.hypergraph,
             hyperedges: self.hypergraph.predecessors(state),
