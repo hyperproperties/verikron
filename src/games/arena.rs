@@ -2,7 +2,7 @@ use std::hash::Hash;
 
 use crate::graphs::{
     graph::{Directed, FiniteGraph},
-    structure::{FiniteEdges, FiniteVertices, Structure},
+    structure::{FiniteEdges, FiniteVertices},
 };
 
 /// A turn-based arena.
@@ -11,7 +11,7 @@ use crate::graphs::{
 /// The owner of a position chooses the next move from that position.
 pub trait Arena: Directed<Vertex = Self::Position> {
     /// Player type.
-    type Player: Copy + Eq;
+    type Player: Eq + Copy;
 
     /// Position type.
     type Position: Eq + Hash + Copy;
@@ -25,7 +25,7 @@ pub trait Arena: Directed<Vertex = Self::Position> {
 /// This is a finite directed arena with explicit position and edge stores.
 pub trait FiniteArena: Arena + FiniteGraph<Vertex = Self::Position>
 where
-    <Self as Structure>::Vertices: FiniteVertices,
-    <Self as Structure>::Edges: FiniteEdges,
+    Self::Vertices: FiniteVertices,
+    Self::Edges: FiniteEdges,
 {
 }
