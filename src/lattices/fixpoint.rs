@@ -1,4 +1,7 @@
-use crate::lattices::{lattice::{Bottom, Top}, partial_order::PartialOrder};
+use crate::lattices::{
+    lattice::{Bottom, Top},
+    partial_order::PartialOrder,
+};
 
 /// A monotone endomorphism on a carrier `T`.
 ///
@@ -14,7 +17,7 @@ pub trait MonotoneOperator<T> {
 /// Intended for ascending iteration on a finite-height carrier.
 pub trait LeastFixpoint<T>: MonotoneOperator<T>
 where
-    T: Clone + PartialOrder,
+    T: PartialOrder,
 {
     /// Computes the least fixpoint starting from `current`.
     #[must_use]
@@ -48,7 +51,7 @@ where
 impl<T, O> LeastFixpoint<T> for O
 where
     O: MonotoneOperator<T> + ?Sized,
-    T: Clone + PartialOrder,
+    T: PartialOrder,
 {
 }
 
@@ -57,7 +60,7 @@ where
 /// Intended for descending iteration on a finite-height carrier.
 pub trait GreatestFixpoint<T>: MonotoneOperator<T>
 where
-    T: Clone + PartialOrder,
+    T: PartialOrder,
 {
     /// Computes the greatest fixpoint starting from `current`.
     #[must_use]
@@ -91,7 +94,7 @@ where
 impl<T, O> GreatestFixpoint<T> for O
 where
     O: MonotoneOperator<T> + ?Sized,
-    T: Clone + PartialOrder,
+    T: PartialOrder,
 {
 }
 
