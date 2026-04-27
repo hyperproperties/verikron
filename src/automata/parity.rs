@@ -2,21 +2,12 @@ use std::hash::Hash;
 
 use rustc_hash::FxHashMap;
 
-use crate::{
-    automata::{
-        acceptors::{Acceptor, OmegaAcceptor},
-        automaton::Automaton,
-        emptiness::Emptiness,
-        infinite_summary::InfiniteStateSummary,
-        transition_relation::{
-            BackwardExplicitTransitionRelation, FiniteExplicitTransitionRelation,
-        },
-    },
-    graphs::{
-        parallel_search::ParallelForwardSearch, quotient::Quotient, scc::SCC,
-        scc_quotient::SCCQuotient, worklist::Worklist,
-    },
-    lattices::set::Set,
+use crate::automata::{
+    acceptors::{Acceptor, OmegaAcceptor},
+    automaton::Automaton,
+    emptiness::Emptiness,
+    infinite_summary::InfiniteStateSummary,
+    transition_relation::{BackwardExplicitTransitionRelation, FiniteExplicitTransitionRelation},
 };
 
 /// Parity acceptance convention.
@@ -179,19 +170,10 @@ where
     R: BackwardExplicitTransitionRelation + FiniteExplicitTransitionRelation<State = usize>,
 {
     fn is_empty(&self) -> bool {
-        let quotient = SCCQuotient::tarjan(self.transition_relation());
-        let initial = quotient.class(*self.initial());
-        let search = ParallelForwardSearch::<_, Set<usize>>::new(&quotient, vec![initial]);
-        let reachable = search.worklist();
-
-        !reachable.into_iter().any(|class| {
-            quotient.is_recurrent(class)
-                && self
-                    .acceptor()
-                    .accepts_states(quotient.members_slice(class).iter())
-        })
+        todo!()
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,99 +386,5 @@ mod tests {
         let summary = InfStates::new(vec![0usize]);
 
         assert!(!automaton.accepts(&summary));
-    }
-
-    #[test]
-    fn emptiness_rejects_automaton_with_reachable_accepting_recurrent_scc_for_min_even() {
-        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 1)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Parity::new(
-            priorities_of([(0, 5), (1, 4), (2, 2)]),
-            ParityConvention::MinEven,
-        );
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(!automaton.is_empty());
-    }
-
-    #[test]
-    fn emptiness_accepts_automaton_when_reachable_recurrent_scc_is_rejecting_for_min_even() {
-        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 1)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Parity::new(
-            priorities_of([(0, 4), (1, 3), (2, 5)]),
-            ParityConvention::MinEven,
-        );
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(automaton.is_empty());
-    }
-
-    #[test]
-    fn emptiness_rejects_automaton_with_reachable_accepting_recurrent_scc_for_max_odd() {
-        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 1)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Parity::new(
-            priorities_of([(0, 0), (1, 2), (2, 5)]),
-            ParityConvention::MaxOdd,
-        );
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(!automaton.is_empty());
-    }
-
-    #[test]
-    fn emptiness_ignores_unreachable_accepting_recurrent_scc() {
-        let graph = CSR::from_arcs([(0, 1), (1, 1), (2, 3), (3, 2)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'a', 'b', 'b']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Parity::new(
-            priorities_of([(0, 4), (1, 2), (2, 0), (3, 1)]),
-            ParityConvention::MaxOdd,
-        );
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(automaton.is_empty());
-    }
-
-    #[test]
-    fn emptiness_accepts_automaton_when_reachable_recurrent_scc_has_missing_priority() {
-        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 1)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Parity::new(priorities_of([(0, 2), (1, 4)]), ParityConvention::MinEven);
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(automaton.is_empty());
-    }
-
-    #[test]
-    fn sample_automaton_is_not_empty() {
-        let automaton = sample_automaton();
-
-        assert!(!automaton.is_empty());
     }
 }

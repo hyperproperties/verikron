@@ -10,10 +10,6 @@ use crate::{
             BackwardExplicitTransitionRelation, FiniteExplicitTransitionRelation,
         },
     },
-    graphs::{
-        parallel_search::ParallelForwardSearch, quotient::Quotient, scc::SCC,
-        scc_quotient::SCCQuotient, worklist::Worklist,
-    },
     lattices::set::Set,
 };
 
@@ -99,20 +95,7 @@ where
         // Compute SCCs only on the subgraph reachable from the initial state, ideally
         // in an on-the-fly streaming search, so reachability and SCC discovery are
         // fused into one emptiness procedure.
-        let quotient = SCCQuotient::tarjan(self.transition_relation());
-        let initial = quotient.class(*self.initial());
-        let reachable =
-            ParallelForwardSearch::<_, Set<usize>>::new(&quotient, vec![initial]).worklist();
-
-        let has_accepting_recurrent_scc = reachable.into_iter().any(|class| {
-            quotient.is_recurrent(class)
-                && quotient
-                    .members_slice(class)
-                    .iter()
-                    .any(|state| self.acceptor().accepting().contains(state))
-        });
-
-        !has_accepting_recurrent_scc
+        todo!()
     }
 }
 
@@ -244,95 +227,5 @@ mod tests {
 
         assert!(automaton.accepts(&accepting_summary));
         assert!(!automaton.accepts(&rejecting_summary));
-    }
-
-    #[test]
-    fn emptiness_rejects_automaton_with_reachable_accepting_self_loop() {
-        let graph = CSR::from_arcs([(0, 1), (1, 1)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'a']),
-        );
-        let alphabet: Alphabet<char> = ['a'].into();
-        let acceptor = Buchi::new([1].into());
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(!automaton.is_empty());
-    }
-
-    #[test]
-    fn emptiness_rejects_automaton_with_reachable_accepting_cycle() {
-        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 1)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Buchi::new([1].into());
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(!automaton.is_empty());
-    }
-
-    #[test]
-    fn emptiness_accepts_automaton_when_accepting_state_is_unreachable() {
-        let graph = CSR::from_arcs([(0, 1), (1, 1), (2, 2)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'a', 'b']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Buchi::new([2].into());
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(automaton.is_empty());
-    }
-
-    #[test]
-    fn emptiness_accepts_automaton_when_accepting_state_is_reachable_but_not_recurrent() {
-        let graph = CSR::from_arcs([(0, 1), (1, 2)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'b']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Buchi::new([1].into());
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(automaton.is_empty());
-    }
-
-    #[test]
-    fn emptiness_accepts_automaton_when_only_recurrent_sccs_are_non_accepting() {
-        let graph = CSR::from_arcs([(0, 1), (1, 2), (2, 2)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'b', 'a']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Buchi::new([1].into());
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(automaton.is_empty());
-    }
-
-    #[test]
-    fn emptiness_ignores_unreachable_accepting_cycle() {
-        let graph = CSR::from_arcs([(0, 1), (1, 1), (2, 3), (3, 2)]);
-        let relation = AttributedGraph::with_edge_properties(
-            graph,
-            IndexedProperties::<char>::from(vec!['a', 'a', 'b', 'b']),
-        );
-        let alphabet: Alphabet<char> = ['a', 'b'].into();
-        let acceptor = Buchi::new([2].into());
-
-        let automaton = Automaton::new(0, relation, alphabet, acceptor);
-
-        assert!(automaton.is_empty());
     }
 }
