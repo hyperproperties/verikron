@@ -6,7 +6,7 @@ use crate::{
         attractor::{Attractor, WorklistAttractor},
         controllable_predecessors::ControllablePredecessors,
         game::{Game, RegionSolvableGame, SolvableGame},
-        play::Play,
+        play::VisitedPlay,
         play_sequence::PlaySequence,
         positional_map_strategy::PositionalMapStrategy,
         region::{DenseRegion, Region},
@@ -124,8 +124,7 @@ where
                     continue;
                 }
 
-                if !player.is_controllable_predecessor(self.arena, &region, predecessor)
-                {
+                if !player.is_controllable_predecessor(self.arena, &region, predecessor) {
                     continue;
                 }
 

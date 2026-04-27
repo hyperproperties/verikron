@@ -1,49 +1,38 @@
 use std::hash::Hash;
 
-/// A play as a sequence of positions.
+/// A play as an ordered sequence of positions.
 pub trait Play {
-    /// Position type occurring in the play.
     type Position: Eq + Hash + Copy;
 
-    /// Iterator over the positions of the play.
-    type Sequence<'a>: Iterator<Item = Self::Position>
+    type Positions<'a>: Iterator<Item = Self::Position>
     where
         Self: 'a;
 
-    /// Iterator over the distinct positions visited by the play.
+    fn positions(&self) -> Self::Positions<'_>;
+}
+
+/// A play whose distinct visited positions can be enumerated.
+pub trait VisitedPlay: Play {
     type Visited<'a>: Iterator<Item = Self::Position>
     where
         Self: 'a;
 
-    /// Returns the play sequence.
-    fn sequence(&self) -> Self::Sequence<'_>;
-
-    /// Returns the distinct positions visited by the play.
     fn visited(&self) -> Self::Visited<'_>;
 }
 
-/// An infinite play.
-///
-/// Provides access to the positions visited infinitely often.
-pub trait InfinitePlay: Play {
-    /// Iterator over positions visited infinitely often.
-    type InfinitelyOften<'a>: Iterator<Item = Self::Position>
-    where
-        Self: 'a;
-
-    /// Returns the positions visited infinitely often.
-    fn infinitely_often(&self) -> Self::InfinitelyOften<'_>;
-}
-
 /// A finite play.
-///
-/// Provides access to the positions visited only finitely often.
-pub trait FinitePlay: Play {
-    /// Iterator over positions visited finitely often.
-    type FinitelyOften<'a>: Iterator<Item = Self::Position>
-    where
-        Self: 'a;
+pub trait FinitePlay: VisitedPlay {
+    fn len(&self) -> usize;
 
-    /// Returns the positions visited finitely often.
-    fn finitely_often(&self) -> Self::FinitelyOften<'_>;
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn first(&self) -> Option<Self::Position>;
+
+    fn last(&self) -> Option<Self::Position>;
 }
+
+/// An infinite play.
+pub trait InfinitePlay: Play {}

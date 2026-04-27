@@ -2,7 +2,7 @@ use std::{collections::HashSet, hash::Hash};
 
 use crate::games::{
     looping_play::LoopingPlay,
-    play::{InfinitePlay, Play},
+    play::{InfinitePlay, Play, VisitedPlay},
     play_sequence::PlaySequence,
 };
 
@@ -14,6 +14,7 @@ use crate::games::{
 pub struct LassoPlay<S> {
     /// Index at which the cycle begins.
     index: usize,
+
     /// Concatenation of stem and cycle.
     positions: Box<[S]>,
 }
@@ -45,24 +46,65 @@ impl<S> LassoPlay<S> {
         Self { index, positions }
     }
 
-    /// Returns the finite stem.
+    /// Returns the cycle start index.
     #[must_use]
     #[inline]
-    pub fn stem(&self) -> PlaySequence<S>
-    where
-        S: Clone,
-    {
-        PlaySequence::new(self.positions[..self.index].to_vec().into_boxed_slice())
+    pub fn cycle_index(&self) -> usize {
+        self.index
     }
 
-    /// Returns the looping cycle.
+    /// Returns the finite stem as a slice.
     #[must_use]
     #[inline]
-    pub fn cycle(&self) -> LoopingPlay<S>
+    pub fn stem(&self) -> &[S] {
+        &self.positions[..self.index]
+    }
+
+    /// Returns the finite cycle as a slice.
+    #[must_use]
+    #[inline]
+    pub fn cycle(&self) -> &[S] {
+        &self.positions[self.index..]
+    }
+
+    /// Returns the stored stem and cycle as one finite slice.
+    #[must_use]
+    #[inline]
+    pub fn stored_positions(&self) -> &[S] {
+        &self.positions
+    }
+
+    /// Clones the stem into a finite play.
+    #[must_use]
+    #[inline]
+    pub fn stem_play(&self) -> PlaySequence<S>
     where
         S: Clone,
     {
-        LoopingPlay::new(self.positions[self.index..].to_vec().into_boxed_slice())
+        PlaySequence::new(self.stem().to_vec().into_boxed_slice())
+    }
+
+    /// Clones the cycle into a looping play.
+    #[must_use]
+    #[inline]
+    pub fn cycle_play(&self) -> LoopingPlay<S>
+    where
+        S: Clone,
+    {
+        LoopingPlay::new(self.cycle().to_vec().into_boxed_slice())
+    }
+}
+
+impl<S> LassoPlay<S>
+where
+    S: Eq + Hash + Copy,
+{
+    /// Returns the positions visited infinitely often.
+    ///
+    /// For a lasso, these are exactly the distinct positions in the cycle.
+    #[inline]
+    pub fn infinitely_often(&self) -> LassoVisited<'_, S> {
+        LassoVisited::new(self.cycle())
     }
 }
 
@@ -72,20 +114,25 @@ where
 {
     type Position = S;
 
-    type Sequence<'a>
+    type Positions<'a>
         = LassoPositions<'a, S>
     where
         Self: 'a;
 
+    #[inline]
+    fn positions(&self) -> Self::Positions<'_> {
+        LassoPositions::new(self.index, &self.positions)
+    }
+}
+
+impl<S> VisitedPlay for LassoPlay<S>
+where
+    S: Eq + Hash + Copy,
+{
     type Visited<'a>
         = LassoVisited<'a, S>
     where
         Self: 'a;
-
-    #[inline]
-    fn sequence(&self) -> Self::Sequence<'_> {
-        LassoPositions::new(self.index, &self.positions)
-    }
 
     #[inline]
     fn visited(&self) -> Self::Visited<'_> {
@@ -93,20 +140,7 @@ where
     }
 }
 
-impl<S> InfinitePlay for LassoPlay<S>
-where
-    S: Eq + Hash + Copy,
-{
-    type InfinitelyOften<'a>
-        = LassoVisited<'a, S>
-    where
-        Self: 'a;
-
-    #[inline]
-    fn infinitely_often(&self) -> Self::InfinitelyOften<'_> {
-        LassoVisited::new(&self.positions[self.index..])
-    }
-}
+impl<S> InfinitePlay for LassoPlay<S> where S: Eq + Hash + Copy {}
 
 /// Iterator over the infinite sequence induced by a lasso.
 #[derive(Clone, Debug)]
@@ -117,9 +151,6 @@ pub struct LassoPositions<'a, S> {
 }
 
 impl<'a, S> LassoPositions<'a, S> {
-    /// Creates an iterator over a lasso sequence.
-    ///
-    /// Requires a non-empty cycle.
     #[must_use]
     #[inline]
     pub fn new(index: usize, positions: &'a [S]) -> Self {

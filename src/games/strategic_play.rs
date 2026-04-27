@@ -1,7 +1,10 @@
-use std::hash::Hash;
-use std::{collections::HashSet, fmt::Debug};
+use std::{collections::HashSet, fmt::Debug, hash::Hash};
 
-use crate::games::{arena::Arena, play::Play, strategy::Strategy};
+use crate::games::{
+    arena::Arena,
+    play::{Play, VisitedPlay},
+    strategy::Strategy,
+};
 
 #[derive(Debug)]
 pub struct StrategicPlay<'a, A, S>
@@ -36,6 +39,7 @@ where
     S: Strategy<Arena = A>,
 {
     #[must_use]
+    #[inline]
     pub fn new(strategy: &'a S, start: A::Position) -> Self {
         Self {
             strategy,
@@ -50,28 +54,36 @@ where
     A: Arena,
     A::Position: Eq + Hash + Copy,
     S: Strategy<Arena = A>,
-    <S as Strategy>::Memory: Debug,
+    S::Memory: Clone + Debug,
 {
     type Position = A::Position;
 
-    type Sequence<'a>
+    type Positions<'a>
         = StrategicPlay<'a, A, S>
     where
         Self: 'a;
 
+    #[inline]
+    fn positions(&self) -> Self::Positions<'_> {
+        self.clone()
+    }
+}
+
+impl<A, S> VisitedPlay for StrategicPlay<'_, A, S>
+where
+    A: Arena,
+    A::Position: Eq + Hash + Copy,
+    S: Strategy<Arena = A>,
+    S::Memory: Clone + Debug,
+{
     type Visited<'a>
         = VisitedStrategicPlay<'a, A, S>
     where
         Self: 'a;
 
     #[inline]
-    fn sequence(&self) -> Self::Sequence<'_> {
-        Clone::clone(self)
-    }
-
-    #[inline]
     fn visited(&self) -> Self::Visited<'_> {
-        VisitedStrategicPlay::new(Clone::clone(self))
+        VisitedStrategicPlay::new(self.clone())
     }
 }
 
@@ -99,13 +111,17 @@ where
 }
 
 /// Iterator over the distinct positions visited by a strategic play.
+///
+/// Note: if the strategic play is infinite and keeps revisiting already-seen
+/// positions forever, this iterator may not terminate while searching for a new
+/// unseen position.
 #[derive(Clone, Debug)]
 pub struct VisitedStrategicPlay<'a, A, S>
 where
     A: Arena,
     A::Position: Eq + Hash + Copy,
     S: Strategy<Arena = A>,
-    <S as Strategy>::Memory: Debug,
+    S::Memory: Clone + Debug,
 {
     play: StrategicPlay<'a, A, S>,
     seen: HashSet<A::Position>,
@@ -116,7 +132,7 @@ where
     A: Arena,
     A::Position: Eq + Hash + Copy,
     S: Strategy<Arena = A>,
-    <S as Strategy>::Memory: Debug,
+    S::Memory: Clone + Debug,
 {
     #[must_use]
     #[inline]
@@ -133,7 +149,7 @@ where
     A: Arena,
     A::Position: Eq + Hash + Copy,
     S: Strategy<Arena = A>,
-    <S as Strategy>::Memory: Debug,
+    S::Memory: Clone + Debug,
 {
     type Item = A::Position;
 
@@ -144,6 +160,7 @@ where
                 return Some(position);
             }
         }
+
         None
     }
 }

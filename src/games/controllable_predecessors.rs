@@ -16,12 +16,7 @@ where
     A: Arena<Player = Self>,
     R: Region<A::Position>,
 {
-    fn is_controllable_predecessor(
-        &self,
-        arena: &A,
-        target: &R,
-        position: A::Position,
-    ) -> bool;
+    fn is_controllable_predecessor(&self, arena: &A, target: &R, position: A::Position) -> bool;
 
     fn strategy_successor(
         &self,
@@ -37,12 +32,7 @@ where
     R: Region<A::Position>,
     for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = A::Position>,
 {
-    fn is_controllable_predecessor(
-        &self,
-        arena: &A,
-        target: &R,
-        position: A::Position,
-    ) -> bool {
+    fn is_controllable_predecessor(&self, arena: &A, target: &R, position: A::Position) -> bool {
         ForwardExpansion::new(arena)
             .successors(position)
             .any(|successor| target.includes(successor))
@@ -66,12 +56,7 @@ where
     R: Region<A::Position>,
     for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = A::Position>,
 {
-    fn is_controllable_predecessor(
-        &self,
-        arena: &A,
-        target: &R,
-        position: A::Position,
-    ) -> bool {
+    fn is_controllable_predecessor(&self, arena: &A, target: &R, position: A::Position) -> bool {
         let forward = ForwardExpansion::new(arena);
         let mut successors = forward.successors(position);
 

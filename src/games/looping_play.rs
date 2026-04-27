@@ -1,6 +1,6 @@
 use std::{collections::HashSet, hash::Hash};
 
-use crate::games::play::{InfinitePlay, Play};
+use crate::games::play::{InfinitePlay, Play, VisitedPlay};
 
 /// An infinite play obtained by repeating a non-empty finite block forever.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,7 +17,7 @@ impl<S> LoopingPlay<S> {
         Self { positions }
     }
 
-    /// Creates a looping play from a vector.
+    /// Creates a looping play from a non-empty vector.
     #[must_use]
     #[inline]
     pub fn from_vec(positions: Vec<S>) -> Self {
@@ -27,8 +27,22 @@ impl<S> LoopingPlay<S> {
     /// Returns the repeated block.
     #[must_use]
     #[inline]
-    pub fn positions(&self) -> &[S] {
+    pub fn as_slice(&self) -> &[S] {
         &self.positions
+    }
+}
+
+impl<S> LoopingPlay<S>
+where
+    S: Eq + Hash + Copy,
+{
+    /// Returns the positions visited infinitely often.
+    ///
+    /// For a looping play, these are exactly the distinct positions in the
+    /// repeated block.
+    #[inline]
+    pub fn infinitely_often(&self) -> LoopingVisited<'_, S> {
+        LoopingVisited::new(&self.positions)
     }
 }
 
@@ -38,20 +52,25 @@ where
 {
     type Position = S;
 
-    type Sequence<'a>
+    type Positions<'a>
         = LoopingPositions<'a, S>
     where
         Self: 'a;
 
+    #[inline]
+    fn positions(&self) -> Self::Positions<'_> {
+        LoopingPositions::new(&self.positions)
+    }
+}
+
+impl<S> VisitedPlay for LoopingPlay<S>
+where
+    S: Eq + Hash + Copy,
+{
     type Visited<'a>
         = LoopingVisited<'a, S>
     where
         Self: 'a;
-
-    #[inline]
-    fn sequence(&self) -> Self::Sequence<'_> {
-        LoopingPositions::new(&self.positions)
-    }
 
     #[inline]
     fn visited(&self) -> Self::Visited<'_> {
@@ -59,20 +78,7 @@ where
     }
 }
 
-impl<S> InfinitePlay for LoopingPlay<S>
-where
-    S: Eq + Hash + Copy,
-{
-    type InfinitelyOften<'a>
-        = LoopingVisited<'a, S>
-    where
-        Self: 'a;
-
-    #[inline]
-    fn infinitely_often(&self) -> Self::InfinitelyOften<'_> {
-        self.visited()
-    }
-}
+impl<S> InfinitePlay for LoopingPlay<S> where S: Eq + Hash + Copy {}
 
 /// Iterator over a looping play.
 #[derive(Clone, Debug)]
@@ -82,7 +88,6 @@ pub struct LoopingPositions<'a, S> {
 }
 
 impl<'a, S> LoopingPositions<'a, S> {
-    /// Creates an iterator over the repeated block.
     #[must_use]
     #[inline]
     pub fn new(positions: &'a [S]) -> Self {

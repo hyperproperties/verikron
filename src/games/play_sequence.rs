@@ -1,6 +1,6 @@
-use std::{collections::HashSet, hash::Hash, iter::Copied};
+use std::{collections::HashSet, hash::Hash, iter::Copied, slice};
 
-use crate::games::play::{FinitePlay, Play};
+use crate::games::play::{FinitePlay, Play, VisitedPlay};
 
 /// A finite play stored as a non-empty sequence of positions.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -9,7 +9,7 @@ pub struct PlaySequence<S> {
 }
 
 impl<S> PlaySequence<S> {
-    /// Creates a finite play from a non-empty slice.
+    /// Creates a finite play from a non-empty boxed slice.
     #[must_use]
     #[inline]
     pub fn new(positions: Box<[S]>) -> Self {
@@ -17,7 +17,7 @@ impl<S> PlaySequence<S> {
         Self { positions }
     }
 
-    /// Creates a finite play from a vector.
+    /// Creates a finite play from a non-empty vector.
     #[must_use]
     #[inline]
     pub fn from_vec(positions: Vec<S>) -> Self {
@@ -27,7 +27,7 @@ impl<S> PlaySequence<S> {
     /// Returns the underlying positions.
     #[must_use]
     #[inline]
-    pub fn positions(&self) -> &[S] {
+    pub fn as_slice(&self) -> &[S] {
         &self.positions
     }
 
@@ -45,20 +45,25 @@ where
 {
     type Position = S;
 
-    type Sequence<'a>
-        = Copied<std::slice::Iter<'a, S>>
-    where
-        Self: 'a;
-
-    type Visited<'a>
-        = PlaySequenceVisited<'a, S>
+    type Positions<'a>
+        = Copied<slice::Iter<'a, S>>
     where
         Self: 'a;
 
     #[inline]
-    fn sequence(&self) -> Self::Sequence<'_> {
+    fn positions(&self) -> Self::Positions<'_> {
         self.positions.iter().copied()
     }
+}
+
+impl<S> VisitedPlay for PlaySequence<S>
+where
+    S: Eq + Hash + Copy,
+{
+    type Visited<'a>
+        = PlaySequenceVisited<'a, S>
+    where
+        Self: 'a;
 
     #[inline]
     fn visited(&self) -> Self::Visited<'_> {
@@ -70,14 +75,19 @@ impl<S> FinitePlay for PlaySequence<S>
 where
     S: Eq + Hash + Copy,
 {
-    type FinitelyOften<'a>
-        = Copied<std::slice::Iter<'a, S>>
-    where
-        Self: 'a;
+    #[inline]
+    fn len(&self) -> usize {
+        self.positions.len()
+    }
 
     #[inline]
-    fn finitely_often(&self) -> Self::FinitelyOften<'_> {
-        self.sequence()
+    fn first(&self) -> Option<Self::Position> {
+        self.positions.first().copied()
+    }
+
+    #[inline]
+    fn last(&self) -> Option<Self::Position> {
+        self.positions.last().copied()
     }
 }
 
