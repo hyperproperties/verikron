@@ -1,7 +1,9 @@
 use std::hash::Hash;
 
 use crate::lattices::{
-    bit_vector::BitVector, lattice::Lattice, membership_lattice::MembershipLattice, set::Set,
+    bit_vector::BitVector,
+    lattice::{Lattice, MembershipLattice},
+    set::Set,
 };
 
 pub trait Region<P>: Lattice {
@@ -27,11 +29,11 @@ pub type SparseRegion<P> = Set<P>;
 
 impl Region<usize> for BitVector {
     fn includes(&self, position: usize) -> bool {
-        BitVector::contains(self, &position)
+        self.contains(&position)
     }
 
     fn expand(&mut self, position: usize) -> bool {
-        BitVector::insert(self, position)
+        self.insert(position)
     }
 
     fn contract(&mut self, position: usize) -> bool {
