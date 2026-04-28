@@ -33,13 +33,13 @@ impl<O, F> Worklist<O, F> {
 impl<T, O, F> Fixpoint<T> for Worklist<O, F>
 where
     T: PartialOrder,
-    F: Frontier + Clone,
-    F::Item: Copy,
     O: IncrementalMonotoneOperator<T, Item = F::Item>,
+    F: Frontier,
 {
     #[inline]
-    fn least_fixpoint_from(&self, current: &mut T) {
-        let mut frontier = self.frontier.clone();
+    fn least_fixpoint_from(self, current: &mut T) {
+        let current: &T = current;
+        let mut frontier = self.frontier;
 
         while let Some(item) = frontier.pop() {
             if let Some(affected) = self.operator.apply_increment(current, item) {

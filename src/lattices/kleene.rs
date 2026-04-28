@@ -40,7 +40,7 @@ where
     O: MonotoneOperator<T>,
 {
     #[inline]
-    fn least_fixpoint_from(&self, current: &mut T) {
+    fn least_fixpoint_from(self, current: &mut T) {
         while self.operator.apply(current) {}
     }
 }

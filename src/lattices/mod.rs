@@ -4,6 +4,7 @@ pub mod frontier;
 pub mod kleene;
 pub mod lattice;
 pub mod membership_lattice;
+pub mod parallel_worklist;
 pub mod partial_order;
 pub mod set;
 pub mod vector;
