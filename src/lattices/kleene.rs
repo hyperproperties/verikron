@@ -1,71 +1,46 @@
-use crate::lattices::lattice::{BoundedLattice, JoinSemiLattice, MeetSemiLattice};
+use crate::lattices::{
+    fixpoint::{Fixpoint, MonotoneOperator},
+    partial_order::PartialOrder,
+};
 
-/// Generic fixpoint iterator parameterized by a combination operator.
-///
-/// Repeatedly does:
-///
-///   next = op(state, f(state))
-///
-/// and stops when `next == state` or `max_iters` is reached.
-#[inline]
-fn fixpoint_with_op<L, F, Op>(mut state: L, f: F, mut op: Op, max_iters: usize) -> L
-where
-    L: Clone + PartialEq,
-    F: Fn(&L) -> L,
-    Op: FnMut(&L, &L) -> L,
-{
-    for _ in 0..max_iters {
-        let fx = f(&state);
-        let next = op(&state, &fx);
-        if next == state {
-            return state;
-        }
-        state = next;
+#[derive(Clone, Copy, Debug)]
+pub struct Kleene<O> {
+    operator: O,
+}
+
+impl<O> Kleene<O> {
+    #[must_use]
+    #[inline]
+    pub fn new(operator: O) -> Self {
+        Self { operator }
     }
-    state
+
+    #[must_use]
+    #[inline]
+    pub fn operator(&self) -> &O {
+        &self.operator
+    }
 }
 
-/// Ascending Kleene-style fixpoint iteration:
-///
-///   x_{n+1} = x_n ⊔ f(x_n)
-pub fn fixpoint_increasing<L, F>(state: L, f: F, max_iters: usize) -> L
+impl<O> Default for Kleene<O>
 where
-    L: JoinSemiLattice + Clone + PartialEq,
-    F: Fn(&L) -> L,
+    O: Default,
 {
-    fixpoint_with_op(state, f, |x, fx| x.join(fx), max_iters)
+    #[inline]
+    fn default() -> Self {
+        Self {
+            operator: O::default(),
+        }
+    }
 }
 
-/// Descending Kleene-style fixpoint iteration:
-///
-///   x_{n+1} = x_n ⊓ f(x_n)
-pub fn fixpoint_decreasing<L, F>(state: L, f: F, max_iters: usize) -> L
+impl<T, O> Fixpoint<T> for Kleene<O>
 where
-    L: MeetSemiLattice + Clone + PartialEq,
-    F: Fn(&L) -> L,
+    T: PartialOrder,
+    O: MonotoneOperator<T>,
 {
-    fixpoint_with_op(state, f, |x, fx| x.meet(fx), max_iters)
-}
-
-/// Least fixpoint: start from ⊥ and iterate upwards.
-///
-/// Useful when you know `f` is monotone and you want the least solution
-/// of the equation x = f(x).
-pub fn lfp<L, F>(f: F, max_iters: usize) -> L
-where
-    L: BoundedLattice + Clone + PartialEq,
-    F: Fn(&L) -> L,
-{
-    fixpoint_increasing(L::bottom(), f, max_iters)
-}
-
-/// Greatest fixpoint: start from ⊤ and iterate downwards.
-///
-/// Useful for coinductive-style definitions, invariants, etc.
-pub fn gfp<L, F>(f: F, max_iters: usize) -> L
-where
-    L: BoundedLattice + Clone + PartialEq,
-    F: Fn(&L) -> L,
-{
-    fixpoint_decreasing(L::top(), f, max_iters)
+    #[inline]
+    fn least_fixpoint_from(&self, current: &mut T) {
+        while self.operator.apply(current) {}
+    }
 }
