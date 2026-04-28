@@ -1,10 +1,7 @@
 use bit_vec::BitVec;
 use std::cmp::Ordering;
 
-use crate::lattices::{
-    lattice::{JoinSemiLattice, MeetSemiLattice},
-    membership_lattice::MembershipLattice,
-};
+use crate::lattices::lattice::{JoinSemiLattice, MeetSemiLattice, MembershipLattice};
 
 /// Lattice over finite bit-vectors (bit-sets).
 ///

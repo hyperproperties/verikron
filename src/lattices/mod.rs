@@ -3,7 +3,6 @@ pub mod fixpoint;
 pub mod frontier;
 pub mod kleene;
 pub mod lattice;
-pub mod membership_lattice;
 pub mod parallel_worklist;
 pub mod partial_order;
 pub mod set;

@@ -7,10 +7,7 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashSet};
 
-use crate::lattices::{
-    lattice::{Bottom, JoinSemiLattice, MeetSemiLattice},
-    membership_lattice::MembershipLattice,
-};
+use crate::lattices::lattice::{Bottom, JoinSemiLattice, MeetSemiLattice, MembershipLattice};
 
 /// A hash-based finite set of values, backed by [`FxHashSet`].
 ///

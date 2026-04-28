@@ -1,119 +1,67 @@
 use crate::lattices::partial_order::PartialOrder;
 
-/// A join-semilattice: every pair of elements has a least upper bound (join).
+/// A join-semilattice.
 ///
-/// # Laws
+/// `join` returns the least upper bound of two elements.
 ///
-/// For all `a, b, c`:
-///
-/// * **Associativity**: `a.join(&b).join(&c) == a.join(&b.join(&c))`
-/// * **Commutativity**: `a.join(&b) == b.join(&a)`
-/// * **Idempotence**:   `a.join(&a) == a`
-///
-/// And in terms of the partial order `⊑` given by [`PartialOrder`]:
-///
-/// * `a ⊑ a.join(&b)` and `b ⊑ a.join(&b)`
-/// * If `a ⊑ c` and `b ⊑ c` then `a.join(&b) ⊑ c`
-///
-/// Implementors are responsible for ensuring these laws hold.
+/// Laws: associative, commutative, idempotent, and compatible with the
+/// [`PartialOrder`] order.
 pub trait JoinSemiLattice: PartialOrder + Sized {
-    /// Returns the least upper bound (join) of `self` and `other`.
-    ///
-    /// Intuitively, this is the "merge" or "union" of two elements.
     fn join(&self, other: &Self) -> Self;
 }
 
-/// A meet-semilattice: every pair of elements has a greatest lower bound (meet).
+/// A meet-semilattice.
 ///
-/// # Laws
+/// `meet` returns the greatest lower bound of two elements.
 ///
-/// For all `a, b, c`:
-///
-/// * **Associativity**: `a.meet(&b).meet(&c) == a.meet(&b.meet(&c))`
-/// * **Commutativity**: `a.meet(&b) == b.meet(&a)`
-/// * **Idempotence**:   `a.meet(&a) == a`
-///
-/// And in terms of the partial order `⊑` given by [`PartialOrder`]:
-///
-/// * `a.meet(&b) ⊑ a` and `a.meet(&b) ⊑ b`
-/// * If `c ⊑ a` and `c ⊑ b` then `c ⊑ a.meet(&b)`
-///
-/// Implementors are responsible for ensuring these laws hold.
+/// Laws: associative, commutative, idempotent, and compatible with the
+/// [`PartialOrder`] order.
 pub trait MeetSemiLattice: PartialOrder + Sized {
-    /// Returns the greatest lower bound (meet) of `self` and `other`.
-    ///
-    /// Intuitively, this is the "intersection" or "common part" of two elements.
     fn meet(&self, other: &Self) -> Self;
 }
 
-/// A lattice: a type that is both a join-semilattice and a meet-semilattice.
-///
-/// Every pair of elements has both a least upper bound (`join`) and a greatest
-/// lower bound (`meet`).
-///
-/// This trait is automatically implemented for any type that implements
-/// [`JoinSemiLattice`] and [`MeetSemiLattice`].
+/// A lattice: both a join-semilattice and a meet-semilattice.
 pub trait Lattice: JoinSemiLattice + MeetSemiLattice {}
 
 impl<T: JoinSemiLattice + MeetSemiLattice> Lattice for T {}
 
-/// Carrier with a least element.
+/// A carrier with a least element.
 pub trait Bottom {
-    /// Returns the least element (⊥) of the lattice.
+    /// Returns the least element, ⊥.
     fn bottom() -> Self;
 }
 
-/// Carrier with a greatest element.
+/// A carrier with a greatest element.
 pub trait Top {
-    /// Returns the greatest element (⊤) of the lattice.
+    /// Returns the greatest element, ⊤.
     fn top() -> Self;
 }
 
-/// A bounded lattice: a lattice with both a bottom and a top element.
-///
-/// * `bottom()` (⊥) is the least element: for all `x`, `bottom() ⊑ x`.
-/// * `top()`    (⊤) is the greatest element: for all `x`, `x ⊑ top()`.
-///
-/// # Laws
-///
-/// For all `x`:
-///
-/// * `bottom().leq(&x)`
-/// * `x.leq(&top())`
+/// A lattice with both bottom and top elements.
 pub trait BoundedLattice: Lattice + Top + Bottom {}
 
-/// A complete lattice: a bounded lattice that supports finite joins and meets
-/// over arbitrary collections of elements.
+/// A bounded lattice supporting finite joins and meets over collections.
 ///
-/// This trait provides *finite* joins and meets (`join_all`, `meet_all`) over
-/// an [`IntoIterator`] of elements. (For truly arbitrary / infinite joins and
-/// meets you would usually reason mathematically rather than encode them as
-/// Rust functions.)
-///
-/// # Laws
-///
-/// For any finite family `{x_i}`:
-///
-/// * `join_all` returns their least upper bound:
-///   * each `x_i ⊑ join_all({x_i})`
-///   * if each `x_i ⊑ y` then `join_all({x_i}) ⊑ y`
-///
-/// * `meet_all` returns their greatest lower bound:
-///   * `meet_all({x_i}) ⊑ x_i` for each `i`
-///   * if `y ⊑ x_i` for all `i` then `y ⊑ meet_all({x_i})`
+/// Empty joins should return bottom.
+/// Empty meets should return top.
 pub trait CompleteLattice: BoundedLattice {
-    /// Returns the finite join (least upper bound) of all elements in `iterator`.
-    ///
-    /// For an empty iterator, a common convention is to return [`Self::bottom`],
-    /// but the exact behavior should be documented by each implementation.
+    /// Returns the finite join of all elements.
     fn join_all<I: IntoIterator<Item = Self>>(iterator: I) -> Self;
 
-    /// Returns the finite meet (greatest lower bound) of all elements in `iterator`.
-    ///
-    /// For an empty iterator, a common convention is to return [`Self::top`],
-    /// but the exact behavior should be documented by each implementation.
+    /// Returns the finite meet of all elements.
     fn meet_all<I: IntoIterator<Item = Self>>(iterator: I) -> Self;
 }
 
-/// Join and meet distribute over eachother.
+/// A lattice where join and meet distribute over each other.
 pub trait DistributiveLattice: JoinSemiLattice + MeetSemiLattice {}
+
+/// A join-semilattice with element membership.
+pub trait MembershipLattice<V>: JoinSemiLattice {
+    /// Inserts `value`.
+    ///
+    /// Returns true iff the lattice element changed.
+    fn insert(&mut self, value: V) -> bool;
+
+    /// Returns true iff `value` is contained.
+    fn contains(&self, value: &V) -> bool;
+}
