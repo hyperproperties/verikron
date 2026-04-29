@@ -72,13 +72,6 @@ impl<G, VP, EP> AttributedGraph<G, VP, EP> {
     pub fn edge_properties_mut(&mut self) -> &mut EP {
         &mut self.edge_properties
     }
-
-    /// Consumes the wrapper and returns its parts.
-    #[must_use]
-    #[inline]
-    pub fn into_parts(self) -> (G, VP, EP) {
-        (self.graph, self.vertex_properties, self.edge_properties)
-    }
 }
 
 impl<G, EP> AttributedGraph<G, (), EP> {
