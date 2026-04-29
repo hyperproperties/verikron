@@ -20,30 +20,32 @@ where
     pub strategy: PositionalMapStrategy<A>,
 }
 
-/// Monotone-framework implementation of a player attractor with strategy synthesis.
+/// Monotone-framework implementation of an attractor with strategy synthesis.
 ///
-/// The target region contains the positions the player wants to force the game
-/// into. The attracted region is the mutable fixed-point state computed by the
-/// solver. The strategy stores the chosen successor for player-owned positions.
+/// The wrapped attractor analysis computes the attracted region. The strategy
+/// records, for each player-owned position that enters the attractor, a
+/// successor that was already attracted.
 pub struct AttractorStrategySynthesis<
     'a,
     A: Arena,
-    R: Region<A::Position>,
+    Target: Region<A::Position>,
+    Universe: Region<A::Position>,
     Storage: Region<A::Position>,
 > {
-    analysis: AttractorAnalysis<'a, A, R, Storage>,
+    analysis: AttractorAnalysis<'a, A, Target, Universe, Storage>,
     strategy: Option<PositionalMapStrategy<A>>,
 }
 
-impl<'a, A, R, Storage> AttractorStrategySynthesis<'a, A, R, Storage>
+impl<'a, A, Target, Universe, Storage> AttractorStrategySynthesis<'a, A, Target, Universe, Storage>
 where
     A: Arena,
-    R: Region<A::Position>,
+    Target: Region<A::Position>,
+    Universe: Region<A::Position>,
     Storage: Region<A::Position>,
 {
     #[must_use]
     #[inline]
-    pub fn new(analysis: AttractorAnalysis<'a, A, R, Storage>) -> Self {
+    pub fn new(analysis: AttractorAnalysis<'a, A, Target, Universe, Storage>) -> Self {
         Self {
             analysis,
             strategy: None,
@@ -51,12 +53,14 @@ where
     }
 }
 
-impl<'a, A, Target, Storage> Monotone<A> for AttractorStrategySynthesis<'a, A, Target, Storage>
+impl<'a, A, Target, Universe, Storage> Monotone<A>
+    for AttractorStrategySynthesis<'a, A, Target, Universe, Storage>
 where
     A: Arena,
     A::Vertex: Copy,
     A::Player: PartialEq,
     Target: Region<A::Position>,
+    Universe: Region<A::Position>,
     Storage: Region<A::Position>,
 {
     /// Whether a position is currently known to be attracted.
@@ -69,14 +73,14 @@ where
         self.analysis.initial_fact()
     }
 
-    /// Forces target positions to be attracted.
+    /// Forces target positions inside the universe to be attracted.
     ///
     /// Returning `None` leaves the position to be computed normally by the solver.
     fn boundary_fact(&self, node: &A::Vertex) -> Option<bool> {
         self.analysis.boundary_fact(node)
     }
 
-    /// Preserves target positions and otherwise forwards the merged input fact.
+    /// Preserves target positions and prevents attraction outside the universe.
     fn transfer(&self, node: &A::Vertex, input: &Self::Fact) -> Self::Fact {
         self.analysis.transfer(node, input)
     }
@@ -84,18 +88,21 @@ where
     /// Merges successor facts according to the attractor rule.
     ///
     /// Player-owned positions need at least one attracted successor. Opponent-owned
-    /// positions need all successors attracted. Dead ends are treated as not attracted.
+    /// positions need all successors attracted. Non-target dead ends are treated as
+    /// not attracted.
     fn merge(&self, node: &A::Vertex, facts: impl Iterator<Item = Self::Fact>) -> Self::Fact {
         self.analysis.merge(node, facts)
     }
 }
 
-impl<'a, A, Target> StatefulMonotone<A> for AttractorStrategySynthesis<'a, A, Target, DenseRegion>
+impl<'a, A, Target, Universe> StatefulMonotone<A>
+    for AttractorStrategySynthesis<'a, A, Target, Universe, DenseRegion>
 where
     A: Arena<Position = usize, Vertex = usize>,
     A::Player: PartialEq + Copy,
     A::Vertices: FiniteVertices<Vertex = usize>,
     Target: Region<A::Position>,
+    Universe: Region<A::Position>,
 {
     /// The computed attractor region together with the synthesized strategy.
     type Output = AttractorStrategyResult<A>;
@@ -105,7 +112,7 @@ where
         self.analysis.fact(node)
     }
 
-    /// Initializes the mutable attractor state from the target region.
+    /// Initializes the wrapped attractor analysis and an empty strategy.
     fn initialize(&mut self, graph: &A) {
         self.analysis.initialize(graph);
 
@@ -118,6 +125,8 @@ where
     /// Updates the mutable attractor state and records strategy choices.
     ///
     /// Attractor computation is monotone-growing, so positions are only added.
+    /// The witness successor is chosen before the current position is inserted,
+    /// ensuring that the strategy moves to an already attracted position.
     fn set(&mut self, node: &A::Vertex, fact: &Self::Fact) -> bool {
         if !*fact {
             return false;
@@ -130,7 +139,7 @@ where
 
         let witness = if is_player_position && !is_target_position {
             let attracted = self.analysis.attracted().expect(
-                "attractor strategy analysis must be initialized before reading attracted region",
+                "attractor strategy synthesis must be initialized before reading attracted region",
             );
 
             arena
@@ -149,7 +158,7 @@ where
 
             self.strategy
                 .as_mut()
-                .expect("attractor strategy analysis must be initialized before setting strategy choices")
+                .expect("attractor strategy synthesis must be initialized before setting strategy choices")
                 .insert_choice(*node, successor);
         }
 
@@ -163,7 +172,7 @@ where
         AttractorStrategyResult {
             region: analysis.finish(),
             strategy: strategy
-                .expect("attractor strategy analysis must be initialized before finishing"),
+                .expect("attractor strategy synthesis must be initialized before finishing"),
         }
     }
 }

@@ -51,7 +51,7 @@ impl<A> ReachabilityArena for A where
 /// stopping outside the goal region is losing.
 ///
 /// The solver computes the player's attractor to the goal region. Non-goal
-/// dead ends are therefore losing, while goal positions are winning immediately
+/// dead ends are therefore losing, while goal positions are winning immediately.
 #[derive(Clone, Debug)]
 pub struct ReachabilityGame<'a, A>
 where
@@ -125,13 +125,13 @@ where
         Worklist::new(self.arena, BackwardDirection::new(self.arena))
     }
 
-    /// Creates the attractor analysis from the goal region.
+    /// Creates an unrestricted attractor analysis from the goal region.
     #[inline]
     fn attractor_analysis(
         &self,
         player: A::Player,
-    ) -> AttractorAnalysis<'_, A, DenseRegion, DenseRegion> {
-        AttractorAnalysis::new(self.arena, player, self.goal_region())
+    ) -> AttractorAnalysis<'_, A, DenseRegion, DenseRegion, DenseRegion> {
+        AttractorAnalysis::unrestricted(self.arena, player, self.goal_region())
     }
 
     /// Computes the player's reachability winning region.
