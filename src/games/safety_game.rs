@@ -4,8 +4,8 @@ use crate::{
     games::{
         arena::{Arena, FiniteArena},
         game::{Game, RegionSolvableGame, SolvableGame},
+        lasso_play::LassoPlay,
         play::VisitedPlay,
-        play_sequence::PlaySequence,
         positional_map_strategy::PositionalMapStrategy,
         region::DenseRegion,
         safety_analysis::SafetyAnalysis,
@@ -153,7 +153,7 @@ where
     A::Position: Eq + Hash + Copy,
 {
     type Arena = A;
-    type Play = PlaySequence<A::Position>;
+    type Play = LassoPlay<A::Position>;
 
     #[inline]
     fn arena(&self) -> &Self::Arena {
