@@ -68,41 +68,6 @@ where
 pub struct Buchi;
 
 impl Buchi {
-    /// Builds the region containing every position.
-    #[inline]
-    fn full_region<A>(arena: &A) -> DenseRegion
-    where
-        A: Arena<Position = usize, Vertex = usize>,
-        A::Vertices: FiniteVertices<Vertex = usize>,
-    {
-        let mut region = DenseRegion::new(arena.vertex_store().vertex_count());
-
-        for node in arena.vertex_store().vertices() {
-            region.expand(node);
-        }
-
-        region
-    }
-
-    /// Copies `source` into a dense region over the arena vertices.
-    #[inline]
-    fn copy_region<A, R>(arena: &A, source: &R) -> DenseRegion
-    where
-        A: Arena<Position = usize, Vertex = usize>,
-        A::Vertices: FiniteVertices<Vertex = usize>,
-        R: Region<usize>,
-    {
-        let mut region = DenseRegion::new(arena.vertex_store().vertex_count());
-
-        for node in arena.vertex_store().vertices() {
-            if source.includes(&node) {
-                region.expand(node);
-            }
-        }
-
-        region
-    }
-
     /// Builds the accepting target used by the current Büchi iteration.
     ///
     /// An accepting position is a valid target only if it is still inside the
@@ -163,21 +128,6 @@ impl Buchi {
         }
     }
 
-    /// Compares two regions over the arena vertices.
-    #[inline]
-    fn same_region<A, L, R>(arena: &A, left: &L, right: &R) -> bool
-    where
-        A: Arena<Position = usize, Vertex = usize>,
-        A::Vertices: FiniteVertices<Vertex = usize>,
-        L: Region<usize>,
-        R: Region<usize>,
-    {
-        arena
-            .vertex_store()
-            .vertices()
-            .all(|node| left.includes(&node) == right.includes(&node))
-    }
-
     /// Computes the player's attractor to `target`, restricted to `universe`.
     #[inline]
     fn restricted_attractor<A>(
@@ -209,16 +159,16 @@ where
     type Solution = DenseRegion;
 
     fn solve(&self, analysis: BuchiAnalysis<'a, A, Accepting>) -> Self::Solution {
-        let mut candidate = Self::full_region(analysis.arena);
+        let mut candidate = DenseRegion::ones(analysis.arena.vertex_store().vertex_count());
 
         loop {
             let target = Self::accepting_target(&analysis, &candidate);
-            let universe = Self::copy_region(analysis.arena, &candidate);
+            let universe = candidate.clone();
 
             let next =
                 Self::restricted_attractor(analysis.arena, analysis.player, target, universe);
 
-            if Self::same_region(analysis.arena, &candidate, &next) {
+            if candidate == next {
                 return next;
             }
 
