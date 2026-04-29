@@ -85,7 +85,7 @@ where
         let mut region = DenseRegion::new(vertex_count);
         region.insert(self.goal);
         let attractor = WorklistAttractor::new();
-        attractor.attractor_closure_from(self.arena, player, region)
+        attractor.attractor(self.arena, player, region)
     }
 }
 

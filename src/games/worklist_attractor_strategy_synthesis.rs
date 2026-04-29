@@ -1,15 +1,12 @@
-use std::collections::VecDeque;
+use std::ops::ControlFlow;
 
-use crate::{
-    games::{
-        arena::Arena,
-        attractor::AttractorStrategySynthesis,
-        controllable_predecessors::ControllablePredecessors,
-        region::Region,
-        strategy::{PositionalStrategy, PositionalSynthesisResult},
-    },
-    graphs::backward::Backward,
-    lattices::frontier::{Frontier, QueueFrontier},
+use crate::games::{
+    arena::Arena,
+    attractor::{Attractor, AttractorStrategySynthesis, AttractorVisitor},
+    controllable_predecessors::ControllablePredecessors,
+    region::Region,
+    strategy::{PositionalStrategy, PositionalSynthesisResult},
+    worklist_attractor::WorklistAttractor,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -22,6 +19,75 @@ impl WorklistAttractorStrategySynthesis {
     }
 }
 
+pub struct PositionalSynthesisVisitor<S>
+where
+    S: PositionalStrategy,
+{
+    initial: <S::Arena as Arena>::Position,
+    strategy: S,
+    reached_initial: bool,
+}
+
+impl<S> PositionalSynthesisVisitor<S>
+where
+    S: PositionalStrategy,
+{
+    #[inline]
+    pub fn new(
+        player: <S::Arena as Arena>::Player,
+        initial: <S::Arena as Arena>::Position,
+    ) -> Self {
+        Self {
+            initial,
+            strategy: S::empty(player),
+            reached_initial: false,
+        }
+    }
+
+    #[inline]
+    pub const fn reached_initial(&self) -> bool {
+        self.reached_initial
+    }
+
+    #[inline]
+    pub fn into_strategy(self) -> S {
+        self.strategy
+    }
+}
+
+impl<A, R, S> AttractorVisitor<A, R> for PositionalSynthesisVisitor<S>
+where
+    A: Arena,
+    R: Region<A::Position>,
+    S: PositionalStrategy<Arena = A>,
+    A::Player: ControllablePredecessors<A, R>,
+{
+    #[inline]
+    fn before_insertion(
+        &mut self,
+        arena: &A,
+        player: A::Player,
+        region: &R,
+        source: A::Position,
+    ) -> ControlFlow<()> {
+        if let Some(successor) = player.strategy_successor(arena, region, source) {
+            self.strategy.insert_choice(source, successor);
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    #[inline]
+    fn after_insertion(&mut self, source: A::Position) -> ControlFlow<()> {
+        if source == self.initial {
+            self.reached_initial = true;
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    }
+}
+
 impl<A, R, S> AttractorStrategySynthesis<A, R, S> for WorklistAttractorStrategySynthesis
 where
     A: Arena,
@@ -29,53 +95,30 @@ where
     S: PositionalStrategy<Arena = A>,
     A::Player: ControllablePredecessors<A, R>,
 {
+    #[inline]
     fn synthesize(
         &self,
         arena: &A,
         player: A::Player,
         initial: A::Position,
-        mut target: R,
+        target: R,
     ) -> PositionalSynthesisResult<R, S> {
-        let mut strategy = S::empty(player);
-        if target.includes(initial) {
-            return PositionalSynthesisResult::winning(target, strategy);
-        }
-
-        // Frontier needs to implement from IntoIter.
-        let mut worklist: QueueFrontier<<S::Arena as Arena>::Position> =
-            VecDeque::from(target.positions());
-
-        while let Some(position) = worklist.pop() {
-            // No graph is needed just implement Backward.
-            for predecessor in arena.predecessors(position) {
-                let source = arena.source(predecessor);
-
-                // This should be the incremental operator abstraction:
-                if target.includes(source) {
-                    continue;
-                }
-
-                if player.is_controllable_predecessor(arena, &target, source) {
-
-                    // Should be some abstraction for the general attractor computation that one can hook into.
-                    if let Some(successor) = player.strategy_successor(arena, &target, source) {
-                        strategy.insert_choice(source, successor);
-                    }
-
-                    target.expand(source);
-                    worklist.push(source);
-
-                    if source == initial {
-                        return PositionalSynthesisResult::winning(target, strategy);
-                    }
-                }
-            }
-        }
+        let mut visitor = PositionalSynthesisVisitor::<S>::new(player, initial);
 
         if target.includes(initial) {
-            return PositionalSynthesisResult::winning(target, strategy);
+            return PositionalSynthesisResult::winning(target, visitor.into_strategy());
+        }
+
+        let attractor =
+            WorklistAttractor::new().attractor_with_visitor(arena, player, target, &mut visitor);
+
+        let reached_initial = visitor.reached_initial();
+        let strategy = visitor.into_strategy();
+
+        if reached_initial {
+            PositionalSynthesisResult::winning(attractor, strategy)
         } else {
-            return PositionalSynthesisResult::losing(target);
+            PositionalSynthesisResult::losing(attractor)
         }
     }
 }

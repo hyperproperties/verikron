@@ -14,7 +14,18 @@ where
     R: Region<A::Position>,
     A::Player: ControllablePredecessors<A, R>,
 {
-    fn attractor_closure_from(&self, arena: &A, player: A::Player, target: R) -> R;
+    fn attractor_with_visitor<V: AttractorVisitor<A, R>>(
+        &self,
+        arena: &A,
+        player: A::Player,
+        region: R,
+        visitor: &mut V,
+    ) -> R;
+
+    fn attractor(&self, arena: &A, player: A::Player, region: R) -> R {
+        let mut visitor = NoopAttractorVisitor;
+        self.attractor_with_visitor(arena, player, region, &mut visitor)
+    }
 }
 
 pub trait AttractorVisitor<A, R>
