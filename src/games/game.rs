@@ -17,7 +17,7 @@ pub trait Game {
     fn arena(&self) -> &Self::Arena;
 
     /// Returns the unique winner of `play`, if one is defined.
-    fn is_winning(&self, player: <Self::Arena as Arena>::Player, play: &Self::Play) -> bool;
+    fn is_winning(&self, protagonist: <Self::Arena as Arena>::Player, play: &Self::Play) -> bool;
 }
 
 /// A game that supports strategy synthesis.
@@ -28,7 +28,7 @@ pub trait SolvableGame: Game {
     /// Returns whether `strategy` wins for `player` from `position`.
     fn is_winning_strategy_from(
         &self,
-        player: <Self::Arena as Arena>::Player,
+        protagonist: <Self::Arena as Arena>::Player,
         strategy: &Self::Strategy,
         position: <Self::Arena as Arena>::Position,
     ) -> bool;
@@ -36,7 +36,7 @@ pub trait SolvableGame: Game {
     /// Returns a winning strategy for `player` from `position`, if one exists.
     fn winning_strategy_from(
         &self,
-        player: <Self::Arena as Arena>::Player,
+        protagonist: <Self::Arena as Arena>::Player,
         position: <Self::Arena as Arena>::Position,
     ) -> SynthesisResult<Self::Strategy>;
 
@@ -45,10 +45,10 @@ pub trait SolvableGame: Game {
     #[inline]
     fn has_winning_strategy_from(
         &self,
-        player: <Self::Arena as Arena>::Player,
+        protagonist: <Self::Arena as Arena>::Player,
         position: <Self::Arena as Arena>::Position,
     ) -> bool {
-        self.winning_strategy_from(player, position).is_winning()
+        self.winning_strategy_from(protagonist, position).is_winning()
     }
 }
 
@@ -58,5 +58,5 @@ pub trait RegionSolvableGame: Game {
     type Region: Region<<Self::Arena as Arena>::Position>;
 
     /// Returns the winning region of `player`.
-    fn winning_region(&self, player: <Self::Arena as Arena>::Player) -> Self::Region;
+    fn winning_region(&self, protagonist: <Self::Arena as Arena>::Player) -> Self::Region;
 }
