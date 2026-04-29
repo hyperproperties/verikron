@@ -1,3 +1,4 @@
+pub mod bit_array;
 pub mod bit_vector;
 pub mod fixpoint;
 pub mod frontier;
