@@ -50,16 +50,16 @@ where
 {
 }
 
-/// A reachability game with a single target position.
+/// A reachability game with one or more target positions.
 ///
-/// A play is winning for a player iff it eventually visits `goal`.
-#[derive(Clone, Copy, Debug)]
+/// A play is winning for a player iff it eventually visits one of the goals.
+#[derive(Clone, Debug)]
 pub struct ReachabilityGame<'a, A>
 where
     A: Arena,
 {
     arena: &'a A,
-    goal: A::Position,
+    goals: Vec<A::Position>,
 }
 
 impl<'a, A> ReachabilityGame<'a, A>
@@ -68,14 +68,38 @@ where
 {
     #[must_use]
     #[inline]
-    pub const fn new(arena: &'a A, goal: A::Position) -> Self {
-        Self { arena, goal }
+    pub fn new<I>(arena: &'a A, goals: I) -> Self
+    where
+        I: IntoIterator<Item = A::Position>,
+    {
+        Self {
+            arena,
+            goals: goals.into_iter().collect(),
+        }
     }
 
     #[must_use]
     #[inline]
-    pub const fn goal(&self) -> A::Position {
-        self.goal
+    pub fn singleton(arena: &'a A, goal: A::Position) -> Self {
+        Self {
+            arena,
+            goals: vec![goal],
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn goals(&self) -> &[A::Position] {
+        &self.goals
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn is_goal(&self, position: A::Position) -> bool
+    where
+        A::Position: PartialEq,
+    {
+        self.goals.contains(&position)
     }
 }
 
@@ -88,7 +112,10 @@ where
         let vertex_count = self.arena.vertex_store().vertex_count();
 
         let mut region = DenseRegion::new(vertex_count);
-        region.insert(self.goal);
+
+        for &goal in &self.goals {
+            region.insert(goal);
+        }
 
         region
     }
@@ -109,7 +136,7 @@ where
 
     #[inline]
     fn is_winning(&self, _player: A::Player, play: &Self::Play) -> bool {
-        play.visited().any(|position| position == self.goal)
+        play.visited().any(|position| self.is_goal(position))
     }
 }
 
@@ -158,6 +185,6 @@ where
     ) -> bool {
         StrategicPlay::new(strategy, start)
             .visited()
-            .any(|position| position == self.goal)
+            .any(|position| self.is_goal(position))
     }
 }
