@@ -21,4 +21,3 @@ pub mod scc;
 pub mod scc_quotient;
 pub mod search;
 pub mod structure;
-pub mod visited;
