@@ -145,26 +145,6 @@ impl Buchi {
         }
     }
 
-    /// Builds `left \ right` over the arena vertices.
-    #[inline]
-    fn difference<A, L, R>(arena: &A, left: &L, right: &R) -> DenseStaticRegion
-    where
-        A: Arena<Position = usize, Vertex = usize>,
-        A::Vertices: FiniteVertices<Vertex = usize>,
-        L: Region<usize>,
-        R: Region<usize>,
-    {
-        let mut region = DenseStaticRegion::new(arena.vertex_store().vertex_count());
-
-        for node in arena.vertex_store().vertices() {
-            if left.includes(&node) && !right.includes(&node) {
-                region.expand(node);
-            }
-        }
-
-        region
-    }
-
     /// Checks whether `region` contains no arena vertices.
     #[inline]
     fn is_empty<A, R>(arena: &A, region: &R) -> bool
@@ -229,7 +209,7 @@ where
                 candidate.clone(),
             );
 
-            let bad = Self::difference(analysis.arena, &candidate, &player_attractor);
+            let bad = candidate.difference(&player_attractor);
 
             if Self::is_empty(analysis.arena, &bad) {
                 return candidate;
@@ -242,7 +222,7 @@ where
                 candidate.clone(),
             );
 
-            candidate = Self::difference(analysis.arena, &candidate, &opponent_attractor);
+            candidate = candidate.difference(&opponent_attractor);
         }
     }
 }
