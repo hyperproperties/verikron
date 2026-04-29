@@ -9,7 +9,7 @@ use crate::{
 
 /// Monotone-framework implementation of a safety objective.
 ///
-/// The safe region contains the positions the player wants to stay inside
+/// The safe region contains the positions the protagonist wants to stay inside
 /// forever. The winning region is the mutable greatest-fixed-point state
 /// computed by the solver.
 pub struct SafetyAnalysis<'a, A, Safe, Storage>
@@ -19,7 +19,7 @@ where
     Storage: Region<A::Position>,
 {
     arena: &'a A,
-    player: A::Player,
+    protagonist: A::Player,
     safe: Safe,
     winning: Option<Storage>,
 }
@@ -32,10 +32,10 @@ where
 {
     #[must_use]
     #[inline]
-    pub fn new(arena: &'a A, player: A::Player, safe: Safe) -> Self {
+    pub fn new(arena: &'a A, protagonist: A::Player, safe: Safe) -> Self {
         Self {
             arena,
-            player,
+            protagonist,
             safe,
             winning: None,
         }
@@ -43,8 +43,8 @@ where
 
     #[must_use]
     #[inline]
-    pub fn player(&self) -> &A::Player {
-        &self.player
+    pub fn protagonist(&self) -> &A::Player {
+        &self.protagonist
     }
 
     #[must_use]
@@ -102,7 +102,7 @@ where
     /// positions need all successors winning. Dead ends are treated as losing,
     /// so winning positions must be able to continue safely.
     fn merge(&self, node: &A::Vertex, mut facts: impl Iterator<Item = Self::Fact>) -> Self::Fact {
-        if self.arena.owner(*node) == self.player {
+        if self.arena.owner(*node) == self.protagonist {
             match facts.next() {
                 None => false,
                 Some(first) => first || facts.any(|fact| fact),

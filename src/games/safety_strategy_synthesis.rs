@@ -125,7 +125,7 @@ where
     /// Returns the computed safety-winning region and synthesized strategy.
     fn finish(self) -> Self::Output {
         let arena = self.analysis.arena();
-        let player = *self.analysis.player();
+        let player = *self.analysis.protagonist();
         let winning = self
             .analysis
             .winning()
