@@ -14,7 +14,6 @@ use crate::{
         strategy::SynthesisResult,
     },
     graphs::{
-        expansion::{BackwardExpansion, Expansion, ForwardExpansion},
         graph::FiniteDirected,
         structure::{FiniteEdges, FiniteVertices, Structure},
     },
