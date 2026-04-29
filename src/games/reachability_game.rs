@@ -1,4 +1,4 @@
-use std::{fmt::Debug, hash::Hash, iter};
+use std::{fmt::Debug, hash::Hash};
 
 use crate::{
     games::{
@@ -10,13 +10,14 @@ use crate::{
         play_sequence::PlaySequence,
         positional_map_strategy::PositionalMapStrategy,
         region::{DenseRegion, Region},
-        strategic_play::StrategicPlay, worklist_attractor::WorklistAttractor,
+        strategic_play::StrategicPlay,
+        worklist_attractor::WorklistAttractor,
     },
     graphs::{
         expansion::{BackwardExpansion, Expansion, ForwardExpansion},
         graph::FiniteDirected,
         structure::{FiniteEdges, FiniteVertices, Structure},
-    },
+    }, lattices::lattice::MembershipLattice,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -78,13 +79,10 @@ where
     #[inline]
     fn winning_region(&self, player: A::Player) -> Self::Region {
         let vertex_count = self.arena.vertex_store().vertex_count();
-
-        WorklistAttractor::new().attractor_from(
-            self.arena,
-            player,
-            DenseRegion::new(vertex_count),
-            iter::once(self.goal),
-        )
+        let mut region = DenseRegion::new(vertex_count);
+        region.insert(self.goal);
+        let attractor = WorklistAttractor::new();
+        attractor.attractor_closure_from(self.arena, player, region)
     }
 }
 

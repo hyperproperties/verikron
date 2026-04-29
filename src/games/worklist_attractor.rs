@@ -1,5 +1,13 @@
-use crate::{games::{arena::Arena, attractor::Attractor, controllable_predecessors::ControllablePredecessors, region::Region}, graphs::expansion::{BackwardExpansion, Expansion}};
+use std::collections::VecDeque;
 
+use crate::{
+    games::{
+        arena::Arena, attractor::Attractor, controllable_predecessors::ControllablePredecessors,
+        region::Region,
+    },
+    graphs::{backward::Backward, expansion::{BackwardExpansion, Expansion}},
+    lattices::frontier::{Frontier, QueueFrontier},
+};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WorklistAttractor;
@@ -18,36 +26,26 @@ where
     A::Player: ControllablePredecessors<A, R>,
     for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = A::Position>,
 {
-    fn attractor_closure_from<I>(
-        &self,
-        arena: &A,
-        player: A::Player,
-        region: &mut R,
-        frontier: I,
-    ) -> bool
-    where
-        I: IntoIterator<Item = A::Position>,
-    {
-        let backward = BackwardExpansion::new(arena);
+    fn attractor_closure_from(&self, arena: &A, player: <A as Arena>::Player, mut region: R) -> R {
+        // Frontier needs to implement from IntoIter.
+        let mut worklist: QueueFrontier<A::Position> = VecDeque::from(region.positions());
+        while let Some(position) = worklist.pop() {
+            // No graph is needed just implement Backward.
+            for predecessor in arena.predecessors(position) {
+                let source = arena.source(predecessor);
 
-        let mut queue: Vec<A::Position> = frontier.into_iter().collect();
-        let mut changed = false;
-
-        while let Some(position) = queue.pop() {
-            for predecessor in backward.successors(position) {
-                if region.includes(predecessor) {
+                // This should be the incremental operator abstraction:
+                if region.includes(source) {
                     continue;
                 }
 
-                if player.is_controllable_predecessor(arena, region, predecessor)
-                    && region.expand(predecessor)
-                {
-                    changed = true;
-                    queue.push(predecessor);
-                }
+                if player.is_controllable_predecessor(arena, &region, source) {
+                    region.expand(source);
+                    worklist.push(source);
+                } 
             }
         }
 
-        changed
+        region
     }
 }

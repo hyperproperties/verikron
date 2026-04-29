@@ -19,6 +19,8 @@ pub trait Region<P>: Lattice {
     ///
     /// Returns true iff the region changed.
     fn contract(&mut self, position: P) -> bool;
+
+    fn positions(&self) -> Vec<P>;
 }
 
 /// Dense region for finite arenas whose positions are `usize`.
@@ -41,6 +43,10 @@ impl Region<usize> for BitVector {
         BitVector::set(self, position, false);
         member
     }
+
+    fn positions(&self) -> Vec<usize> {
+        todo!()
+    }
 }
 
 impl<P> Region<P> for Set<P>
@@ -57,5 +63,9 @@ where
 
     fn contract(&mut self, position: P) -> bool {
         Set::remove(self, &position)
+    }
+
+    fn positions(&self) -> Vec<P> {
+        todo!()
     }
 }
