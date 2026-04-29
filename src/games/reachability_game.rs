@@ -23,6 +23,36 @@ use crate::{
     lattices::lattice::MembershipLattice,
 };
 
+/// Arena requirements needed by dense reachability-game solvers.
+pub trait ReachabilityArena:
+    FiniteArena<Position = usize>
+    + FiniteDirected
+    + Structure<
+        Vertices: FiniteVertices<Vertex = usize>,
+        Edges: FiniteEdges<Vertex = usize, Edge = Self::Edge>,
+    >
+where
+    for<'g> BackwardExpansion<'g, Self>: Expansion<Vertex = usize>,
+    for<'g> ForwardExpansion<'g, Self>: Expansion<Vertex = usize>,
+{
+}
+
+impl<A> ReachabilityArena for A
+where
+    A: FiniteArena<Position = usize>
+        + FiniteDirected
+        + Structure<
+            Vertices: FiniteVertices<Vertex = usize>,
+            Edges: FiniteEdges<Vertex = usize, Edge = A::Edge>,
+        >,
+    for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = usize>,
+    for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = usize>,
+{
+}
+
+/// A reachability game with a single target position.
+///
+/// A play is winning for a player iff it eventually visits `goal`.
 #[derive(Clone, Copy, Debug)]
 pub struct ReachabilityGame<'a, A>
 where
@@ -38,14 +68,29 @@ where
 {
     #[must_use]
     #[inline]
-    pub fn new(arena: &'a A, goal: A::Position) -> Self {
+    pub const fn new(arena: &'a A, goal: A::Position) -> Self {
         Self { arena, goal }
     }
 
     #[must_use]
     #[inline]
-    pub fn goal(&self) -> A::Position {
+    pub const fn goal(&self) -> A::Position {
         self.goal
+    }
+}
+
+impl<'a, A> ReachabilityGame<'a, A>
+where
+    A: ReachabilityArena + 'a,
+{
+    #[inline]
+    fn goal_region(&self) -> DenseRegion {
+        let vertex_count = self.arena.vertex_store().vertex_count();
+
+        let mut region = DenseRegion::new(vertex_count);
+        region.insert(self.goal);
+
+        region
     }
 }
 
@@ -70,53 +115,41 @@ where
 
 impl<'a, A> RegionSolvableGame for ReachabilityGame<'a, A>
 where
-    A: FiniteArena<Position = usize> + FiniteDirected + 'a,
+    A: ReachabilityArena + 'a,
     A::Player: ControllablePredecessors<A, DenseRegion> + Debug,
-    <A as Structure>::Vertices: FiniteVertices<Vertex = usize>,
-    <A as Structure>::Edges: FiniteEdges<Vertex = usize, Edge = A::Edge>,
-    for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = usize>,
-    for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = usize>,
 {
     type Region = DenseRegion;
 
     #[inline]
     fn winning_region(&self, player: A::Player) -> Self::Region {
-        let vertex_count = self.arena.vertex_store().vertex_count();
-        let mut region = DenseRegion::new(vertex_count);
-        region.insert(self.goal);
-        let attractor = WorklistAttractor::new();
-        attractor.attractor(self.arena, player, region)
+        WorklistAttractor::new().attractor(self.arena, player, self.goal_region())
     }
 }
 
 impl<'a, A> SolvableGame for ReachabilityGame<'a, A>
 where
-    A: FiniteArena<Position = usize> + FiniteDirected + 'a,
+    A: ReachabilityArena + 'a,
     A::Player: ControllablePredecessors<A, DenseRegion> + Debug,
-    <A as Structure>::Vertices: FiniteVertices<Vertex = usize>,
-    <A as Structure>::Edges: FiniteEdges<Vertex = usize, Edge = A::Edge>,
-    for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = usize>,
-    for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = usize>,
 {
     type Strategy = PositionalMapStrategy<A, PlaySequence<usize>>;
 
+    #[inline]
     fn winning_strategy_from(
         &self,
         player: A::Player,
         start: A::Position,
     ) -> SynthesisResult<Self::Strategy> {
-        let vertex_count = self.arena.vertex_store().vertex_count();
-        let mut region = DenseRegion::new(vertex_count);
-        region.insert(self.goal);
-        let synthesiser = WorklistAttractorStrategySynthesis::new();
-        let synthesised = synthesiser.synthesize(self.arena, player, start, region);
-        synthesised.into()
+        WorklistAttractorStrategySynthesis::new()
+            .synthesize(self.arena, player, start, self.goal_region())
+            .into()
     }
 
+    #[inline]
     fn has_winning_strategy_from(&self, player: A::Player, start: A::Position) -> bool {
         self.winning_region(player).includes(start)
     }
 
+    #[inline]
     fn is_winning_strategy_from(
         &self,
         _player: A::Player,
