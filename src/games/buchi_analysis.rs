@@ -2,6 +2,7 @@ use crate::{
     games::{
         arena::Arena,
         attractor_analysis::AttractorAnalysis,
+        players::OpposedPlayer,
         region::{DenseRegion, Region},
     },
     graphs::{
@@ -11,11 +12,14 @@ use crate::{
     lattices::{fixpoint::Fixpoint, monotone::BackwardDirection, worklist::Worklist},
 };
 
-/// Monotone-style analysis for a Büchi objective.
+/// Monotone-style analysis for a two-player Büchi objective.
 ///
 /// The accepting region contains the positions the player wants to visit
 /// infinitely often. The winning region is computed by an outer greatest
 /// fixed point that repeatedly solves restricted attractor subproblems.
+///
+/// This analysis is for adversarial two-player games, so the player type must
+/// provide a unique opponent.
 pub struct BuchiAnalysis<'a, A, Accepting>
 where
     A: Arena<Position = usize, Vertex = usize>,
@@ -49,8 +53,11 @@ where
 
     #[must_use]
     #[inline]
-    pub fn player(&self) -> &A::Player {
-        &self.player
+    pub fn player(&self) -> A::Player
+    where
+        A::Player: Copy,
+    {
+        self.player
     }
 
     #[must_use]
@@ -60,18 +67,28 @@ where
     }
 }
 
-/// Fixed-point solver for Büchi analyses.
+/// Fixed-point solver for two-player Büchi analyses.
 ///
-/// The solver maintains a candidate winning region. In each iteration it
-/// computes the player's attractor, restricted to the current candidate, to
-/// accepting positions that can continue inside the candidate.
+/// The solver maintains a candidate winning region. In each iteration it:
+///
+/// 1. computes the player's restricted attractor to accepting positions,
+/// 2. finds the positions that cannot force such a visit,
+/// 3. removes the opponent's restricted attractor to those bad positions.
+///
+/// When no bad positions remain, the candidate is the Büchi-winning region.
 pub struct Buchi;
 
 impl Buchi {
+    #[must_use]
+    #[inline]
+    pub fn new() -> Self {
+        Self
+    }
+
     /// Builds the accepting target used by the current Büchi iteration.
     ///
     /// An accepting position is a valid target only if it is still inside the
-    /// candidate region and the player can continue the play inside that region.
+    /// candidate region and the play can continue inside that region.
     #[inline]
     fn accepting_target<A, Accepting>(
         analysis: &BuchiAnalysis<'_, A, Accepting>,
@@ -79,7 +96,7 @@ impl Buchi {
     ) -> DenseRegion
     where
         A: Arena<Position = usize, Vertex = usize>,
-        A::Player: PartialEq,
+        A::Player: OpposedPlayer,
         A::Vertices: FiniteVertices<Vertex = usize>,
         Accepting: Region<usize>,
     {
@@ -111,7 +128,7 @@ impl Buchi {
     ) -> bool
     where
         A: Arena<Position = usize, Vertex = usize>,
-        A::Player: PartialEq,
+        A::Player: OpposedPlayer,
     {
         let mut successors = arena
             .successors(node)
@@ -128,6 +145,40 @@ impl Buchi {
         }
     }
 
+    /// Builds `left \ right` over the arena vertices.
+    #[inline]
+    fn difference<A, L, R>(arena: &A, left: &L, right: &R) -> DenseRegion
+    where
+        A: Arena<Position = usize, Vertex = usize>,
+        A::Vertices: FiniteVertices<Vertex = usize>,
+        L: Region<usize>,
+        R: Region<usize>,
+    {
+        let mut region = DenseRegion::new(arena.vertex_store().vertex_count());
+
+        for node in arena.vertex_store().vertices() {
+            if left.includes(&node) && !right.includes(&node) {
+                region.expand(node);
+            }
+        }
+
+        region
+    }
+
+    /// Checks whether `region` contains no arena vertices.
+    #[inline]
+    fn is_empty<A, R>(arena: &A, region: &R) -> bool
+    where
+        A: Arena<Position = usize, Vertex = usize>,
+        A::Vertices: FiniteVertices<Vertex = usize>,
+        R: Region<usize>,
+    {
+        arena
+            .vertex_store()
+            .vertices()
+            .all(|node| !region.includes(&node))
+    }
+
     /// Computes the player's attractor to `target`, restricted to `universe`.
     #[inline]
     fn restricted_attractor<A>(
@@ -138,7 +189,7 @@ impl Buchi {
     ) -> DenseRegion
     where
         A: Arena<Position = usize, Vertex = usize>,
-        A::Player: PartialEq + Copy,
+        A::Player: OpposedPlayer,
         A::Vertices: FiniteVertices<Vertex = usize>,
     {
         let analysis = AttractorAnalysis::new(arena, player, target, universe);
@@ -149,10 +200,17 @@ impl Buchi {
     }
 }
 
+impl Default for Buchi {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, A, Accepting> Fixpoint<BuchiAnalysis<'a, A, Accepting>> for Buchi
 where
     A: Arena<Position = usize, Vertex = usize>,
-    A::Player: PartialEq + Copy,
+    A::Player: OpposedPlayer,
     A::Vertices: FiniteVertices<Vertex = usize>,
     Accepting: Region<usize>,
 {
@@ -163,16 +221,28 @@ where
 
         loop {
             let target = Self::accepting_target(&analysis, &candidate);
-            let universe = candidate.clone();
 
-            let next =
-                Self::restricted_attractor(analysis.arena, analysis.player, target, universe);
+            let player_attractor = Self::restricted_attractor(
+                analysis.arena,
+                analysis.player,
+                target,
+                candidate.clone(),
+            );
 
-            if candidate == next {
-                return next;
+            let bad = Self::difference(analysis.arena, &candidate, &player_attractor);
+
+            if Self::is_empty(analysis.arena, &bad) {
+                return candidate;
             }
 
-            candidate = next;
+            let opponent_attractor = Self::restricted_attractor(
+                analysis.arena,
+                analysis.player.opponent(),
+                bad,
+                candidate.clone(),
+            );
+
+            candidate = Self::difference(analysis.arena, &candidate, &opponent_attractor);
         }
     }
 }

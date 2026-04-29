@@ -4,6 +4,7 @@ use crate::{
         buchi_analysis::{Buchi, BuchiAnalysis},
         game::{Game, RegionSolvableGame},
         lasso_play::LassoPlay,
+        players::OpposedPlayer,
         region::DenseRegion,
     },
     graphs::{
@@ -96,6 +97,7 @@ where
 impl<'a, A> BuchiGame<'a, A>
 where
     A: BuchiArena,
+    A::Player: OpposedPlayer,
 {
     /// Builds the dense accepting region used by the Büchi analysis.
     #[inline]
@@ -118,7 +120,8 @@ where
     /// Computes the player's Büchi-winning region.
     #[inline]
     fn buchi_region(&self, player: A::Player) -> DenseRegion {
-        Buchi.solve(self.buchi_analysis(player))
+        let buchi = Buchi::new();
+        buchi.solve(self.buchi_analysis(player))
     }
 }
 
@@ -145,6 +148,7 @@ where
 impl<'a, A> RegionSolvableGame for BuchiGame<'a, A>
 where
     A: BuchiArena,
+    A::Player: OpposedPlayer,
 {
     type Region = DenseRegion;
 
