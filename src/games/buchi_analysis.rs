@@ -9,7 +9,9 @@ use crate::{
         forward::Forward,
         structure::{FiniteVertices, Vertices},
     },
-    lattices::{fixpoint::Fixpoint, lattice::Bottom, monotone::BackwardDirection, worklist::Worklist},
+    lattices::{
+        fixpoint::Fixpoint, lattice::Bottom, monotone::BackwardDirection, worklist::Worklist,
+    },
 };
 
 /// Monotone-style analysis for a two-player Büchi objective.

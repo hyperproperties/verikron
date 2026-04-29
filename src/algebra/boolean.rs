@@ -35,7 +35,7 @@ impl Bottom for bool {
 
 impl Top for bool {
     type Context = ();
-    
+
     #[inline]
     fn top_with(_: &Self::Context) -> Self {
         true

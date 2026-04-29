@@ -1,7 +1,10 @@
 use std::hash::Hash;
 
 use crate::lattices::{
-    bit_array::BitArray, bit_vector::BitVector, lattice::{Lattice, MembershipLattice}, set::Set
+    bit_array::BitArray,
+    bit_vector::BitVector,
+    lattice::{Lattice, MembershipLattice},
+    set::Set,
 };
 
 pub trait Region<P>: Lattice {
