@@ -1,4 +1,6 @@
-use crate::lattices::lattice::{JoinSemiLattice, MeetSemiLattice};
+use crate::lattices::lattice::{JoinSemiLattice, MeetSemiLattice, Semilattice};
+
+impl<T: PartialOrd> Semilattice for Vec<T> {}
 
 /// Order-preserving set-like lattice operations for `Vec<T>`.
 ///

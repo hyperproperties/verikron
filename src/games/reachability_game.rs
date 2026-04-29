@@ -1,52 +1,46 @@
-use std::{fmt::Debug, hash::Hash};
+use std::hash::Hash;
 
 use crate::{
     games::{
         arena::{Arena, FiniteArena},
-        attractor::{Attractor, AttractorStrategySynthesis},
-        controllable_predecessors::ControllablePredecessors,
+        attractor_analysis::AttractorAnalysis,
+        attractor_strategy_analysis::{AttractorStrategyAnalysis, AttractorStrategyResult},
         game::{Game, RegionSolvableGame, SolvableGame},
         play::VisitedPlay,
         play_sequence::PlaySequence,
         positional_map_strategy::PositionalMapStrategy,
-        region::{DenseRegion, Region},
+        region::DenseRegion,
         strategic_play::StrategicPlay,
         strategy::SynthesisResult,
-        worklist_attractor::WorklistAttractor,
-        worklist_attractor_strategy_synthesis::WorklistAttractorStrategySynthesis,
     },
     graphs::{
         expansion::{BackwardExpansion, Expansion, ForwardExpansion},
         graph::FiniteDirected,
         structure::{FiniteEdges, FiniteVertices, Structure},
     },
-    lattices::lattice::MembershipLattice,
+    lattices::{
+        fixpoint::Fixpoint, lattice::MembershipLattice, monotone::BackwardDirection,
+        worklist::Worklist,
+    },
 };
 
 /// Arena requirements needed by dense reachability-game solvers.
-pub trait ReachabilityArena:
-    FiniteArena<Position = usize>
-    + FiniteDirected
-    + Structure<
-        Vertices: FiniteVertices<Vertex = usize>,
-        Edges: FiniteEdges<Vertex = usize, Edge = Self::Edge>,
-    >
+pub trait ReachabilityArena: FiniteArena<Position = usize> + FiniteDirected
 where
-    for<'g> BackwardExpansion<'g, Self>: Expansion<Vertex = usize>,
-    for<'g> ForwardExpansion<'g, Self>: Expansion<Vertex = usize>,
+    Self: Structure<
+            Vertices: FiniteVertices<Vertex = usize>,
+            Edges: FiniteEdges<Vertex = usize, Edge = Self::Edge>,
+        >,
 {
 }
 
-impl<A> ReachabilityArena for A
-where
+impl<A> ReachabilityArena for A where
     A: FiniteArena<Position = usize>
         + FiniteDirected
         + Structure<
             Vertices: FiniteVertices<Vertex = usize>,
             Edges: FiniteEdges<Vertex = usize, Edge = A::Edge>,
-        >,
-    for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = usize>,
-    for<'g> ForwardExpansion<'g, A>: Expansion<Vertex = usize>,
+        >
 {
 }
 
@@ -66,6 +60,7 @@ impl<'a, A> ReachabilityGame<'a, A>
 where
     A: Arena,
 {
+    /// Creates a reachability game with the given goal positions.
     #[must_use]
     #[inline]
     pub fn new<I>(arena: &'a A, goals: I) -> Self
@@ -78,21 +73,21 @@ where
         }
     }
 
+    /// Creates a reachability game with a single goal position.
     #[must_use]
     #[inline]
     pub fn singleton(arena: &'a A, goal: A::Position) -> Self {
-        Self {
-            arena,
-            goals: vec![goal],
-        }
+        Self::new(arena, [goal])
     }
 
+    /// Returns the goal positions.
     #[must_use]
     #[inline]
     pub fn goals(&self) -> &[A::Position] {
         &self.goals
     }
 
+    /// Checks whether `position` is a goal.
     #[must_use]
     #[inline]
     pub fn is_goal(&self, position: A::Position) -> bool
@@ -105,19 +100,47 @@ where
 
 impl<'a, A> ReachabilityGame<'a, A>
 where
-    A: ReachabilityArena + 'a,
+    A: ReachabilityArena,
 {
+    /// Builds the dense target region used as the attractor seed.
     #[inline]
     fn goal_region(&self) -> DenseRegion {
-        let vertex_count = self.arena.vertex_store().vertex_count();
-
-        let mut region = DenseRegion::new(vertex_count);
+        let mut region = DenseRegion::new(self.arena.vertex_store().vertex_count());
 
         for &goal in &self.goals {
             region.insert(goal);
         }
 
         region
+    }
+
+    /// Creates the backward worklist solver used for attractor computations.
+    #[inline]
+    fn worklist(&self) -> Worklist<'_, A, BackwardDirection<'_, A>> {
+        Worklist::new(self.arena, BackwardDirection::new(self.arena))
+    }
+
+    /// Creates the attractor analysis from the goal region.
+    #[inline]
+    fn attractor_analysis(
+        &self,
+        player: A::Player,
+    ) -> AttractorAnalysis<'_, A, DenseRegion, DenseRegion> {
+        AttractorAnalysis::new(self.arena, player, self.goal_region())
+    }
+
+    /// Computes the player's reachability winning region.
+    #[inline]
+    fn attractor(&self, player: A::Player) -> DenseRegion {
+        self.worklist().solve(self.attractor_analysis(player))
+    }
+
+    /// Computes the player's attractor together with a positional strategy.
+    #[inline]
+    fn attractor_strategy(&self, player: A::Player) -> AttractorStrategyResult<A> {
+        self.worklist().solve(AttractorStrategyAnalysis::new(
+            self.attractor_analysis(player),
+        ))
     }
 }
 
@@ -142,40 +165,47 @@ where
 
 impl<'a, A> RegionSolvableGame for ReachabilityGame<'a, A>
 where
-    A: ReachabilityArena + 'a,
-    A::Player: ControllablePredecessors<A, DenseRegion> + Debug,
+    A: ReachabilityArena,
 {
     type Region = DenseRegion;
 
+    /// Computes the reachability winning region as the player's attractor to
+    /// the goal region.
     #[inline]
     fn winning_region(&self, player: A::Player) -> Self::Region {
-        WorklistAttractor::new().attractor(self.arena, player, self.goal_region())
+        self.attractor(player)
     }
 }
 
 impl<'a, A> SolvableGame for ReachabilityGame<'a, A>
 where
-    A: ReachabilityArena + 'a,
-    A::Player: ControllablePredecessors<A, DenseRegion> + Debug,
+    A: ReachabilityArena,
 {
-    type Strategy = PositionalMapStrategy<A, PlaySequence<usize>>;
+    type Strategy = PositionalMapStrategy<A>;
 
+    /// Synthesizes a positional winning strategy from `start`, if one exists.
     #[inline]
     fn winning_strategy_from(
         &self,
         player: A::Player,
         start: A::Position,
     ) -> SynthesisResult<Self::Strategy> {
-        WorklistAttractorStrategySynthesis::new()
-            .synthesize(self.arena, player, start, self.goal_region())
-            .into()
+        let result = self.attractor_strategy(player);
+
+        if result.region.contains(&start) {
+            SynthesisResult::winning(result.strategy)
+        } else {
+            SynthesisResult::losing()
+        }
     }
 
+    /// Checks whether `player` can force a visit to a goal from `start`.
     #[inline]
     fn has_winning_strategy_from(&self, player: A::Player, start: A::Position) -> bool {
-        self.winning_region(player).includes(start)
+        self.winning_region(player).contains(&start)
     }
 
+    /// Checks whether following `strategy` from `start` reaches a goal.
     #[inline]
     fn is_winning_strategy_from(
         &self,

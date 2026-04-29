@@ -1,11 +1,14 @@
 use crate::{
     algebra::positive_zero_order::PositiveZeroOrder,
     lattices::lattice::{
-        Bottom, BoundedLattice, DistributiveLattice, JoinSemiLattice, MeetSemiLattice, Top,
+        Bottom, BoundedLattice, DistributiveLattice, JoinSemiLattice, MeetSemiLattice, Semilattice,
+        Top,
     },
 };
 
 pub type PositiveBooleanFormula<A> = PositiveZeroOrder<bool, A>;
+
+impl Semilattice for bool {}
 
 impl JoinSemiLattice for bool {
     #[inline]

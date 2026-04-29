@@ -8,7 +8,7 @@ use crate::lattices::{
 
 pub trait Region<P>: Lattice {
     /// Returns true iff `position` is included in the region.
-    fn includes(&self, position: P) -> bool;
+    fn includes(&self, position: &P) -> bool;
 
     /// Expands the region by `position`.
     ///
@@ -30,7 +30,7 @@ pub type DenseRegion = BitVector;
 pub type SparseRegion<P> = Set<P>;
 
 impl Region<usize> for BitVector {
-    fn includes(&self, position: usize) -> bool {
+    fn includes(&self, position: &usize) -> bool {
         self.contains(&position)
     }
 
@@ -39,7 +39,7 @@ impl Region<usize> for BitVector {
     }
 
     fn contract(&mut self, position: usize) -> bool {
-        let member = self.includes(position);
+        let member = self.includes(&position);
         BitVector::set(self, position, false);
         member
     }
@@ -53,7 +53,7 @@ impl<P> Region<P> for Set<P>
 where
     P: Eq + Hash + Clone,
 {
-    fn includes(&self, position: P) -> bool {
+    fn includes(&self, position: &P) -> bool {
         Set::contains(self, &position)
     }
 

@@ -1,7 +1,4 @@
-use crate::{
-    graphs::graph::Directed,
-    lattices::lattice::{Bottom, JoinSemiLattice, MeetSemiLattice, Top},
-};
+use crate::graphs::{backward::Backward, forward::Forward, graph::Directed};
 
 /// A monotone dataflow-analysis framework over a directed graph.
 ///
@@ -20,44 +17,124 @@ pub trait Monotone<G: Directed> {
     /// Default fact assigned to each node before solving starts.
     fn initial_fact(&self) -> Self::Fact;
 
-    /// Optional special fact for boundary nodes.
+    /// Optional special fact for boundary or seed nodes.
     ///
     /// For forward analyses, this is usually an entry fact.
     /// For backward analyses, this is usually an exit fact.
-    fn boundary_fact(&self, node: G::Vertex) -> Option<Self::Fact>;
+    /// For attractor computation, this is the target region.
+    fn boundary_fact(&self, node: &G::Vertex) -> Option<Self::Fact>;
 
     /// Applies the node's transfer function to an input fact.
-    fn transfer(&self, node: G::Vertex, input: &Self::Fact) -> Self::Fact;
+    fn transfer(&self, node: &G::Vertex, input: &Self::Fact) -> Self::Fact;
+
+    /// Merges neighboring facts into one input fact for a node.
+    ///
+    /// For forward analyses, the facts usually come from predecessors.
+    /// For backward analyses, the facts usually come from successors.
+    ///
+    /// The `node` parameter allows analyses whose merge operation depends on
+    /// the current node, such as game-theoretic attractor computation.
+    fn merge(&self, node: &G::Vertex, facts: impl Iterator<Item = Self::Fact>) -> Self::Fact;
 }
 
-/// A monotone framework that merges facts using lattice join.
+/// A monotone analysis with analysis-owned fact storage.
 ///
-/// Common for may analyses, such as reaching definitions or live variables.
-pub trait JoinMonotone<G: Directed>: Monotone<G>
-where
-    Self::Fact: JoinSemiLattice + Bottom,
-{
-    /// Merges facts by folding from `bottom` with `join`.
-    fn merge<'a>(&self, facts: impl Iterator<Item = &'a Self::Fact>) -> Self::Fact
-    where
-        Self::Fact: 'a,
-    {
-        facts.fold(Self::Fact::bottom(), |acc, fact| acc.join(fact))
+/// This lets each analysis choose its own internal representation, such as a
+/// dense map, sparse map, bit vector, or region.
+pub trait StatefulMonotone<G: Directed>: Monotone<G> {
+    /// Final result produced after solving.
+    type Output;
+
+    /// Reads the current fact for a node.
+    fn fact(&self, node: &G::Vertex) -> Self::Fact;
+
+    /// Initializes the analysis state before solving.
+    fn initialize(&mut self, graph: &G);
+
+    /// Called when the solver has computed a new fact.
+    ///
+    /// Returns `true` if the stored fact changed.
+    fn set(&mut self, node: &G::Vertex, fact: &Self::Fact) -> bool;
+
+    /// Converts the final internal state into the analysis-specific result.
+    fn finish(self) -> Self::Output;
+}
+
+/// Selects which neighboring nodes provide input facts and which nodes depend
+/// on the current node.
+pub trait Direction {
+    /// Vertex type traversed by this direction.
+    type Vertex: Copy;
+
+    /// Neighbors whose facts are merged to compute `node`.
+    fn dependencies(&self, node: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_;
+
+    /// Neighbors that may need recomputation after `node` changes.
+    fn dependents(&self, node: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_;
+}
+
+/// Direction for forward analyses.
+///
+/// A node depends on its predecessors, and changes propagate to successors.
+pub struct ForwardDirection<'g, G> {
+    graph: &'g G,
+}
+
+impl<'g, G> ForwardDirection<'g, G> {
+    /// Creates a forward direction over `graph`.
+    pub fn new(graph: &'g G) -> Self {
+        Self { graph }
     }
 }
 
-/// A monotone framework that merges facts using lattice meet.
-///
-/// Common for must analyses, such as available expressions.
-pub trait MeetMonotone<G: Directed>: Monotone<G>
+impl<'g, G> Direction for ForwardDirection<'g, G>
 where
-    Self::Fact: MeetSemiLattice + Top,
+    G: Directed,
 {
-    /// Merges facts by folding from `top` with `meet`.
-    fn merge<'a>(&self, facts: impl Iterator<Item = &'a Self::Fact>) -> Self::Fact
-    where
-        Self::Fact: 'a,
-    {
-        facts.fold(Self::Fact::top(), |acc, fact| acc.meet(fact))
+    type Vertex = G::Vertex;
+
+    fn dependencies(&self, node: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_ {
+        self.graph
+            .predecessors(node)
+            .map(|edge| self.graph.source(edge))
+    }
+
+    fn dependents(&self, node: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_ {
+        self.graph
+            .successors(node)
+            .map(|edge| self.graph.destination(edge))
+    }
+}
+
+/// Direction for backward analyses.
+///
+/// A node depends on its successors, and changes propagate to predecessors.
+pub struct BackwardDirection<'g, G> {
+    graph: &'g G,
+}
+
+impl<'g, G> BackwardDirection<'g, G> {
+    /// Creates a backward direction over `graph`.
+    pub fn new(graph: &'g G) -> Self {
+        Self { graph }
+    }
+}
+
+impl<'g, G> Direction for BackwardDirection<'g, G>
+where
+    G: Directed,
+{
+    type Vertex = G::Vertex;
+
+    fn dependencies(&self, node: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_ {
+        self.graph
+            .successors(node)
+            .map(|edge| self.graph.destination(edge))
+    }
+
+    fn dependents(&self, node: Self::Vertex) -> impl Iterator<Item = Self::Vertex> + '_ {
+        self.graph
+            .predecessors(node)
+            .map(|edge| self.graph.source(edge))
     }
 }

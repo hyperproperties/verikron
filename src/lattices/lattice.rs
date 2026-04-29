@@ -1,12 +1,14 @@
 use crate::lattices::partial_order::PartialOrder;
 
+pub trait Semilattice: PartialOrder {}
+
 /// A join-semilattice.
 ///
 /// `join` returns the least upper bound of two elements.
 ///
 /// Laws: associative, commutative, idempotent, and compatible with the
 /// [`PartialOrder`] order.
-pub trait JoinSemiLattice: PartialOrder + Sized {
+pub trait JoinSemiLattice: Semilattice + Sized {
     fn join(&self, other: &Self) -> Self;
 }
 
@@ -16,7 +18,7 @@ pub trait JoinSemiLattice: PartialOrder + Sized {
 ///
 /// Laws: associative, commutative, idempotent, and compatible with the
 /// [`PartialOrder`] order.
-pub trait MeetSemiLattice: PartialOrder + Sized {
+pub trait MeetSemiLattice: Semilattice + Sized {
     fn meet(&self, other: &Self) -> Self;
 }
 

@@ -2,7 +2,9 @@ use std::{cmp::Ordering, hash::Hash, iter::FromIterator};
 
 use rustc_hash::FxHashSet;
 
-use crate::lattices::lattice::{Bottom, JoinSemiLattice, MeetSemiLattice, MembershipLattice};
+use crate::lattices::lattice::{
+    Bottom, JoinSemiLattice, MeetSemiLattice, MembershipLattice, Semilattice,
+};
 
 /// Finite hash set ordered by subset inclusion.
 ///
@@ -130,6 +132,8 @@ impl<T: Eq + Hash> Bottom for Set<T> {
         Self::new()
     }
 }
+
+impl<T: Eq + Hash + Clone> Semilattice for Set<T> {}
 
 impl<T: Eq + Hash + Clone> JoinSemiLattice for Set<T> {
     #[inline]

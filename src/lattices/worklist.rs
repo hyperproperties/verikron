@@ -1,52 +1,72 @@
-use crate::lattices::{
-    fixpoint::{Fixpoint, IncrementalMonotoneOperator},
-    frontier::Frontier,
-    partial_order::PartialOrder,
+use std::collections::VecDeque;
+
+use crate::{
+    graphs::{graph::Directed, structure::Vertices},
+    lattices::{
+        fixpoint::Fixpoint,
+        monotone::{Direction, StatefulMonotone},
+    },
 };
 
-#[derive(Clone, Debug)]
-pub struct Worklist<O, F> {
-    operator: O,
-    frontier: F,
+/// Worklist-based fixed-point solver.
+///
+/// The direction determines which neighbors provide input facts and where
+/// changes are propagated.
+///
+/// The worklist works for monotone analyses over finite-height domains,
+/// provided the analysis initializes, reads, updates, and propagates facts
+/// consistently with the fixed-point equation.
+pub struct Worklist<'g, G: Directed, D: Direction<Vertex = G::Vertex>> {
+    graph: &'g G,
+    direction: D,
 }
 
-impl<O, F> Worklist<O, F> {
-    #[must_use]
-    #[inline]
-    pub fn new(operator: O, frontier: F) -> Self {
-        Self { operator, frontier }
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn operator(&self) -> &O {
-        &self.operator
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn frontier(&self) -> &F {
-        &self.frontier
+impl<'g, G: Directed, D: Direction<Vertex = G::Vertex>> Worklist<'g, G, D> {
+    /// Creates a worklist solver over `graph` using `direction`.
+    pub fn new(graph: &'g G, direction: D) -> Self {
+        Self { graph, direction }
     }
 }
 
-impl<T, O, F> Fixpoint<T> for Worklist<O, F>
+impl<'g, G, D, A> Fixpoint<A> for Worklist<'g, G, D>
 where
-    T: PartialOrder,
-    O: IncrementalMonotoneOperator<T, Item = F::Item>,
-    F: Frontier,
+    G: Directed,
+    G::Vertex: Copy,
+    D: Direction<Vertex = G::Vertex>,
+    A: StatefulMonotone<G>,
 {
-    #[inline]
-    fn least_fixpoint_from(self, current: &mut T) {
-        let current: &T = current;
-        let mut frontier = self.frontier;
+    type Solution = A::Output;
 
-        while let Some(item) = frontier.pop() {
-            if let Some(affected) = self.operator.apply_increment(current, item) {
-                for item in affected {
-                    frontier.push(item);
+    fn solve(&self, mut analysis: A) -> Self::Solution {
+        let mut worklist = VecDeque::new();
+
+        analysis.initialize(self.graph);
+
+        for node in self.graph.vertex_store().vertices() {
+            worklist.push_back(node);
+        }
+
+        while let Some(node) = worklist.pop_front() {
+            let input = analysis.merge(
+                &node,
+                self.direction
+                    .dependencies(node)
+                    .map(|dependency| analysis.fact(&dependency)),
+            );
+
+            let mut new_fact = analysis.transfer(&node, &input);
+
+            if let Some(boundary_fact) = analysis.boundary_fact(&node) {
+                new_fact = boundary_fact;
+            }
+
+            if analysis.set(&node, &new_fact) {
+                for dependent in self.direction.dependents(node) {
+                    worklist.push_back(dependent);
                 }
             }
         }
+
+        analysis.finish()
     }
 }

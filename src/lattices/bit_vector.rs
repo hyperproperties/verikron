@@ -1,7 +1,7 @@
 use bit_vec::BitVec;
 use std::cmp::Ordering;
 
-use crate::lattices::lattice::{JoinSemiLattice, MeetSemiLattice, MembershipLattice};
+use crate::lattices::lattice::{JoinSemiLattice, MeetSemiLattice, MembershipLattice, Semilattice};
 
 /// Lattice over finite bit-vectors (bit-sets).
 ///
@@ -132,6 +132,8 @@ impl PartialOrd for BitVector {
         other.le(self)
     }
 }
+
+impl Semilattice for BitVector {}
 
 impl JoinSemiLattice for BitVector {
     fn join(&self, other: &Self) -> Self {

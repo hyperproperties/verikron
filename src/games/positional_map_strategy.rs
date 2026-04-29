@@ -1,41 +1,36 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::{collections::HashMap, hash::Hash};
 
 use crate::games::{
     arena::Arena,
-    play::Play,
     strategy::{PositionalStrategy, Strategy},
 };
 
 /// A positional strategy represented by a partial position-to-successor map.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PositionalMapStrategy<A, P>
+pub struct PositionalMapStrategy<A>
 where
     A: Arena,
-    P: Play<Position = A::Position>,
 {
     player: A::Player,
     choices: HashMap<A::Position, A::Position>,
-    marker: PhantomData<P>,
 }
 
-impl<A, P> PositionalMapStrategy<A, P>
+impl<A> PositionalMapStrategy<A>
 where
     A: Arena,
-    P: Play<Position = A::Position>,
 {
     #[must_use]
     #[inline]
     pub fn new(player: A::Player, choices: HashMap<A::Position, A::Position>) -> Self {
-        Self {
-            player,
-            choices,
-            marker: PhantomData,
-        }
+        Self { player, choices }
     }
 
     #[must_use]
     #[inline]
-    pub fn player(&self) -> A::Player {
+    pub fn player(&self) -> A::Player
+    where
+        A::Player: Copy,
+    {
         self.player
     }
 
@@ -50,6 +45,18 @@ where
     pub fn into_choices(self) -> HashMap<A::Position, A::Position> {
         self.choices
     }
+}
+
+impl<A> PositionalMapStrategy<A>
+where
+    A: Arena,
+    A::Position: Eq + Hash + Copy,
+{
+    #[inline]
+    pub fn insert_choice(&mut self, position: A::Position, successor: A::Position) {
+        self.choices.insert(position, successor);
+    }
+
     #[inline]
     pub fn remove_choice(&mut self, position: A::Position) -> Option<A::Position> {
         self.choices.remove(&position)
@@ -68,10 +75,11 @@ where
     }
 }
 
-impl<A, P> Strategy for PositionalMapStrategy<A, P>
+impl<A> Strategy for PositionalMapStrategy<A>
 where
     A: Arena,
-    P: Play<Position = A::Position>,
+    A::Player: Copy,
+    A::Position: Eq + Hash + Copy,
 {
     type Arena = A;
     type Memory = ();
@@ -82,23 +90,28 @@ where
     }
 
     #[inline]
-    fn initial_memory(&self) -> Self::Memory {}
+    fn initial_memory(&self) -> Self::Memory {
+        ()
+    }
 
     #[inline]
     fn choice(&self, _memory: Self::Memory, position: A::Position) -> Option<A::Position> {
         self.choice_of(position)
     }
 
+    #[inline]
     fn empty(player: <Self::Arena as Arena>::Player) -> Self {
         Self::new(player, HashMap::new())
     }
 }
 
-impl<A, P> PositionalStrategy for PositionalMapStrategy<A, P>
+impl<A> PositionalStrategy for PositionalMapStrategy<A>
 where
     A: Arena,
-    P: Play<Position = A::Position>,
+    A::Player: Copy,
+    A::Position: Eq + Hash + Copy,
 {
+    #[inline]
     fn insert_choice(
         &mut self,
         position: <Self::Arena as Arena>::Position,
