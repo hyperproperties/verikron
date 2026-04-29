@@ -6,8 +6,8 @@ use crate::{
         attractor_analysis::AttractorAnalysis,
         attractor_strategy_synthesis::{AttractorStrategyResult, AttractorStrategySynthesis},
         game::{Game, RegionSolvableGame, SolvableGame},
+        lasso_play::LassoPlay,
         play::VisitedPlay,
-        play_sequence::PlaySequence,
         positional_map_strategy::PositionalMapStrategy,
         region::DenseRegion,
         strategic_play::StrategicPlay,
@@ -155,7 +155,7 @@ where
     A::Position: Eq + Hash + Copy,
 {
     type Arena = A;
-    type Play = PlaySequence<A::Position>;
+    type Play = LassoPlay<A::Position>;
 
     #[inline]
     fn arena(&self) -> &Self::Arena {
