@@ -7,9 +7,9 @@ use crate::{
     lattices::monotone::{Monotone, StatefulMonotone},
 };
 
-/// Monotone-framework implementation of a player attractor.
+/// Monotone-framework implementation of a protagonist attractor.
 ///
-/// The target region contains the positions the player wants to force the game
+/// The target region contains the positions the protagonist wants to force the game
 /// into. The universe region restricts where the attractor may grow. The
 /// attracted region is the mutable fixed-point state computed by the solver.
 ///
@@ -24,7 +24,7 @@ pub struct AttractorAnalysis<
     Storage: Region<A::Position>,
 > {
     arena: &'a A,
-    player: A::Player,
+    protagonist: A::Player,
     target: Target,
     universe: Universe,
     attracted: Option<Storage>,
@@ -40,10 +40,10 @@ where
     /// Creates an attractor analysis restricted to `universe`.
     #[must_use]
     #[inline]
-    pub fn new(arena: &'a A, player: A::Player, target: Target, universe: Universe) -> Self {
+    pub fn new(arena: &'a A, protagonist: A::Player, target: Target, universe: Universe) -> Self {
         Self {
             arena,
-            player,
+            protagonist,
             target,
             universe,
             attracted: None,
@@ -52,8 +52,8 @@ where
 
     #[must_use]
     #[inline]
-    pub fn player(&self) -> &A::Player {
-        &self.player
+    pub fn protagonist(&self) -> &A::Player {
+        &self.protagonist
     }
 
     #[must_use]
@@ -90,14 +90,14 @@ where
     /// Creates an unrestricted attractor analysis over all positions.
     #[must_use]
     #[inline]
-    pub fn unrestricted(arena: &'a A, player: A::Player, target: Target) -> Self {
+    pub fn unrestricted(arena: &'a A, protagonist: A::Player, target: Target) -> Self {
         let mut universe = DenseStaticRegion::new(arena.vertex_store().vertex_count());
 
         for node in arena.vertex_store().vertices() {
             universe.expand(node);
         }
 
-        Self::new(arena, player, target, universe)
+        Self::new(arena, protagonist, target, universe)
     }
 }
 
@@ -146,8 +146,8 @@ where
     /// positions need all successors attracted. Non-target dead ends are treated as
     /// not attracted.
     fn merge(&self, node: &A::Vertex, mut facts: impl Iterator<Item = Self::Fact>) -> Self::Fact {
-        if self.arena.owner(*node) == self.player {
-            // The player can choose a successor that reaches the attractor.
+        if self.arena.owner(*node) == self.protagonist {
+            // The protagonist can choose a successor that reaches the attractor.
             facts.any(|fact| fact)
         } else {
             // The opponent must be unable to avoid the attractor.

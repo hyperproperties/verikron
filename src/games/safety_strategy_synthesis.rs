@@ -26,8 +26,8 @@ where
 /// Monotone-framework implementation of a safety objective with strategy synthesis.
 ///
 /// The wrapped safety analysis computes the greatest fixed point of positions
-/// from which the player can stay inside the safe region. The strategy is built
-/// from the final winning region by choosing, at each player-owned winning
+/// from which the protagonist can stay inside the safe region. The strategy is built
+/// from the final winning region by choosing, at each protagonist-owned winning
 /// position, a successor that remains winning.
 pub struct SafetyStrategySynthesis<
     'a,
@@ -125,16 +125,16 @@ where
     /// Returns the computed safety-winning region and synthesized strategy.
     fn finish(self) -> Self::Output {
         let arena = self.analysis.arena();
-        let player = *self.analysis.protagonist();
+        let protagonist = *self.analysis.protagonist();
         let winning = self
             .analysis
             .winning()
             .expect("safety strategy synthesis must be initialized before finishing");
 
-        let mut strategy = PositionalMapStrategy::new(player, HashMap::new());
+        let mut strategy = PositionalMapStrategy::new(protagonist, HashMap::new());
 
         for node in arena.vertex_store().vertices() {
-            if arena.owner(node) != player || !winning.includes(&node) {
+            if arena.owner(node) != protagonist || !winning.includes(&node) {
                 continue;
             }
 

@@ -23,7 +23,7 @@ where
 /// Monotone-framework implementation of an attractor with strategy synthesis.
 ///
 /// The wrapped attractor analysis computes the attracted region. The strategy
-/// records, for each player-owned position that enters the attractor, a
+/// records, for each protagonist-owned position that enters the attractor, a
 /// successor that was already attracted.
 pub struct AttractorStrategySynthesis<
     'a,
@@ -117,7 +117,7 @@ where
         self.analysis.initialize(graph);
 
         self.strategy = Some(PositionalMapStrategy::new(
-            *self.analysis.player(),
+            *self.analysis.protagonist(),
             HashMap::new(),
         ));
     }
@@ -133,11 +133,11 @@ where
         }
 
         let arena = self.analysis.arena();
-        let player = *self.analysis.player();
-        let is_player_position = arena.owner(*node) == player;
+        let protagonist = *self.analysis.protagonist();
+        let is_protagonist_position = arena.owner(*node) == protagonist;
         let is_target_position = self.analysis.target().includes(node);
 
-        let witness = if is_player_position && !is_target_position {
+        let witness = if is_protagonist_position && !is_target_position {
             let attracted = self.analysis.attracted().expect(
                 "attractor strategy synthesis must be initialized before reading attracted region",
             );
@@ -152,9 +152,9 @@ where
 
         let changed = self.analysis.set(node, fact);
 
-        if changed && is_player_position && !is_target_position {
+        if changed && is_protagonist_position && !is_target_position {
             let successor = witness
-                .expect("newly attracted player-owned position should have an attracted successor");
+                .expect("newly attracted protagonist-owned position should have an attracted successor");
 
             self.strategy
                 .as_mut()

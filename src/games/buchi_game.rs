@@ -39,7 +39,7 @@ impl<A> BuchiArena for A where
 
 /// A Büchi game with one or more accepting positions.
 ///
-/// A play is winning for a player iff it visits the accepting region infinitely
+/// A play is winning for a protagonist iff it visits the accepting region infinitely
 /// often. Since Büchi is an infinite-play objective, plays are represented as
 /// lassos: a finite stem followed by a non-empty cycle repeated forever.
 ///
@@ -113,15 +113,15 @@ where
 
     /// Creates the Büchi analysis from the accepting region.
     #[inline]
-    fn buchi_analysis(&self, player: A::Player) -> BuchiAnalysis<'_, A, DenseStaticRegion> {
-        BuchiAnalysis::new(self.arena, player, self.accepting_region())
+    fn buchi_analysis(&self, protagonist: A::Player) -> BuchiAnalysis<'_, A, DenseStaticRegion> {
+        BuchiAnalysis::new(self.arena, protagonist, self.accepting_region())
     }
 
-    /// Computes the player's Büchi-winning region.
+    /// Computes the protagonist's Büchi-winning region.
     #[inline]
-    fn buchi_region(&self, player: A::Player) -> DenseStaticRegion {
+    fn buchi_region(&self, protagonist: A::Player) -> DenseStaticRegion {
         let buchi = Buchi::new();
-        buchi.solve(self.buchi_analysis(player))
+        buchi.solve(self.buchi_analysis(protagonist))
     }
 }
 
@@ -139,7 +139,7 @@ where
 
     /// Checks whether the lasso visits an accepting position infinitely often.
     #[inline]
-    fn is_winning(&self, _player: A::Player, play: &Self::Play) -> bool {
+    fn is_winning(&self, _protagonist: A::Player, play: &Self::Play) -> bool {
         play.infinitely_often()
             .any(|position| self.is_accepting(position))
     }
@@ -152,12 +152,12 @@ where
 {
     type Region = DenseStaticRegion;
 
-    /// Computes the Büchi-winning region for `player`.
+    /// Computes the Büchi-winning region for `protagonist`.
     ///
-    /// The region is the greatest fixed point of positions from which `player`
+    /// The region is the greatest fixed point of positions from which `protagonist`
     /// can force infinitely many visits to the accepting region.
     #[inline]
-    fn winning_region(&self, player: A::Player) -> Self::Region {
-        self.buchi_region(player)
+    fn winning_region(&self, protagonist: A::Player) -> Self::Region {
+        self.buchi_region(protagonist)
     }
 }

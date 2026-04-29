@@ -45,12 +45,12 @@ impl<A> ReachabilityArena for A where
 
 /// A reachability game with one or more target positions.
 ///
-/// A play is winning for a player iff it eventually visits one of the goals.
+/// A play is winning for a protagonist iff it eventually visits one of the goals.
 /// For infinite-play arenas, this means some position in the infinite play is
 /// a goal. For finite plays, reaching a goal before the play stops is winning;
 /// stopping outside the goal region is losing.
 ///
-/// The solver computes the player's attractor to the goal region. Non-goal
+/// The solver computes the protagonist's attractor to the goal region. Non-goal
 /// dead ends are therefore losing, while goal positions are winning immediately.
 #[derive(Clone, Debug)]
 pub struct ReachabilityGame<'a, A>
@@ -129,22 +129,22 @@ where
     #[inline]
     fn attractor_analysis(
         &self,
-        player: A::Player,
+        protagonist: A::Player,
     ) -> AttractorAnalysis<'_, A, DenseStaticRegion, DenseStaticRegion, DenseStaticRegion> {
-        AttractorAnalysis::unrestricted(self.arena, player, self.goal_region())
+        AttractorAnalysis::unrestricted(self.arena, protagonist, self.goal_region())
     }
 
-    /// Computes the player's reachability winning region.
+    /// Computes the protagonist's reachability winning region.
     #[inline]
-    fn attractor(&self, player: A::Player) -> DenseStaticRegion {
-        self.worklist().solve(self.attractor_analysis(player))
+    fn attractor(&self, protagonist: A::Player) -> DenseStaticRegion {
+        self.worklist().solve(self.attractor_analysis(protagonist))
     }
 
-    /// Computes the player's attractor together with a positional strategy.
+    /// Computes the protagonist's attractor together with a positional strategy.
     #[inline]
-    fn attractor_strategy(&self, player: A::Player) -> AttractorStrategyResult<A> {
+    fn attractor_strategy(&self, protagonist: A::Player) -> AttractorStrategyResult<A> {
         self.worklist().solve(AttractorStrategySynthesis::new(
-            self.attractor_analysis(player),
+            self.attractor_analysis(protagonist),
         ))
     }
 }
@@ -163,7 +163,7 @@ where
     }
 
     #[inline]
-    fn is_winning(&self, _player: A::Player, play: &Self::Play) -> bool {
+    fn is_winning(&self, _protagonist: A::Player, play: &Self::Play) -> bool {
         play.visited().any(|position| self.is_goal(position))
     }
 }
@@ -174,11 +174,11 @@ where
 {
     type Region = DenseStaticRegion;
 
-    /// Computes the reachability winning region as the player's attractor to
+    /// Computes the reachability winning region as the protagonist's attractor to
     /// the goal region.
     #[inline]
-    fn winning_region(&self, player: A::Player) -> Self::Region {
-        self.attractor(player)
+    fn winning_region(&self, protagonist: A::Player) -> Self::Region {
+        self.attractor(protagonist)
     }
 }
 
@@ -192,10 +192,10 @@ where
     #[inline]
     fn winning_strategy_from(
         &self,
-        player: A::Player,
+        protagonist: A::Player,
         start: A::Position,
     ) -> SynthesisResult<Self::Strategy> {
-        let result = self.attractor_strategy(player);
+        let result = self.attractor_strategy(protagonist);
 
         if result.region.contains(&start) {
             SynthesisResult::winning(result.strategy)
@@ -204,17 +204,17 @@ where
         }
     }
 
-    /// Checks whether `player` can force a visit to a goal from `start`.
+    /// Checks whether `protagonist` can force a visit to a goal from `start`.
     #[inline]
-    fn has_winning_strategy_from(&self, player: A::Player, start: A::Position) -> bool {
-        self.winning_region(player).contains(&start)
+    fn has_winning_strategy_from(&self, protagonist: A::Player, start: A::Position) -> bool {
+        self.winning_region(protagonist).contains(&start)
     }
 
     /// Checks whether following `strategy` from `start` reaches a goal.
     #[inline]
     fn is_winning_strategy_from(
         &self,
-        _player: A::Player,
+        _protagonist: A::Player,
         strategy: &Self::Strategy,
         start: A::Position,
     ) -> bool {

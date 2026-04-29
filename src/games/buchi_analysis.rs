@@ -14,13 +14,13 @@ use crate::{
     },
 };
 
-/// Monotone-style analysis for a two-player Büchi objective.
+/// Monotone-style analysis for a two-protagonist Büchi objective.
 ///
-/// The accepting region contains the positions the player wants to visit
+/// The accepting region contains the positions the protagonist wants to visit
 /// infinitely often. The winning region is computed by an outer greatest
 /// fixed point that repeatedly solves restricted attractor subproblems.
 ///
-/// This analysis is for adversarial two-player games, so the player type must
+/// This analysis is for adversarial two-protagonist games, so the protagonist type must
 /// provide a unique opponent.
 pub struct BuchiAnalysis<'a, A, Accepting>
 where
@@ -28,7 +28,7 @@ where
     Accepting: Region<usize>,
 {
     arena: &'a A,
-    player: A::Player,
+    protagonist: A::Player,
     accepting: Accepting,
 }
 
@@ -39,10 +39,10 @@ where
 {
     #[must_use]
     #[inline]
-    pub fn new(arena: &'a A, player: A::Player, accepting: Accepting) -> Self {
+    pub fn new(arena: &'a A, protagonist: A::Player, accepting: Accepting) -> Self {
         Self {
             arena,
-            player,
+            protagonist,
             accepting,
         }
     }
@@ -55,11 +55,11 @@ where
 
     #[must_use]
     #[inline]
-    pub fn player(&self) -> A::Player
+    pub fn protagonist(&self) -> A::Player
     where
         A::Player: Copy,
     {
-        self.player
+        self.protagonist
     }
 
     #[must_use]
@@ -69,11 +69,11 @@ where
     }
 }
 
-/// Fixed-point solver for two-player Büchi analyses.
+/// Fixed-point solver for two-protagonist Büchi analyses.
 ///
 /// The solver maintains a candidate winning region. In each iteration it:
 ///
-/// 1. computes the player's restricted attractor to accepting positions,
+/// 1. computes the protagonist's restricted attractor to accepting positions,
 /// 2. finds the positions that cannot force such a visit,
 /// 3. removes the opponent's restricted attractor to those bad positions.
 ///
@@ -107,7 +107,7 @@ impl Buchi {
         for node in analysis.arena.vertex_store().vertices() {
             if candidate.includes(&node)
                 && analysis.accepting.includes(&node)
-                && Self::can_continue_inside(analysis.arena, analysis.player, node, candidate)
+                && Self::can_continue_inside(analysis.arena, analysis.protagonist, node, candidate)
             {
                 target.expand(node);
             }
@@ -116,7 +116,7 @@ impl Buchi {
         target
     }
 
-    /// Checks whether `player` can keep the next step inside `region`.
+    /// Checks whether `protagonist` can keep the next step inside `region`.
     ///
     /// Player-owned positions need at least one successor inside the region.
     /// Opponent-owned positions need all successors inside the region. Dead
@@ -124,7 +124,7 @@ impl Buchi {
     #[inline]
     fn can_continue_inside<A>(
         arena: &A,
-        player: A::Player,
+        protagonist: A::Player,
         node: usize,
         region: &DenseStaticRegion,
     ) -> bool
@@ -137,7 +137,7 @@ impl Buchi {
             .map(|edge| arena.destination(edge))
             .map(|successor| region.includes(&successor));
 
-        if arena.owner(node) == player {
+        if arena.owner(node) == protagonist {
             successors.any(|inside| inside)
         } else {
             match successors.next() {
@@ -147,11 +147,11 @@ impl Buchi {
         }
     }
 
-    /// Computes the player's attractor to `target`, restricted to `universe`.
+    /// Computes the protagonist's attractor to `target`, restricted to `universe`.
     #[inline]
     fn restricted_attractor<A>(
         arena: &A,
-        player: A::Player,
+        protagonist: A::Player,
         target: DenseStaticRegion,
         universe: DenseStaticRegion,
     ) -> DenseStaticRegion
@@ -160,7 +160,7 @@ impl Buchi {
         A::Player: OpposedPlayer,
         A::Vertices: FiniteVertices<Vertex = usize>,
     {
-        let analysis = AttractorAnalysis::new(arena, player, target, universe);
+        let analysis = AttractorAnalysis::new(arena, protagonist, target, universe);
         let direction = BackwardDirection::new(arena);
         let worklist = Worklist::new(arena, direction);
 
@@ -191,21 +191,21 @@ where
         loop {
             let target = Self::accepting_target(&analysis, &candidate);
 
-            let player_attractor = Self::restricted_attractor(
+            let protagonist_attractor = Self::restricted_attractor(
                 analysis.arena,
-                analysis.player,
+                analysis.protagonist,
                 target,
                 candidate.clone(),
             );
 
-            let bad = candidate.difference(&player_attractor);
+            let bad = candidate.difference(&protagonist_attractor);
             if bad.is_bottom_with(&position_count) {
                 return candidate;
             }
 
             let opponent_attractor = Self::restricted_attractor(
                 analysis.arena,
-                analysis.player.opponent(),
+                analysis.protagonist.opponent(),
                 bad,
                 candidate.clone(),
             );

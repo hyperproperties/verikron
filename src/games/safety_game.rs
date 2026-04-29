@@ -46,7 +46,7 @@ impl<A> SafetyArena for A where
 /// A safety game with one or more safe positions.
 ///
 /// The objective is to keep the play inside the safe region forever.
-/// A play is winning for a player iff every visited position is safe.
+/// A play is winning for a protagonist iff every visited position is safe.
 ///
 /// The solver uses infinite-play safety semantics: a winning position must be
 /// able to continue safely. In particular, safe dead ends are treated as losing
@@ -128,22 +128,22 @@ where
     #[inline]
     fn safety_analysis(
         &self,
-        player: A::Player,
+        protagonist: A::Player,
     ) -> SafetyAnalysis<'_, A, DenseDynamicRegion, DenseDynamicRegion> {
-        SafetyAnalysis::new(self.arena, player, self.safe_region())
+        SafetyAnalysis::new(self.arena, protagonist, self.safe_region())
     }
 
-    /// Computes the player's safety-winning region.
+    /// Computes the protagonist's safety-winning region.
     #[inline]
-    fn safety_region(&self, player: A::Player) -> DenseDynamicRegion {
-        self.worklist().solve(self.safety_analysis(player))
+    fn safety_region(&self, protagonist: A::Player) -> DenseDynamicRegion {
+        self.worklist().solve(self.safety_analysis(protagonist))
     }
 
-    /// Computes the player's safety-winning region together with a positional strategy.
+    /// Computes the protagonist's safety-winning region together with a positional strategy.
     #[inline]
-    fn safety_strategy(&self, player: A::Player) -> SafetyStrategyResult<A> {
+    fn safety_strategy(&self, protagonist: A::Player) -> SafetyStrategyResult<A> {
         self.worklist()
-            .solve(SafetyStrategySynthesis::new(self.safety_analysis(player)))
+            .solve(SafetyStrategySynthesis::new(self.safety_analysis(protagonist)))
     }
 }
 
@@ -162,7 +162,7 @@ where
 
     /// Checks whether the observed play stays inside the safe region.
     #[inline]
-    fn is_winning(&self, _player: A::Player, play: &Self::Play) -> bool {
+    fn is_winning(&self, _protagonist: A::Player, play: &Self::Play) -> bool {
         play.visited().all(|position| self.is_safe(position))
     }
 }
@@ -174,11 +174,11 @@ where
     type Region = DenseDynamicRegion;
 
     /// Computes the safety-winning region as the greatest fixed point of
-    /// positions from which the player can keep the play inside the safe region
+    /// positions from which the protagonist can keep the play inside the safe region
     /// forever.
     #[inline]
-    fn winning_region(&self, player: A::Player) -> Self::Region {
-        self.safety_region(player)
+    fn winning_region(&self, protagonist: A::Player) -> Self::Region {
+        self.safety_region(protagonist)
     }
 }
 
@@ -192,10 +192,10 @@ where
     #[inline]
     fn winning_strategy_from(
         &self,
-        player: A::Player,
+        protagonist: A::Player,
         start: A::Position,
     ) -> SynthesisResult<Self::Strategy> {
-        let result = self.safety_strategy(player);
+        let result = self.safety_strategy(protagonist);
 
         if result.region.contains(&start) {
             SynthesisResult::winning(result.strategy)
@@ -204,11 +204,11 @@ where
         }
     }
 
-    /// Checks whether `player` has a strategy to keep the play inside the safe
+    /// Checks whether `protagonist` has a strategy to keep the play inside the safe
     /// region forever from `start`.
     #[inline]
-    fn has_winning_strategy_from(&self, player: A::Player, start: A::Position) -> bool {
-        self.winning_region(player).contains(&start)
+    fn has_winning_strategy_from(&self, protagonist: A::Player, start: A::Position) -> bool {
+        self.winning_region(protagonist).contains(&start)
     }
 
     /// Checks whether following `strategy` from `start` keeps the observed play
@@ -216,7 +216,7 @@ where
     #[inline]
     fn is_winning_strategy_from(
         &self,
-        _player: A::Player,
+        _protagonist: A::Player,
         strategy: &Self::Strategy,
         start: A::Position,
     ) -> bool {

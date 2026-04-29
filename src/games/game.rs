@@ -25,7 +25,7 @@ pub trait SolvableGame: Game {
     /// Strategy type synthesized for this game.
     type Strategy: Strategy<Arena = Self::Arena>;
 
-    /// Returns whether `strategy` wins for `player` from `position`.
+    /// Returns whether `strategy` wins for `protagonist` from `position`.
     fn is_winning_strategy_from(
         &self,
         protagonist: <Self::Arena as Arena>::Player,
@@ -33,14 +33,14 @@ pub trait SolvableGame: Game {
         position: <Self::Arena as Arena>::Position,
     ) -> bool;
 
-    /// Returns a winning strategy for `player` from `position`, if one exists.
+    /// Returns a winning strategy for `protagonist` from `position`, if one exists.
     fn winning_strategy_from(
         &self,
         protagonist: <Self::Arena as Arena>::Player,
         position: <Self::Arena as Arena>::Position,
     ) -> SynthesisResult<Self::Strategy>;
 
-    /// Returns whether `player` has a winning strategy from `position`.
+    /// Returns whether `protagonist` has a winning strategy from `position`.
     #[must_use]
     #[inline]
     fn has_winning_strategy_from(
@@ -57,6 +57,6 @@ pub trait RegionSolvableGame: Game {
     /// Region type used for winning regions.
     type Region: Region<<Self::Arena as Arena>::Position>;
 
-    /// Returns the winning region of `player`.
+    /// Returns the winning region of `protagonist`.
     fn winning_region(&self, protagonist: <Self::Arena as Arena>::Player) -> Self::Region;
 }
