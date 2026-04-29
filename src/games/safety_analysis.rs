@@ -99,16 +99,19 @@ where
     /// Merges successor facts according to the safety rule.
     ///
     /// Player-owned positions need at least one winning successor. Opponent-owned
-    /// positions need all successors winning. Dead ends are treated as winning
-    /// if the position itself is safe.
+    /// positions need all successors winning. Dead ends are treated as losing,
+    /// so winning positions must be able to continue safely.
     fn merge(&self, node: &A::Vertex, mut facts: impl Iterator<Item = Self::Fact>) -> Self::Fact {
         if self.arena.owner(*node) == self.player {
             match facts.next() {
-                None => true,
+                None => false,
                 Some(first) => first || facts.any(|fact| fact),
             }
         } else {
-            facts.all(|fact| fact)
+            match facts.next() {
+                None => false,
+                Some(first) => first && facts.all(|fact| fact),
+            }
         }
     }
 }

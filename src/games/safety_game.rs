@@ -18,9 +18,7 @@ use crate::{
         structure::{FiniteEdges, FiniteVertices, Structure},
     },
     lattices::{
-        fixpoint::Fixpoint,
-        lattice::MembershipLattice,
-        monotone::BackwardDirection,
+        fixpoint::Fixpoint, lattice::MembershipLattice, monotone::BackwardDirection,
         worklist::Worklist,
     },
 };
@@ -29,26 +27,30 @@ use crate::{
 pub trait SafetyArena: FiniteArena<Position = usize> + FiniteDirected
 where
     Self: Structure<
-        Vertices: FiniteVertices<Vertex = usize>,
-        Edges: FiniteEdges<Vertex = usize, Edge = Self::Edge>,
-    >,
+            Vertices: FiniteVertices<Vertex = usize>,
+            Edges: FiniteEdges<Vertex = usize, Edge = Self::Edge>,
+        >,
 {
 }
 
-impl<A> SafetyArena for A
-where
+impl<A> SafetyArena for A where
     A: FiniteArena<Position = usize>
         + FiniteDirected
         + Structure<
             Vertices: FiniteVertices<Vertex = usize>,
             Edges: FiniteEdges<Vertex = usize, Edge = A::Edge>,
-        >,
+        >
 {
 }
 
 /// A safety game with one or more safe positions.
 ///
-/// A play is winning for a player iff it never leaves the safe region.
+/// The objective is to keep the play inside the safe region forever.
+/// A play is winning for a player iff every visited position is safe.
+///
+/// The solver uses infinite-play safety semantics: a winning position must be
+/// able to continue safely. In particular, safe dead ends are treated as losing
+/// by the underlying safety analysis, because the play cannot continue.
 #[derive(Clone, Debug)]
 pub struct SafetyGame<'a, A>
 where
@@ -158,6 +160,7 @@ where
         self.arena
     }
 
+    /// Checks whether the observed play stays inside the safe region.
     #[inline]
     fn is_winning(&self, _player: A::Player, play: &Self::Play) -> bool {
         play.visited().all(|position| self.is_safe(position))
@@ -171,7 +174,8 @@ where
     type Region = DenseRegion;
 
     /// Computes the safety-winning region as the greatest fixed point of
-    /// positions from which the player can stay safe.
+    /// positions from which the player can keep the play inside the safe region
+    /// forever.
     #[inline]
     fn winning_region(&self, player: A::Player) -> Self::Region {
         self.safety_region(player)
@@ -200,13 +204,15 @@ where
         }
     }
 
-    /// Checks whether `player` can stay inside the safe region from `start`.
+    /// Checks whether `player` has a strategy to keep the play inside the safe
+    /// region forever from `start`.
     #[inline]
     fn has_winning_strategy_from(&self, player: A::Player, start: A::Position) -> bool {
         self.winning_region(player).contains(&start)
     }
 
-    /// Checks whether following `strategy` from `start` stays inside the safe region.
+    /// Checks whether following `strategy` from `start` keeps the observed play
+    /// inside the safe region.
     #[inline]
     fn is_winning_strategy_from(
         &self,
