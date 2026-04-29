@@ -46,6 +46,12 @@ impl<A> ReachabilityArena for A where
 /// A reachability game with one or more target positions.
 ///
 /// A play is winning for a player iff it eventually visits one of the goals.
+/// For infinite-play arenas, this means some position in the infinite play is
+/// a goal. For finite plays, reaching a goal before the play stops is winning;
+/// stopping outside the goal region is losing.
+///
+/// The solver computes the player's attractor to the goal region. Non-goal
+/// dead ends are therefore losing, while goal positions are winning immediately
 #[derive(Clone, Debug)]
 pub struct ReachabilityGame<'a, A>
 where

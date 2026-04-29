@@ -84,7 +84,8 @@ where
     /// Merges successor facts according to the attractor rule.
     ///
     /// Player-owned positions need at least one attracted successor. Opponent-owned
-    /// positions need all successors attracted. Dead ends are treated as not attracted.
+    /// positions need all successors attracted. Non-target dead ends are treated as
+    /// not attracted.
     fn merge(&self, node: &<A>::Vertex, mut facts: impl Iterator<Item = Self::Fact>) -> Self::Fact {
         if self.arena.owner(*node) == self.player {
             // The player can choose a successor that reaches the attractor.
