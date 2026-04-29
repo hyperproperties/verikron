@@ -56,13 +56,14 @@ where
                 }
 
                 if player.is_controllable_predecessor(arena, &target, source) {
-                    target.expand(source);
-                    worklist.push(source);
 
                     // Should be some abstraction for the general attractor computation that one can hook into.
                     if let Some(successor) = player.strategy_successor(arena, &target, source) {
                         strategy.insert_choice(source, successor);
                     }
+
+                    target.expand(source);
+                    worklist.push(source);
 
                     if source == initial {
                         return PositionalSynthesisResult::winning(target, strategy);
