@@ -1,6 +1,6 @@
 pub mod arena;
 pub mod attractor_analysis;
-pub mod attractor_strategy_analysis;
+pub mod attractor_strategy_synthesis;
 pub mod game;
 pub mod lasso_play;
 pub mod looping_play;

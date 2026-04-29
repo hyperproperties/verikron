@@ -4,7 +4,7 @@ use crate::{
     games::{
         arena::{Arena, FiniteArena},
         attractor_analysis::AttractorAnalysis,
-        attractor_strategy_analysis::{AttractorStrategyAnalysis, AttractorStrategyResult},
+        attractor_strategy_synthesis::{AttractorStrategyResult, AttractorStrategySynthesis},
         game::{Game, RegionSolvableGame, SolvableGame},
         play::VisitedPlay,
         play_sequence::PlaySequence,
@@ -137,7 +137,7 @@ where
     /// Computes the player's attractor together with a positional strategy.
     #[inline]
     fn attractor_strategy(&self, player: A::Player) -> AttractorStrategyResult<A> {
-        self.worklist().solve(AttractorStrategyAnalysis::new(
+        self.worklist().solve(AttractorStrategySynthesis::new(
             self.attractor_analysis(player),
         ))
     }

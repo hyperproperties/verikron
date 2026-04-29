@@ -25,7 +25,7 @@ where
 /// The target region contains the positions the player wants to force the game
 /// into. The attracted region is the mutable fixed-point state computed by the
 /// solver. The strategy stores the chosen successor for player-owned positions.
-pub struct AttractorStrategyAnalysis<
+pub struct AttractorStrategySynthesis<
     'a,
     A: Arena,
     R: Region<A::Position>,
@@ -35,7 +35,7 @@ pub struct AttractorStrategyAnalysis<
     strategy: Option<PositionalMapStrategy<A>>,
 }
 
-impl<'a, A, R, Storage> AttractorStrategyAnalysis<'a, A, R, Storage>
+impl<'a, A, R, Storage> AttractorStrategySynthesis<'a, A, R, Storage>
 where
     A: Arena,
     R: Region<A::Position>,
@@ -51,7 +51,7 @@ where
     }
 }
 
-impl<'a, A, Target, Storage> Monotone<A> for AttractorStrategyAnalysis<'a, A, Target, Storage>
+impl<'a, A, Target, Storage> Monotone<A> for AttractorStrategySynthesis<'a, A, Target, Storage>
 where
     A: Arena,
     A::Vertex: Copy,
@@ -90,7 +90,7 @@ where
     }
 }
 
-impl<'a, A, Target> StatefulMonotone<A> for AttractorStrategyAnalysis<'a, A, Target, DenseRegion>
+impl<'a, A, Target> StatefulMonotone<A> for AttractorStrategySynthesis<'a, A, Target, DenseRegion>
 where
     A: Arena<Position = usize, Vertex = usize>,
     A::Player: PartialEq + Copy,
