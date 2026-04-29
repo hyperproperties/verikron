@@ -28,7 +28,7 @@ pub trait Lattice: JoinSemiLattice + MeetSemiLattice {}
 impl<T: JoinSemiLattice + MeetSemiLattice> Lattice for T {}
 
 /// A carrier with a least element.
-pub trait Bottom {
+pub trait Bottom: PartialOrder {
     type Context;
 
     /// Returns the least element, ⊥, for the given context.
@@ -42,10 +42,25 @@ pub trait Bottom {
     {
         Self::bottom_with(&Self::Context::default())
     }
+
+    fn is_bottom_with(&self, context: &Self::Context) -> bool
+    where
+        Self: Sized,
+    {
+        *self == Self::bottom_with(context)
+    }
+
+    fn is_bottom(&self) -> bool
+    where
+        Self: Sized,
+        Self::Context: Default,
+    {
+        *self == Self::bottom()
+    }
 }
 
 /// A carrier with a greatest element.
-pub trait Top {
+pub trait Top: PartialOrder {
     type Context;
 
     /// Returns the greatest element, ⊤, for the given context.
@@ -58,6 +73,21 @@ pub trait Top {
         Self::Context: Default,
     {
         Self::top_with(&Self::Context::default())
+    }
+
+    fn is_top_with(&self, context: &Self::Context) -> bool
+    where
+        Self: Sized,
+    {
+        *self == Self::top_with(context)
+    }
+
+    fn is_top(&self) -> bool
+    where
+        Self: Sized,
+        Self::Context: Default,
+    {
+        *self == Self::top()
     }
 }
 

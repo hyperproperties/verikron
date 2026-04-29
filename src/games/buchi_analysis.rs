@@ -9,7 +9,7 @@ use crate::{
         forward::Forward,
         structure::{FiniteVertices, Vertices},
     },
-    lattices::{fixpoint::Fixpoint, monotone::BackwardDirection, worklist::Worklist},
+    lattices::{fixpoint::Fixpoint, lattice::Bottom, monotone::BackwardDirection, worklist::Worklist},
 };
 
 /// Monotone-style analysis for a two-player Büchi objective.
@@ -145,20 +145,6 @@ impl Buchi {
         }
     }
 
-    /// Checks whether `region` contains no arena vertices.
-    #[inline]
-    fn is_empty<A, R>(arena: &A, region: &R) -> bool
-    where
-        A: Arena<Position = usize, Vertex = usize>,
-        A::Vertices: FiniteVertices<Vertex = usize>,
-        R: Region<usize>,
-    {
-        arena
-            .vertex_store()
-            .vertices()
-            .all(|node| !region.includes(&node))
-    }
-
     /// Computes the player's attractor to `target`, restricted to `universe`.
     #[inline]
     fn restricted_attractor<A>(
@@ -197,7 +183,8 @@ where
     type Solution = DenseStaticRegion;
 
     fn solve(&self, analysis: BuchiAnalysis<'a, A, Accepting>) -> Self::Solution {
-        let mut candidate = DenseStaticRegion::ones(analysis.arena.vertex_store().vertex_count());
+        let position_count = analysis.arena.vertex_store().vertex_count();
+        let mut candidate = DenseStaticRegion::ones(position_count);
 
         loop {
             let target = Self::accepting_target(&analysis, &candidate);
@@ -210,8 +197,7 @@ where
             );
 
             let bad = candidate.difference(&player_attractor);
-
-            if Self::is_empty(analysis.arena, &bad) {
+            if bad.is_bottom_with(&position_count) {
                 return candidate;
             }
 
