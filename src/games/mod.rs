@@ -10,6 +10,7 @@ pub mod players;
 pub mod positional_map_strategy;
 pub mod reachability_game;
 pub mod region;
+pub mod safety_game;
 pub mod strategic_play;
 pub mod strategy;
 pub mod worklist_attractor;
