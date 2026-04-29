@@ -12,3 +12,4 @@ pub mod reachability_game;
 pub mod region;
 pub mod strategic_play;
 pub mod strategy;
+pub mod worklist_attractor;

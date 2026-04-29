@@ -3,14 +3,14 @@ use std::{fmt::Debug, hash::Hash, iter};
 use crate::{
     games::{
         arena::{Arena, FiniteArena},
-        attractor::{Attractor, WorklistAttractor},
+        attractor::Attractor,
         controllable_predecessors::ControllablePredecessors,
         game::{Game, RegionSolvableGame, SolvableGame},
         play::VisitedPlay,
         play_sequence::PlaySequence,
         positional_map_strategy::PositionalMapStrategy,
         region::{DenseRegion, Region},
-        strategic_play::StrategicPlay,
+        strategic_play::StrategicPlay, worklist_attractor::WorklistAttractor,
     },
     graphs::{
         expansion::{BackwardExpansion, Expansion, ForwardExpansion},
