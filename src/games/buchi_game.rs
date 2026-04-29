@@ -22,20 +22,19 @@ use crate::{
 pub trait BuchiArena: FiniteArena<Position = usize> + FiniteDirected
 where
     Self: Structure<
-        Vertices: FiniteVertices<Vertex = usize>,
-        Edges: FiniteEdges<Vertex = usize, Edge = Self::Edge>,
-    >,
+            Vertices: FiniteVertices<Vertex = usize>,
+            Edges: FiniteEdges<Vertex = usize, Edge = Self::Edge>,
+        >,
 {
 }
 
-impl<A> BuchiArena for A
-where
+impl<A> BuchiArena for A where
     A: FiniteArena<Position = usize>
         + FiniteDirected
         + Structure<
             Vertices: FiniteVertices<Vertex = usize>,
             Edges: FiniteEdges<Vertex = usize, Edge = A::Edge>,
-        >,
+        >
 {
 }
 
