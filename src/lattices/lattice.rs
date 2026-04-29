@@ -75,6 +75,16 @@ pub trait ComplementedLattice: BoundedLattice {
     /// Complements are not necessarily unique in arbitrary complemented
     /// lattices.
     fn complement(self) -> Self;
+
+    /// Returns the relative complement `self \ other`.
+    ///
+    /// In set-like lattices, this is the set difference.
+    /// Algebraically, this is defined as:
+    ///
+    /// `self ∧ ¬other`
+    fn difference(&self, other: Self) -> Self {
+        self.meet(&other.complement())
+    }
 }
 
 /// A bounded lattice supporting finite joins and meets over collections.
