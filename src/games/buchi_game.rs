@@ -5,7 +5,7 @@ use crate::{
         game::{Game, RegionSolvableGame},
         lasso_play::LassoPlay,
         players::OpposedPlayer,
-        region::DenseDynamicRegion,
+        region::DenseStaticRegion,
     },
     graphs::{
         graph::FiniteDirected,
@@ -101,8 +101,8 @@ where
 {
     /// Builds the dense accepting region used by the Büchi analysis.
     #[inline]
-    fn accepting_region(&self) -> DenseDynamicRegion {
-        let mut region = DenseDynamicRegion::new(self.arena.vertex_store().vertex_count());
+    fn accepting_region(&self) -> DenseStaticRegion {
+        let mut region = DenseStaticRegion::new(self.arena.vertex_store().vertex_count());
 
         for &position in &self.accepting {
             region.insert(position);
@@ -113,13 +113,13 @@ where
 
     /// Creates the Büchi analysis from the accepting region.
     #[inline]
-    fn buchi_analysis(&self, player: A::Player) -> BuchiAnalysis<'_, A, DenseDynamicRegion> {
+    fn buchi_analysis(&self, player: A::Player) -> BuchiAnalysis<'_, A, DenseStaticRegion> {
         BuchiAnalysis::new(self.arena, player, self.accepting_region())
     }
 
     /// Computes the player's Büchi-winning region.
     #[inline]
-    fn buchi_region(&self, player: A::Player) -> DenseDynamicRegion {
+    fn buchi_region(&self, player: A::Player) -> DenseStaticRegion {
         let buchi = Buchi::new();
         buchi.solve(self.buchi_analysis(player))
     }
@@ -150,7 +150,7 @@ where
     A: BuchiArena,
     A::Player: OpposedPlayer,
 {
-    type Region = DenseDynamicRegion;
+    type Region = DenseStaticRegion;
 
     /// Computes the Büchi-winning region for `player`.
     ///

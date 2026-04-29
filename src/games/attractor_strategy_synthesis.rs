@@ -5,7 +5,7 @@ use crate::{
         arena::Arena,
         attractor_analysis::AttractorAnalysis,
         positional_map_strategy::PositionalMapStrategy,
-        region::{DenseDynamicRegion, Region},
+        region::{DenseStaticRegion, Region},
     },
     graphs::{forward::Forward, structure::FiniteVertices},
     lattices::monotone::{Monotone, StatefulMonotone},
@@ -16,7 +16,7 @@ pub struct AttractorStrategyResult<A>
 where
     A: Arena<Position = usize, Vertex = usize>,
 {
-    pub region: DenseDynamicRegion,
+    pub region: DenseStaticRegion,
     pub strategy: PositionalMapStrategy<A>,
 }
 
@@ -96,7 +96,7 @@ where
 }
 
 impl<'a, A, Target, Universe> StatefulMonotone<A>
-    for AttractorStrategySynthesis<'a, A, Target, Universe, DenseDynamicRegion>
+    for AttractorStrategySynthesis<'a, A, Target, Universe, DenseStaticRegion>
 where
     A: Arena<Position = usize, Vertex = usize>,
     A::Player: PartialEq + Copy,

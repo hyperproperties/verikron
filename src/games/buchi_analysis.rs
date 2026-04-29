@@ -3,7 +3,7 @@ use crate::{
         arena::Arena,
         attractor_analysis::AttractorAnalysis,
         players::OpposedPlayer,
-        region::{DenseDynamicRegion, Region},
+        region::{DenseStaticRegion, Region},
     },
     graphs::{
         forward::Forward,
@@ -92,15 +92,15 @@ impl Buchi {
     #[inline]
     fn accepting_target<A, Accepting>(
         analysis: &BuchiAnalysis<'_, A, Accepting>,
-        candidate: &DenseDynamicRegion,
-    ) -> DenseDynamicRegion
+        candidate: &DenseStaticRegion,
+    ) -> DenseStaticRegion
     where
         A: Arena<Position = usize, Vertex = usize>,
         A::Player: OpposedPlayer,
         A::Vertices: FiniteVertices<Vertex = usize>,
         Accepting: Region<usize>,
     {
-        let mut target = DenseDynamicRegion::new(analysis.arena.vertex_store().vertex_count());
+        let mut target = DenseStaticRegion::new(analysis.arena.vertex_store().vertex_count());
 
         for node in analysis.arena.vertex_store().vertices() {
             if candidate.includes(&node)
@@ -124,7 +124,7 @@ impl Buchi {
         arena: &A,
         player: A::Player,
         node: usize,
-        region: &DenseDynamicRegion,
+        region: &DenseStaticRegion,
     ) -> bool
     where
         A: Arena<Position = usize, Vertex = usize>,
@@ -147,14 +147,14 @@ impl Buchi {
 
     /// Builds `left \ right` over the arena vertices.
     #[inline]
-    fn difference<A, L, R>(arena: &A, left: &L, right: &R) -> DenseDynamicRegion
+    fn difference<A, L, R>(arena: &A, left: &L, right: &R) -> DenseStaticRegion
     where
         A: Arena<Position = usize, Vertex = usize>,
         A::Vertices: FiniteVertices<Vertex = usize>,
         L: Region<usize>,
         R: Region<usize>,
     {
-        let mut region = DenseDynamicRegion::new(arena.vertex_store().vertex_count());
+        let mut region = DenseStaticRegion::new(arena.vertex_store().vertex_count());
 
         for node in arena.vertex_store().vertices() {
             if left.includes(&node) && !right.includes(&node) {
@@ -184,9 +184,9 @@ impl Buchi {
     fn restricted_attractor<A>(
         arena: &A,
         player: A::Player,
-        target: DenseDynamicRegion,
-        universe: DenseDynamicRegion,
-    ) -> DenseDynamicRegion
+        target: DenseStaticRegion,
+        universe: DenseStaticRegion,
+    ) -> DenseStaticRegion
     where
         A: Arena<Position = usize, Vertex = usize>,
         A::Player: OpposedPlayer,
@@ -214,10 +214,10 @@ where
     A::Vertices: FiniteVertices<Vertex = usize>,
     Accepting: Region<usize>,
 {
-    type Solution = DenseDynamicRegion;
+    type Solution = DenseStaticRegion;
 
     fn solve(&self, analysis: BuchiAnalysis<'a, A, Accepting>) -> Self::Solution {
-        let mut candidate = DenseDynamicRegion::ones(analysis.arena.vertex_store().vertex_count());
+        let mut candidate = DenseStaticRegion::ones(analysis.arena.vertex_store().vertex_count());
 
         loop {
             let target = Self::accepting_target(&analysis, &candidate);
