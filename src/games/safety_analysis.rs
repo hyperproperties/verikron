@@ -1,7 +1,7 @@
 use crate::{
     games::{
         arena::Arena,
-        region::{DenseRegion, Region},
+        region::{DenseDynamicRegion, Region},
     },
     graphs::structure::{FiniteVertices, Vertices},
     lattices::monotone::{Monotone, StatefulMonotone},
@@ -116,7 +116,7 @@ where
     }
 }
 
-impl<'a, A, Safe> StatefulMonotone<A> for SafetyAnalysis<'a, A, Safe, DenseRegion>
+impl<'a, A, Safe> StatefulMonotone<A> for SafetyAnalysis<'a, A, Safe, DenseDynamicRegion>
 where
     A: Arena<Position = usize>,
     A::Vertex: Copy,
@@ -125,7 +125,7 @@ where
     Safe: Region<A::Position>,
 {
     /// The computed safety-winning region.
-    type Output = DenseRegion;
+    type Output = DenseDynamicRegion;
 
     /// Reads the current stored fact for a position.
     fn fact(&self, node: &A::Vertex) -> Self::Fact {
@@ -137,7 +137,7 @@ where
 
     /// Initializes the mutable winning region from the safe region.
     fn initialize(&mut self, graph: &A) {
-        let mut winning = DenseRegion::new(graph.vertex_store().vertex_count());
+        let mut winning = DenseDynamicRegion::new(graph.vertex_store().vertex_count());
 
         for node in graph.vertex_store().vertices() {
             if self.safe.includes(&node) {

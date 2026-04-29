@@ -4,7 +4,7 @@ use crate::{
     games::{
         arena::Arena,
         positional_map_strategy::PositionalMapStrategy,
-        region::{DenseRegion, Region},
+        region::{DenseDynamicRegion, Region},
         safety_analysis::SafetyAnalysis,
     },
     graphs::{
@@ -19,7 +19,7 @@ pub struct SafetyStrategyResult<A>
 where
     A: Arena<Position = usize, Vertex = usize>,
 {
-    pub region: DenseRegion,
+    pub region: DenseDynamicRegion,
     pub strategy: PositionalMapStrategy<A>,
 }
 
@@ -94,7 +94,7 @@ where
     }
 }
 
-impl<'a, A, Safe> StatefulMonotone<A> for SafetyStrategySynthesis<'a, A, Safe, DenseRegion>
+impl<'a, A, Safe> StatefulMonotone<A> for SafetyStrategySynthesis<'a, A, Safe, DenseDynamicRegion>
 where
     A: Arena<Position = usize, Vertex = usize>,
     A::Player: PartialEq + Copy,

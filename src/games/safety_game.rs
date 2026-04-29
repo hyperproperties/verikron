@@ -7,7 +7,7 @@ use crate::{
         lasso_play::LassoPlay,
         play::VisitedPlay,
         positional_map_strategy::PositionalMapStrategy,
-        region::DenseRegion,
+        region::DenseDynamicRegion,
         safety_analysis::SafetyAnalysis,
         safety_strategy_synthesis::{SafetyStrategyResult, SafetyStrategySynthesis},
         strategic_play::StrategicPlay,
@@ -108,8 +108,8 @@ where
 {
     /// Builds the dense safe region used by the safety analysis.
     #[inline]
-    fn safe_region(&self) -> DenseRegion {
-        let mut region = DenseRegion::new(self.arena.vertex_store().vertex_count());
+    fn safe_region(&self) -> DenseDynamicRegion {
+        let mut region = DenseDynamicRegion::new(self.arena.vertex_store().vertex_count());
 
         for &position in &self.safe {
             region.insert(position);
@@ -129,13 +129,13 @@ where
     fn safety_analysis(
         &self,
         player: A::Player,
-    ) -> SafetyAnalysis<'_, A, DenseRegion, DenseRegion> {
+    ) -> SafetyAnalysis<'_, A, DenseDynamicRegion, DenseDynamicRegion> {
         SafetyAnalysis::new(self.arena, player, self.safe_region())
     }
 
     /// Computes the player's safety-winning region.
     #[inline]
-    fn safety_region(&self, player: A::Player) -> DenseRegion {
+    fn safety_region(&self, player: A::Player) -> DenseDynamicRegion {
         self.worklist().solve(self.safety_analysis(player))
     }
 
@@ -171,7 +171,7 @@ impl<'a, A> RegionSolvableGame for SafetyGame<'a, A>
 where
     A: SafetyArena,
 {
-    type Region = DenseRegion;
+    type Region = DenseDynamicRegion;
 
     /// Computes the safety-winning region as the greatest fixed point of
     /// positions from which the player can keep the play inside the safe region

@@ -9,7 +9,7 @@ use crate::{
         lasso_play::LassoPlay,
         play::VisitedPlay,
         positional_map_strategy::PositionalMapStrategy,
-        region::DenseRegion,
+        region::DenseDynamicRegion,
         strategic_play::StrategicPlay,
         strategy::SynthesisResult,
     },
@@ -109,8 +109,8 @@ where
 {
     /// Builds the dense target region used as the attractor seed.
     #[inline]
-    fn goal_region(&self) -> DenseRegion {
-        let mut region = DenseRegion::new(self.arena.vertex_store().vertex_count());
+    fn goal_region(&self) -> DenseDynamicRegion {
+        let mut region = DenseDynamicRegion::new(self.arena.vertex_store().vertex_count());
 
         for &goal in &self.goals {
             region.insert(goal);
@@ -130,13 +130,13 @@ where
     fn attractor_analysis(
         &self,
         player: A::Player,
-    ) -> AttractorAnalysis<'_, A, DenseRegion, DenseRegion, DenseRegion> {
+    ) -> AttractorAnalysis<'_, A, DenseDynamicRegion, DenseDynamicRegion, DenseDynamicRegion> {
         AttractorAnalysis::unrestricted(self.arena, player, self.goal_region())
     }
 
     /// Computes the player's reachability winning region.
     #[inline]
-    fn attractor(&self, player: A::Player) -> DenseRegion {
+    fn attractor(&self, player: A::Player) -> DenseDynamicRegion {
         self.worklist().solve(self.attractor_analysis(player))
     }
 
@@ -172,7 +172,7 @@ impl<'a, A> RegionSolvableGame for ReachabilityGame<'a, A>
 where
     A: ReachabilityArena,
 {
-    type Region = DenseRegion;
+    type Region = DenseDynamicRegion;
 
     /// Computes the reachability winning region as the player's attractor to
     /// the goal region.

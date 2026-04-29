@@ -1,9 +1,7 @@
 use std::hash::Hash;
 
 use crate::lattices::{
-    bit_vector::BitVector,
-    lattice::{Lattice, MembershipLattice},
-    set::Set,
+    bit_array::BitArray, bit_vector::BitVector, lattice::{Lattice, MembershipLattice}, set::Set
 };
 
 pub trait Region<P>: Lattice {
@@ -22,9 +20,9 @@ pub trait Region<P>: Lattice {
 }
 
 /// Dense region for finite arenas whose positions are `usize`.
-pub type DenseRegion = BitVector;
+pub type DenseDynamicRegion = BitVector;
 
-impl Region<usize> for DenseRegion {
+impl Region<usize> for DenseDynamicRegion {
     fn includes(&self, position: &usize) -> bool {
         self.contains(&position)
     }
@@ -35,8 +33,25 @@ impl Region<usize> for DenseRegion {
 
     fn contract(&mut self, position: usize) -> bool {
         let member = self.includes(&position);
-        DenseRegion::set(self, position, false);
+        DenseDynamicRegion::set(self, position, false);
         member
+    }
+}
+
+/// Dense region for finite arenas whose positions are `usize`.
+pub type DenseStaticRegion = BitArray;
+
+impl Region<usize> for DenseStaticRegion {
+    fn includes(&self, position: &usize) -> bool {
+        self.contains(&position)
+    }
+
+    fn expand(&mut self, position: usize) -> bool {
+        self.insert(position)
+    }
+
+    fn contract(&mut self, position: usize) -> bool {
+        self.set(position, false)
     }
 }
 

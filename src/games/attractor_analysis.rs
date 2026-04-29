@@ -1,7 +1,7 @@
 use crate::{
     games::{
         arena::Arena,
-        region::{DenseRegion, Region},
+        region::{DenseDynamicRegion, Region},
     },
     graphs::structure::{FiniteVertices, Vertices},
     lattices::monotone::{Monotone, StatefulMonotone},
@@ -81,7 +81,7 @@ where
     }
 }
 
-impl<'a, A, Target> AttractorAnalysis<'a, A, Target, DenseRegion, DenseRegion>
+impl<'a, A, Target> AttractorAnalysis<'a, A, Target, DenseDynamicRegion, DenseDynamicRegion>
 where
     A: Arena<Position = usize>,
     A::Vertices: FiniteVertices<Vertex = usize>,
@@ -91,7 +91,7 @@ where
     #[must_use]
     #[inline]
     pub fn unrestricted(arena: &'a A, player: A::Player, target: Target) -> Self {
-        let mut universe = DenseRegion::new(arena.vertex_store().vertex_count());
+        let mut universe = DenseDynamicRegion::new(arena.vertex_store().vertex_count());
 
         for node in arena.vertex_store().vertices() {
             universe.expand(node);
@@ -160,7 +160,7 @@ where
 }
 
 impl<'a, A, Target, Universe> StatefulMonotone<A>
-    for AttractorAnalysis<'a, A, Target, Universe, DenseRegion>
+    for AttractorAnalysis<'a, A, Target, Universe, DenseDynamicRegion>
 where
     A: Arena<Position = usize>,
     A::Vertex: Copy,
@@ -170,7 +170,7 @@ where
     Universe: Region<A::Position>,
 {
     /// The computed attractor region.
-    type Output = DenseRegion;
+    type Output = DenseDynamicRegion;
 
     /// Reads the current stored fact for a position.
     fn fact(&self, node: &A::Vertex) -> Self::Fact {
@@ -182,7 +182,7 @@ where
 
     /// Initializes the mutable attractor state from the target region.
     fn initialize(&mut self, graph: &A) {
-        let mut attracted = DenseRegion::new(graph.vertex_store().vertex_count());
+        let mut attracted = DenseDynamicRegion::new(graph.vertex_store().vertex_count());
 
         for node in graph.vertex_store().vertices() {
             if self.universe.includes(&node) && self.target.includes(&node) {
