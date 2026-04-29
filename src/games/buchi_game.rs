@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use crate::{
     games::{
         arena::{Arena, FiniteArena},
@@ -90,10 +88,7 @@ where
     /// Checks whether `position` is accepting.
     #[must_use]
     #[inline]
-    pub fn is_accepting(&self, position: A::Position) -> bool
-    where
-        A::Position: PartialEq,
-    {
+    pub fn is_accepting(&self, position: A::Position) -> bool {
         self.accepting.contains(&position)
     }
 }
@@ -122,10 +117,7 @@ where
 
     /// Computes the player's Büchi-winning region.
     #[inline]
-    fn buchi_region(&self, player: A::Player) -> DenseRegion
-    where
-        A::Player: PartialEq + Copy,
-    {
+    fn buchi_region(&self, player: A::Player) -> DenseRegion {
         Buchi.solve(self.buchi_analysis(player))
     }
 }
@@ -133,7 +125,6 @@ where
 impl<'a, A> Game for BuchiGame<'a, A>
 where
     A: Arena,
-    A::Position: Eq + Hash + Copy,
 {
     type Arena = A;
     type Play = LassoPlay<A::Position>;
@@ -154,7 +145,6 @@ where
 impl<'a, A> RegionSolvableGame for BuchiGame<'a, A>
 where
     A: BuchiArena,
-    A::Player: PartialEq + Copy,
 {
     type Region = DenseRegion;
 
