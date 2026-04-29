@@ -19,17 +19,12 @@ pub trait Region<P>: Lattice {
     ///
     /// Returns true iff the region changed.
     fn contract(&mut self, position: P) -> bool;
-
-    fn positions(&self) -> Vec<P>;
 }
 
 /// Dense region for finite arenas whose positions are `usize`.
 pub type DenseRegion = BitVector;
 
-/// Sparse region for generic position types.
-pub type SparseRegion<P> = Set<P>;
-
-impl Region<usize> for BitVector {
+impl Region<usize> for DenseRegion {
     fn includes(&self, position: &usize) -> bool {
         self.contains(&position)
     }
@@ -40,32 +35,27 @@ impl Region<usize> for BitVector {
 
     fn contract(&mut self, position: usize) -> bool {
         let member = self.includes(&position);
-        BitVector::set(self, position, false);
+        DenseRegion::set(self, position, false);
         member
-    }
-
-    fn positions(&self) -> Vec<usize> {
-        todo!()
     }
 }
 
-impl<P> Region<P> for Set<P>
+/// Sparse region for generic position types.
+pub type SparseRegion<P> = Set<P>;
+
+impl<P> Region<P> for SparseRegion<P>
 where
     P: Eq + Hash + Clone,
 {
     fn includes(&self, position: &P) -> bool {
-        Set::contains(self, &position)
+        SparseRegion::contains(self, &position)
     }
 
     fn expand(&mut self, position: P) -> bool {
-        Set::insert(self, position)
+        SparseRegion::insert(self, position)
     }
 
     fn contract(&mut self, position: P) -> bool {
-        Set::remove(self, &position)
-    }
-
-    fn positions(&self) -> Vec<P> {
-        todo!()
+        SparseRegion::remove(self, &position)
     }
 }
