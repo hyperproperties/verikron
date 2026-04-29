@@ -3,7 +3,7 @@ use std::{fmt::Debug, hash::Hash};
 use crate::{
     games::{
         arena::{Arena, FiniteArena},
-        attractor::Attractor,
+        attractor::{Attractor, AttractorStrategySynthesis},
         controllable_predecessors::ControllablePredecessors,
         game::{Game, RegionSolvableGame, SolvableGame},
         play::VisitedPlay,
@@ -11,13 +11,16 @@ use crate::{
         positional_map_strategy::PositionalMapStrategy,
         region::{DenseRegion, Region},
         strategic_play::StrategicPlay,
+        strategy::SynthesisResult,
         worklist_attractor::WorklistAttractor,
+        worklist_attractor_strategy_synthesis::WorklistAttractorStrategySynthesis,
     },
     graphs::{
         expansion::{BackwardExpansion, Expansion, ForwardExpansion},
         graph::FiniteDirected,
         structure::{FiniteEdges, FiniteVertices, Structure},
-    }, lattices::lattice::MembershipLattice,
+    },
+    lattices::lattice::MembershipLattice,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -101,52 +104,13 @@ where
         &self,
         player: A::Player,
         start: A::Position,
-    ) -> Option<Self::Strategy> {
+    ) -> SynthesisResult<Self::Strategy> {
         let vertex_count = self.arena.vertex_store().vertex_count();
-
         let mut region = DenseRegion::new(vertex_count);
-        region.expand(self.goal);
-
-        let mut strategy = PositionalMapStrategy::empty(player);
-
-        if start == self.goal {
-            return Some(strategy);
-        }
-
-        let backward = BackwardExpansion::new(self.arena);
-        let mut queue = vec![self.goal];
-
-        while let Some(position) = queue.pop() {
-            for predecessor in backward.successors(position) {
-                if region.includes(predecessor) {
-                    continue;
-                }
-
-                if !player.is_controllable_predecessor(self.arena, &region, predecessor) {
-                    continue;
-                }
-
-                let choice = player.strategy_successor(self.arena, &region, predecessor);
-
-                if region.expand(predecessor) {
-                    if let Some(successor) = choice {
-                        strategy.insert_choice(predecessor, successor);
-                    }
-
-                    if predecessor == start {
-                        return Some(strategy);
-                    }
-
-                    queue.push(predecessor);
-                }
-            }
-        }
-
-        if region.includes(start) {
-            Some(strategy)
-        } else {
-            None
-        }
+        region.insert(self.goal);
+        let synthesiser = WorklistAttractorStrategySynthesis::new();
+        let synthesised = synthesiser.synthesize(self.arena, player, start, region);
+        synthesised.into()
     }
 
     fn has_winning_strategy_from(&self, player: A::Player, start: A::Position) -> bool {

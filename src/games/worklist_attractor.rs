@@ -5,7 +5,7 @@ use crate::{
         arena::Arena, attractor::Attractor, controllable_predecessors::ControllablePredecessors,
         region::Region,
     },
-    graphs::{backward::Backward, expansion::{BackwardExpansion, Expansion}},
+    graphs::backward::Backward,
     lattices::frontier::{Frontier, QueueFrontier},
 };
 
@@ -24,7 +24,6 @@ where
     A: Arena,
     R: Region<A::Position>,
     A::Player: ControllablePredecessors<A, R>,
-    for<'g> BackwardExpansion<'g, A>: Expansion<Vertex = A::Position>,
 {
     fn attractor_closure_from(&self, arena: &A, player: <A as Arena>::Player, mut region: R) -> R {
         // Frontier needs to implement from IntoIter.
@@ -42,7 +41,7 @@ where
                 if player.is_controllable_predecessor(arena, &region, source) {
                     region.expand(source);
                     worklist.push(source);
-                } 
+                }
             }
         }
 

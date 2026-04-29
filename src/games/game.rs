@@ -1,4 +1,9 @@
-use crate::games::{arena::Arena, play::Play, region::Region, strategy::Strategy};
+use crate::games::{
+    arena::Arena,
+    play::Play,
+    region::Region,
+    strategy::{Strategy, SynthesisResult},
+};
 
 /// A game consisting of an arena and a winning condition on plays.
 pub trait Game {
@@ -33,7 +38,7 @@ pub trait SolvableGame: Game {
         &self,
         player: <Self::Arena as Arena>::Player,
         position: <Self::Arena as Arena>::Position,
-    ) -> Option<Self::Strategy>;
+    ) -> SynthesisResult<Self::Strategy>;
 
     /// Returns whether `player` has a winning strategy from `position`.
     #[must_use]
@@ -43,7 +48,7 @@ pub trait SolvableGame: Game {
         player: <Self::Arena as Arena>::Player,
         position: <Self::Arena as Arena>::Position,
     ) -> bool {
-        self.winning_strategy_from(player, position).is_some()
+        self.winning_strategy_from(player, position).is_winning()
     }
 }
 

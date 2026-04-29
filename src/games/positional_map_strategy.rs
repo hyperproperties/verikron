@@ -1,6 +1,10 @@
 use std::{collections::HashMap, marker::PhantomData};
 
-use crate::games::{arena::Arena, play::Play, strategy::Strategy};
+use crate::games::{
+    arena::Arena,
+    play::Play,
+    strategy::{PositionalStrategy, Strategy},
+};
 
 /// A positional strategy represented by a partial position-to-successor map.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,12 +35,6 @@ where
 
     #[must_use]
     #[inline]
-    pub fn empty(player: A::Player) -> Self {
-        Self::new(player, HashMap::new())
-    }
-
-    #[must_use]
-    #[inline]
     pub fn player(&self) -> A::Player {
         self.player
     }
@@ -52,16 +50,6 @@ where
     pub fn into_choices(self) -> HashMap<A::Position, A::Position> {
         self.choices
     }
-
-    #[inline]
-    pub fn insert_choice(
-        &mut self,
-        position: A::Position,
-        successor: A::Position,
-    ) -> Option<A::Position> {
-        self.choices.insert(position, successor)
-    }
-
     #[inline]
     pub fn remove_choice(&mut self, position: A::Position) -> Option<A::Position> {
         self.choices.remove(&position)
@@ -99,5 +87,23 @@ where
     #[inline]
     fn choice(&self, _memory: Self::Memory, position: A::Position) -> Option<A::Position> {
         self.choice_of(position)
+    }
+
+    fn empty(player: <Self::Arena as Arena>::Player) -> Self {
+        Self::new(player, HashMap::new())
+    }
+}
+
+impl<A, P> PositionalStrategy for PositionalMapStrategy<A, P>
+where
+    A: Arena,
+    P: Play<Position = A::Position>,
+{
+    fn insert_choice(
+        &mut self,
+        position: <Self::Arena as Arena>::Position,
+        successor: <Self::Arena as Arena>::Position,
+    ) {
+        self.choices.insert(position, successor);
     }
 }
