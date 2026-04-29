@@ -42,6 +42,19 @@ pub trait Top {
 /// A lattice with both bottom and top elements.
 pub trait BoundedLattice: Lattice + Top + Bottom {}
 
+/// A bounded lattice where every element has a complement.
+pub trait ComplementedLattice: BoundedLattice {
+    /// Returns a complement of `self`.
+    ///
+    /// Laws:
+    /// - `self.join(&self.complement()) == Self::top()`
+    /// - `self.meet(&self.complement()) == Self::bottom()`
+    ///
+    /// Complements are not necessarily unique in arbitrary complemented
+    /// lattices.
+    fn complement(self) -> Self;
+}
+
 /// A bounded lattice supporting finite joins and meets over collections.
 ///
 /// Empty joins should return bottom.
@@ -56,6 +69,12 @@ pub trait CompleteLattice: BoundedLattice {
 
 /// A lattice where join and meet distribute over each other.
 pub trait DistributiveLattice: JoinSemiLattice + MeetSemiLattice {}
+
+/// A distributive complemented bounded lattice.
+///
+/// In Boolean algebras, complements are unique and set difference can be
+/// defined as `x ∧ ¬y`.
+pub trait BooleanLattice: ComplementedLattice + DistributiveLattice {}
 
 /// A join-semilattice with element membership.
 pub trait MembershipLattice<V>: JoinSemiLattice {
