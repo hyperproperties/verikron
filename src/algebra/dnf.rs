@@ -15,6 +15,8 @@ where
 impl<T> DNF for T
 where
     T: NNF + Positive + Additive + Multiplicative + Embed + Distributive<Multiplication, Addition>,
+    <<T as Embed>::Value as Top>::Context: Default,
+    <<T as Embed>::Value as Bottom>::Context: Default,
 {
     fn dnf(self) -> Self {
         match self.into_additive() {

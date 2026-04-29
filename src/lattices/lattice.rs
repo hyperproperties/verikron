@@ -29,14 +29,36 @@ impl<T: JoinSemiLattice + MeetSemiLattice> Lattice for T {}
 
 /// A carrier with a least element.
 pub trait Bottom {
-    /// Returns the least element, ⊥.
-    fn bottom() -> Self;
+    type Context;
+
+    /// Returns the least element, ⊥, for the given context.
+    fn bottom_with(context: &Self::Context) -> Self;
+
+    /// Returns the least element using the default context.
+    fn bottom() -> Self
+    where
+        Self: Sized,
+        Self::Context: Default,
+    {
+        Self::bottom_with(&Self::Context::default())
+    }
 }
 
 /// A carrier with a greatest element.
 pub trait Top {
-    /// Returns the greatest element, ⊤.
-    fn top() -> Self;
+    type Context;
+
+    /// Returns the greatest element, ⊤, for the given context.
+    fn top_with(context: &Self::Context) -> Self;
+
+    /// Returns the greatest element using the default context.
+    fn top() -> Self
+    where
+        Self: Sized,
+        Self::Context: Default,
+    {
+        Self::top_with(&Self::Context::default())
+    }
 }
 
 /// A lattice with both bottom and top elements.

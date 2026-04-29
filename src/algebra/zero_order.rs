@@ -3,7 +3,7 @@ use crate::{
         Addition, Additive, Complemented, DeMorgan, Distributive, Embed, Generate, Multiplication,
         Multiplicative,
     },
-    lattices::lattice::{BoundedLattice, DistributiveLattice},
+    lattices::lattice::{Bottom, BoundedLattice, DistributiveLattice, Top},
 };
 
 /// Marker trait for zero-order formulas.
@@ -22,6 +22,8 @@ pub enum ZeroOrderFormula<V: BoundedLattice + DistributiveLattice, A> {
 impl<V, A> ZeroOrderFormula<V, A>
 where
     V: BoundedLattice + DistributiveLattice,
+    <V as Top>::Context: Default,
+    <V as Bottom>::Context: Default,
 {
     #[must_use]
     pub fn conjunction(xs: Vec<Self>) -> Self {

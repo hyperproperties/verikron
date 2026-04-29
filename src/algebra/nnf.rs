@@ -16,6 +16,8 @@ where
         + DeMorgan<Addition, Multiplication>
         + DeMorgan<Multiplication, Addition>
         + Clone,
+    <<T as Embed>::Value as Top>::Context: Default,
+    <<T as Embed>::Value as Bottom>::Context: Default,
 {
     fn nnf(self) -> Self {
         match self.into_complement() {

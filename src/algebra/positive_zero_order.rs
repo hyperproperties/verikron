@@ -7,7 +7,7 @@ use crate::{
         positive::Positive,
         zero_order::ZeroOrder,
     },
-    lattices::lattice::{BoundedLattice, DistributiveLattice},
+    lattices::lattice::{Bottom, BoundedLattice, DistributiveLattice, Top},
 };
 
 /// Positive formulas over embedded lattice values and generators.
@@ -22,6 +22,8 @@ pub enum PositiveZeroOrder<V: BoundedLattice + DistributiveLattice, A> {
 impl<V, A> PositiveZeroOrder<V, A>
 where
     V: BoundedLattice + DistributiveLattice,
+    <V as Top>::Context: Default,
+    <V as Bottom>::Context: Default,
 {
     #[must_use]
     pub fn conjunction(xs: Vec<Self>) -> Self {

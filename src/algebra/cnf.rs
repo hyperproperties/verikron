@@ -14,6 +14,8 @@ where
 impl<T> CNF for T
 where
     T: NNF + Additive + Multiplicative + Embed + NNF + Distributive<Addition, Multiplication>,
+    <<T as Embed>::Value as Top>::Context: Default,
+    <<T as Embed>::Value as Bottom>::Context: Default,
 {
     fn cnf(self) -> Self {
         match self.nnf().into_multiplicative() {

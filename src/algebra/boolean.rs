@@ -25,15 +25,19 @@ impl MeetSemiLattice for bool {
 }
 
 impl Bottom for bool {
+    type Context = ();
+
     #[inline]
-    fn bottom() -> Self {
+    fn bottom_with(_: &Self::Context) -> Self {
         false
     }
 }
 
 impl Top for bool {
+    type Context = ();
+    
     #[inline]
-    fn top() -> Self {
+    fn top_with(_: &Self::Context) -> Self {
         true
     }
 }

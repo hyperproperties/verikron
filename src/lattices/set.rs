@@ -127,8 +127,9 @@ impl<T: Eq + Hash> Default for Set<T> {
 }
 
 impl<T: Eq + Hash> Bottom for Set<T> {
-    #[inline]
-    fn bottom() -> Self {
+    type Context = ();
+
+    fn bottom_with(_: &Self::Context) -> Self {
         Self::new()
     }
 }
